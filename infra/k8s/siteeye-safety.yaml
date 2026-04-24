@@ -1,0 +1,73 @@
+# Ray Serve YOLOv8m safety-detection deployment.
+# The api + arq-worker resolve this at
+#   http://siteeye-safety.aec-platform.svc.cluster.local:8000/siteeye-safety/infer
+#
+# Replicas are managed by Ray itself (num_replicas=2 in the deployment decorator).
+# The Kubernetes Deployment runs a single Ray head/serve process — scale by
+# editing `num_replicas` in apps/ml/serve/siteeye_safety.py, not by bumping
+# `replicas` below, unless you're running a multi-node Ray cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: siteeye-safety
+  namespace: aec-platform
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: siteeye-safety }
+  template:
+    metadata:
+      labels: { app: siteeye-safety }
+    spec:
+      containers:
+        - name: siteeye-safety
+          image: ghcr.io/aec-platform/siteeye-safety:latest
+          ports:
+            - { name: http,      containerPort: 8000 }
+            - { name: dashboard, containerPort: 8265 }
+          envFrom:
+            # Reuse api-secrets for S3/AWS creds (weights live in S3).
+            - secretRef: { name: api-secrets }
+          env:
+            - name: SITEEYE_YOLO_WEIGHTS
+              value: "s3://aec-platform-models/siteeye/yolov8m-safety-vi.pt"
+            - name: AWS_REGION
+              value: "ap-southeast-1"
+          # Model weights (~50MB) + first-call warmup means readiness lags.
+          readinessProbe:
+            httpGet: { path: /siteeye-safety/health, port: 8000 }
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4
+          livenessProbe:
+            httpGet: { path: /siteeye-safety/health, port: 8000 }
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            # GPU optional: remove `nvidia.com/gpu` if running on CPU nodes —
+            # ultralytics auto-selects CUDA when available.
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+              # nvidia.com/gpu: 1
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+              # nvidia.com/gpu: 1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: siteeye-safety
+  namespace: aec-platform
+spec:
+  selector: { app: siteeye-safety }
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

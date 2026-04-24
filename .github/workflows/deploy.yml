@@ -1,0 +1,119 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Which service to deploy (api | web | worker | all)"
+        required: false
+        default: "all"
+
+permissions:
+  id-token: write   # OIDC to AWS
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-southeast-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-1.amazonaws.com
+  ECS_CLUSTER: aec-platform
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  build-push:
+    name: Build & push images
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [api, web, worker]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/${{ matrix.service }}.Dockerfile
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/aec-${{ matrix.service }}:${{ env.IMAGE_TAG }}
+            ${{ env.ECR_REGISTRY }}/aec-${{ matrix.service }}:latest
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,scope=${{ matrix.service }},mode=max
+
+  deploy:
+    name: Roll ECS services
+    runs-on: ubuntu-latest
+    needs: build-push
+    strategy:
+      max-parallel: 1
+      matrix:
+        service: [api, web, worker]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Fetch current task definition
+        id: taskdef
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition aec-${{ matrix.service }} \
+            --query taskDefinition > taskdef.json
+
+      - name: Render new task definition
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: taskdef.json
+          container-name: aec-${{ matrix.service }}
+          image: ${{ env.ECR_REGISTRY }}/aec-${{ matrix.service }}:${{ env.IMAGE_TAG }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: aec-${{ matrix.service }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+  migrate:
+    name: Alembic migrate (prod)
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run one-off migration task
+        run: |
+          aws ecs run-task \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --task-definition aec-api-migrate \
+            --launch-type FARGATE \
+            --network-configuration "${{ secrets.ECS_NETWORK_CONFIG }}" \
+            --overrides '{"containerOverrides":[{"name":"aec-api","command":["alembic","upgrade","head"]}]}'

@@ -1,0 +1,12 @@
+{
+  "name": "@aec/types",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./envelope": "./envelope.ts",
+    "./winwork": "./winwork.ts"
+  }
+}

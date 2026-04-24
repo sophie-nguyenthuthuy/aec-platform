@@ -1,0 +1,49 @@
+# Arq background worker for SiteEye (photo analysis + weekly reports),
+# RFQ dispatch, and price-alert evaluation.
+#
+# Cron story: `workers.queue.WorkerSettings.cron_jobs` embeds
+#   - weekly_report_cron  (Mon 06:00 UTC)
+#   - price_alerts_evaluate_job (22:00 UTC daily)
+#
+# Arq marks cron jobs with unique=True by default, so running 2+ replicas for
+# HA is safe — only one instance claims each scheduled tick. We still keep
+# replicas: 1 here to minimize Redis traffic; bump only if throughput demands.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: arq-worker
+  namespace: aec-platform
+spec:
+  replicas: 1
+  strategy:
+    # Ensure the old pod drains its in-flight jobs before we land the new one.
+    type: Recreate
+  selector:
+    matchLabels: { app: arq-worker }
+  template:
+    metadata:
+      labels: { app: arq-worker }
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: arq-worker
+          image: ghcr.io/aec-platform/api:latest
+          command: ["arq", "workers.queue.WorkerSettings"]
+          envFrom:
+            - secretRef: { name: api-secrets }
+            - configMapRef: { name: api-config }
+          env:
+            - name: SITEEYE_RAY_SERVE_URL
+              value: "http://siteeye-safety.aec-platform.svc.cluster.local:8000"
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits:   { cpu: "2000m", memory: "4Gi" }
+          # Arq exposes its health via the Redis heartbeat; probes therefore
+          # use an exec against the queue process.
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import socket; s=socket.socket(); s.settimeout(2); s.connect(('redis', 6379))"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 5
+            failureThreshold: 3

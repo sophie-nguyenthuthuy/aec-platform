@@ -1,0 +1,18 @@
+{
+  "winwork": {
+    "title": "Proposals & Pricing",
+    "proposals": "Proposals",
+    "new_proposal": "New proposal",
+    "analytics": "Analytics",
+    "templates": "Templates",
+    "benchmarks": "Fee benchmarks",
+    "fee_calculator": "Quick fee estimate",
+    "status": {
+      "draft": "Draft",
+      "sent": "Sent",
+      "won": "Won",
+      "lost": "Lost",
+      "expired": "Expired"
+    }
+  }
+}

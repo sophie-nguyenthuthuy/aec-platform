@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+  namespace: aec-platform
+data:
+  AWS_REGION: "ap-southeast-1"
+  ANTHROPIC_MODEL: "claude-sonnet-4-6"
+  OPENAI_EMBEDDING_MODEL: "text-embedding-3-large"
+  CORS_ORIGINS: '["https://aec-platform.vn"]'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-config
+  namespace: aec-platform
+data:
+  NEXT_PUBLIC_API_URL: "https://api.aec-platform.vn"
+---
+# Populate via `kubectl create secret generic api-secrets --from-literal=...`
+# This placeholder documents the expected keys.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-secrets
+  namespace: aec-platform
+type: Opaque
+stringData:
+  DATABASE_URL: "PLACEHOLDER"
+  DATABASE_URL_SYNC: "PLACEHOLDER"
+  REDIS_URL: "PLACEHOLDER"
+  SUPABASE_JWT_SECRET: "PLACEHOLDER"
+  ANTHROPIC_API_KEY: "PLACEHOLDER"
+  OPENAI_API_KEY: "PLACEHOLDER"
+  S3_BUCKET: "PLACEHOLDER"

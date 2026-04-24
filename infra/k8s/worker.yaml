@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: aec-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: worker }
+  template:
+    metadata:
+      labels: { app: worker }
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/aec-platform/worker:latest
+          envFrom:
+            - secretRef: { name: api-secrets }
+            - configMapRef: { name: api-config }
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits:   { cpu: "2000m", memory: "4Gi" }

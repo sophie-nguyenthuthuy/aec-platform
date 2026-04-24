@@ -1,0 +1,117 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_USER: aec
+      POSTGRES_PASSWORD: aec
+      POSTGRES_DB: aec
+    ports: ["5438:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aec"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://aec:aec@postgres:5432/aec
+      DATABASE_URL_SYNC: postgresql://aec:aec@postgres:5432/aec
+      REDIS_URL: redis://redis:6379/0
+      SUPABASE_JWT_SECRET: dev-secret-change-me
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CORS_ORIGINS: '["http://localhost:3000"]'
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./apps/ml:/app/apps/ml
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/worker.Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://aec:aec@postgres:5432/aec
+      DATABASE_URL_SYNC: postgresql://aec:aec@postgres:5432/aec
+      REDIS_URL: redis://redis:6379/0
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    volumes:
+      - ./apps/worker:/app/apps/worker
+      - ./apps/api:/app/apps/api
+      - ./apps/ml:/app/apps/ml
+
+  # Arq worker — handles SiteEye photo analysis, weekly reports (with embedded
+  # cron), RFQ dispatch, and price-alert evaluation. Reuses the api image since
+  # the queue module lives under apps/api/workers/queue.py.
+  arq-worker:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://aec:aec@postgres:5432/aec
+      DATABASE_URL_SYNC: postgresql://aec:aec@postgres:5432/aec
+      REDIS_URL: redis://redis:6379/0
+      SUPABASE_JWT_SECRET: dev-secret-change-me
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SITEEYE_RAY_SERVE_URL: http://siteeye-safety:8000
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    # `arq` auto-discovers cron_jobs from WorkerSettings, so weekly_report_cron
+    # runs inside this process on Mon 06:00 UTC.
+    command: ["arq", "workers.queue.WorkerSettings"]
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./apps/ml:/app/apps/ml
+
+  # Ray Serve YOLOv8m safety model. The api + arq worker call this at
+  # ${SITEEYE_RAY_SERVE_URL}/siteeye-safety/infer. GPU is optional locally —
+  # ultralytics falls back to CPU.
+  siteeye-safety:
+    build:
+      context: .
+      dockerfile: infra/docker/siteeye-safety.Dockerfile
+    environment:
+      # Local smoke testing can point at a bundled weights path; prod uses S3.
+      SITEEYE_YOLO_WEIGHTS: ${SITEEYE_YOLO_WEIGHTS:-s3://aec-platform-models/siteeye/yolov8m-safety-vi.pt}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-ap-southeast-1}
+    ports: ["8001:8000"]
+    # No depends_on — the api/arq-worker retry on failure.
+    profiles: ["ml"]  # opt-in: `docker compose --profile ml up` to start.
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports: ["3000:3000"]
+    depends_on: [api]
+
+volumes:
+  pgdata:

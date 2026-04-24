@@ -1,0 +1,18 @@
+{
+  "winwork": {
+    "title": "Đề xuất & Báo giá",
+    "proposals": "Đề xuất",
+    "new_proposal": "Tạo đề xuất mới",
+    "analytics": "Phân tích",
+    "templates": "Mẫu",
+    "benchmarks": "Biểu phí tham chiếu",
+    "fee_calculator": "Ước tính phí nhanh",
+    "status": {
+      "draft": "Nháp",
+      "sent": "Đã gửi",
+      "won": "Thắng",
+      "lost": "Mất",
+      "expired": "Hết hạn"
+    }
+  }
+}

@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: aec-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: web }
+  template:
+    metadata:
+      labels: { app: web }
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/aec-platform/web:latest
+          ports: [{ containerPort: 3000 }]
+          envFrom:
+            - configMapRef: { name: web-config }
+          readinessProbe:
+            httpGet: { path: /, port: 3000 }
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: aec-platform
+spec:
+  selector: { app: web }
+  ports:
+    - port: 80
+      targetPort: 3000
