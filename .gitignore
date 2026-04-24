@@ -22,3 +22,12 @@ coverage/
 
 # Local-only compose overrides (e.g. host-port remaps)
 docker-compose.override.yml
+
+# Playwright E2E artifacts
+test-results/
+playwright-report/
+/apps/web/playwright/.cache/
+
+# IDE
+.vscode/
+.idea/
