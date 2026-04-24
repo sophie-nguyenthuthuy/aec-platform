@@ -192,13 +192,15 @@ async def scrape_all_prices_job(ctx: dict) -> dict:
 
     Sequential runs would serialise per-site latency; fanning out via the
     pool lets workers pace themselves while still being polite to each DOC.
+    Covers MOC + Hanoi + HCMC + the 61 generic-province configs (64 total).
     """
-    from services.price_scrapers import SCRAPERS
+    from services.price_scrapers import all_slugs
 
     pool = await get_pool()
-    for slug in SCRAPERS:
+    slugs = all_slugs()
+    for slug in slugs:
         await pool.enqueue_job("scrape_prices_job", slug)
-    return {"enqueued": list(SCRAPERS.keys())}
+    return {"enqueued": slugs}
 
 
 # ---------- Cron ----------

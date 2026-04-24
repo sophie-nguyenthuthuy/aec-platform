@@ -408,7 +408,46 @@ def _parse_args(argv: Iterable[str]) -> argparse.Namespace:
     p.add_argument("--effective", dest="effective_date", default=None, help="YYYY-MM-DD")
     p.add_argument("--source-url", default=None)
     p.add_argument("--language", default="vi")
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Parse + chunk the source and print section stats, then exit. "
+            "Does not embed, does not touch the database, does not call OpenAI. "
+            "Use this to validate a new PDF's parse quality before burning credits."
+        ),
+    )
     return p.parse_args(list(argv))
+
+
+def _dry_run(args: argparse.Namespace) -> None:
+    """Parse + chunk the source and print stats. No embeddings, no DB."""
+    raw_text = _load_source_text(args.source)
+    if not raw_text.strip():
+        print(f"ERROR empty source: {args.source}", file=sys.stderr)
+        sys.exit(1)
+
+    sections = split_into_sections(raw_text)
+    if not sections:
+        print(
+            f"ERROR section splitter produced no sections — check heading format of {args.source}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    total_chunks = 0
+    print(f"DRY RUN  source={args.source}  code={args.code_name}")
+    print(f"  sections: {len(sections)}")
+    for s in sections:
+        chunks = chunk_section(s)
+        total_chunks += len(chunks)
+        title = s.title if len(s.title) <= 60 else s.title[:57] + "..."
+        print(
+            f"    §{s.section_ref:<8} lvl={s.level} body={len(s.content):>5}  "
+            f"chunks={len(chunks)}  {title}"
+        )
+    print(f"  total chunks: {total_chunks}")
+    print("OK (dry run — no embeddings, no database writes)")
 
 
 async def _cli_main(args: argparse.Namespace) -> None:
@@ -440,4 +479,8 @@ async def _cli_main(args: argparse.Namespace) -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    asyncio.run(_cli_main(_parse_args(sys.argv[1:])))
+    _args = _parse_args(sys.argv[1:])
+    if _args.dry_run:
+        _dry_run(_args)
+    else:
+        asyncio.run(_cli_main(_args))

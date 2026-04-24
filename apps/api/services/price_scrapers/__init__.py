@@ -27,7 +27,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _build_registry() -> dict[str, type[BaseScraper]]:
+def _build_bespoke_registry() -> dict[str, type[BaseScraper]]:
+    """Scrapers that don't fit the generic template (custom CMS, DOCX-only, etc.)."""
     # Lazy imports so optional deps (httpx) only load when a scraper runs.
     from .hanoi import HanoiScraper
     from .hcmc import HCMCScraper
@@ -40,13 +41,37 @@ def _build_registry() -> dict[str, type[BaseScraper]]:
     }
 
 
-SCRAPERS: dict[str, type[BaseScraper]] = _build_registry()
+def _build_generic_slugs() -> set[str]:
+    """Slugs whose scraper is a `GenericProvinceScraper` driven by config."""
+    from .provinces import ALL
+
+    return {cfg.slug for cfg in ALL}
+
+
+SCRAPERS: dict[str, type[BaseScraper]] = _build_bespoke_registry()
+"""Bespoke scrapers, keyed by slug. For generic ones use `get_scraper(slug)`."""
+
+GENERIC_SLUGS: set[str] = _build_generic_slugs()
+"""Slugs handled by `GenericProvinceScraper` — can't be type-registered
+because they all share one class, so we track them in a separate set."""
+
+
+def all_slugs() -> list[str]:
+    """Every registered scraper slug — bespoke + generic."""
+    return sorted(set(SCRAPERS) | GENERIC_SLUGS)
 
 
 def get_scraper(slug: str) -> BaseScraper:
     """Instantiate the scraper for `slug`. Raises KeyError on unknown slug."""
-    cls = SCRAPERS[slug]
-    return cls()
+    if slug in SCRAPERS:
+        return SCRAPERS[slug]()
+    if slug in GENERIC_SLUGS:
+        from .generic_province import GenericProvinceScraper
+        from .provinces import ALL
+
+        cfg = next(c for c in ALL if c.slug == slug)
+        return GenericProvinceScraper(cfg)
+    raise KeyError(slug)
 
 
 async def run_scraper(scraper: BaseScraper) -> dict:
@@ -85,7 +110,7 @@ async def run_all_scrapers() -> list[dict]:
     latency-sensitive (cron, not user-facing).
     """
     results: list[dict] = []
-    for slug in SCRAPERS:
+    for slug in all_slugs():
         results.append(await run_scraper(get_scraper(slug)))
     return results
 
@@ -96,6 +121,8 @@ __all__ = [
     "ScrapedPrice",
     "ScrapeError",
     "SCRAPERS",
+    "GENERIC_SLUGS",
+    "all_slugs",
     "get_scraper",
     "run_scraper",
     "run_all_scrapers",

@@ -17,11 +17,19 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from services.price_scrapers import (
+    GENERIC_SLUGS,
     SCRAPERS,
+    all_slugs,
     get_scraper,
     run_scraper,
 )
 from services.price_scrapers.base import ScrapedPrice
+from services.price_scrapers.generic_province import (
+    PENDING_URL,
+    GenericProvinceScraper,
+    ProvinceConfig,
+    _find_first_matching_link,
+)
 from services.price_scrapers.hanoi import HanoiScraper, _find_latest_hanoi_bulletin_url
 from services.price_scrapers.ministry import (
     MinistryOfConstructionScraper,
@@ -188,9 +196,105 @@ def test_get_scraper_returns_instance_of_right_class():
     assert isinstance(get_scraper("hanoi"), HanoiScraper)
 
 
+def test_get_scraper_generic_province_returns_configured_instance():
+    """Generic provinces share one class but get a distinct config per slug."""
+    scraper = get_scraper("da-nang")
+    assert isinstance(scraper, GenericProvinceScraper)
+    assert scraper.slug == "da-nang"
+    assert scraper.province == "Da Nang"
+
+
 def test_get_scraper_unknown_slug_raises():
     with pytest.raises(KeyError):
         get_scraper("atlantis")
+
+
+def test_registry_has_all_63_provinces():
+    """MOC + Hanoi + HCMC (bespoke) + 61 generic = 64 total, covering every province."""
+    slugs = set(all_slugs())
+    assert slugs >= {"moc", "hanoi", "hcmc"}, "bespoke scrapers must be registered"
+    assert len(GENERIC_SLUGS) == 61, (
+        f"expected 61 generic-province configs, got {len(GENERIC_SLUGS)}"
+    )
+    assert len(slugs) == 64
+
+
+# ---------- GenericProvinceScraper ----------
+
+
+@pytest.mark.asyncio
+async def test_generic_province_scraper_skips_pending_urls():
+    """Provinces whose listing URL isn't verified must skip cleanly, not fail."""
+    config = ProvinceConfig("test-province", "Test", PENDING_URL)
+    scraper = GenericProvinceScraper(config)
+    assert await scraper.scrape() == []
+
+
+@pytest.mark.asyncio
+async def test_generic_province_scraper_follows_listing_then_bulletin():
+    config = ProvinceConfig(
+        slug="da-nang",
+        province="Da Nang",
+        listing_url="https://soxaydung.danang.gov.vn/thong-bao-gia",
+    )
+
+    listing_html = '<a href="/thong-bao-gia/2026-thang-03">March 2026</a>'
+    bulletin_html = """
+    <h1>Thông báo giá tháng 03/2026</h1>
+    <table>
+      <tr><td>Bê tông C30</td><td>m3</td><td>2.050.000</td></tr>
+    </table>
+    """
+    client = _fake_client({
+        "https://soxaydung.danang.gov.vn/thong-bao-gia": _fake_response(listing_html),
+        "https://soxaydung.danang.gov.vn/thong-bao-gia/2026-thang-03":
+            _fake_response(bulletin_html),
+    })
+
+    rows = await GenericProvinceScraper(config, http_client=client).scrape()
+    assert len(rows) == 1
+    assert rows[0].province == "Da Nang"
+    assert rows[0].price_vnd == Decimal("2050000")
+
+
+@pytest.mark.asyncio
+async def test_generic_province_scraper_skips_binary_bulletins():
+    config = ProvinceConfig(
+        slug="binh-duong",
+        province="Binh Duong",
+        listing_url="https://sxd.binhduong.gov.vn/thong-bao-gia",
+    )
+    listing_html = '<a href="/files/thong-bao-gia-2026-03.docx">Mar</a>'
+    client = _fake_client({
+        "https://sxd.binhduong.gov.vn/thong-bao-gia": _fake_response(listing_html),
+    })
+
+    rows = await GenericProvinceScraper(config, http_client=client).scrape()
+    # DOCX bulletins get skipped with a log — no rows, no exception.
+    assert rows == []
+
+
+def test_find_first_matching_link_respects_per_province_regex():
+    html = (
+        '<a href="/tin-tuc">news</a>'
+        '<a href="/cong-bo-gia/2026-q1">bulletin</a>'
+        '<a href="/thong-bao-gia/2026-03">older</a>'
+    )
+    # Default regex matches 'cong-bo-gia' — picks the first occurrence.
+    url = _find_first_matching_link(
+        html,
+        link_re=r"(?:thong-bao-gia|cong-bo-gia)",
+        base_url="https://x.gov.vn",
+    )
+    assert url == "https://x.gov.vn/cong-bo-gia/2026-q1"
+
+
+def test_find_first_matching_link_returns_none_when_nothing_matches():
+    assert _find_first_matching_link(
+        '<a href="/unrelated">x</a>',
+        link_re="thong-bao-gia",
+        base_url="https://x.gov.vn",
+    ) is None
 
 
 # ---------- End-to-end MOC scraper with mocked HTTP ----------

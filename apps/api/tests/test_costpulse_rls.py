@@ -8,10 +8,12 @@ with the migrations applied. Locally:
     pytest tests/test_costpulse_rls.py
 
 Important: the dev role (`aec`) is a superuser with BYPASSRLS, so RLS
-policies are silently skipped under it. These tests drop privileges via
-`SET ROLE aec_rls_test` inside each connection so the policy actually fires.
-The fixture creates `aec_rls_test` on first run and grants it the minimum
-privileges it needs.
+policies are silently skipped under it. Migration 0010_app_role
+provisions `aec_app` as NOBYPASSRLS — the role the API + workers
+actually use at runtime. These tests `SET LOCAL ROLE aec_app` so the
+policies fire against the same role that serves production traffic.
+If this test regresses, RLS is broken for real users — not just for a
+synthetic test role.
 """
 from __future__ import annotations
 
@@ -23,7 +25,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 _DB_URL = os.environ.get("COSTPULSE_RLS_DB_URL")
-_TEST_ROLE = "aec_rls_test"
+
+# Must match migration 0010_app_role and docker-compose.yml. Keeping this a
+# constant (rather than an env var) intentionally: drift between the role
+# the app uses and the role the test exercises would silently re-open the
+# BYPASSRLS hole this suite exists to prevent.
+_APP_ROLE = "aec_app"
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -39,26 +46,19 @@ async def engine():
     assert _DB_URL is not None
     engine = create_async_engine(_DB_URL, future=True)
 
-    # Provision the non-privileged test role once. We create it as NOBYPASSRLS
-    # so policies apply, and grant just the CRUD rights the tests exercise.
-    # USAGE on schema public is required or the role sees no relations at all
-    # ("relation X does not exist"), even with table-level GRANTs.
-    async with engine.begin() as conn:
-        await conn.execute(text(
-            f"""
-            DO $$
-            BEGIN
-              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{_TEST_ROLE}') THEN
-                CREATE ROLE {_TEST_ROLE} NOLOGIN NOINHERIT NOBYPASSRLS;
-              END IF;
-            END$$;
-            """
-        ))
-        await conn.execute(text(f"GRANT USAGE ON SCHEMA public TO {_TEST_ROLE}"))
-        await conn.execute(text(
-            f"GRANT SELECT, INSERT, UPDATE, DELETE ON "
-            f"organizations, users, estimates, boq_items, rfqs TO {_TEST_ROLE}"
-        ))
+    # Sanity-check that migration 0010_app_role has run. If an operator
+    # points the test at a DB that predates it, we want to fail loudly
+    # with a clear message rather than reporting "policy didn't fire".
+    async with engine.connect() as conn:
+        exists = (await conn.execute(
+            text("SELECT 1 FROM pg_roles WHERE rolname = :r"),
+            {"r": _APP_ROLE},
+        )).scalar()
+        if not exists:
+            pytest.skip(
+                f"role {_APP_ROLE!r} missing — run `alembic upgrade head` "
+                "so migration 0010_app_role provisions it."
+            )
 
     yield engine
     await engine.dispose()
@@ -128,8 +128,16 @@ async def two_orgs(unscoped_session: AsyncSession):
 
 
 async def _enter_rls_scope(session: AsyncSession, org_id) -> None:
-    """Drop to the non-BYPASSRLS test role and set the tenant org id."""
-    await session.execute(text(f"SET LOCAL ROLE {_TEST_ROLE}"))
+    """Drop to the non-BYPASSRLS app role and set the tenant org id.
+
+    This mirrors what the real request-scoped dependency does in
+    apps/api/db/session.py — set_config('app.current_org_id', ...) on
+    every session checkout. The `SET LOCAL ROLE` is the test-only piece
+    that simulates production: in prod the connection *starts* as
+    aec_app (via DATABASE_URL), while this test uses the superuser
+    connection for setup + then drops to aec_app inside the transaction.
+    """
+    await session.execute(text(f"SET LOCAL ROLE {_APP_ROLE}"))
     await session.execute(
         text("SELECT set_config('app.current_org_id', :org, true)"),
         {"org": str(org_id)},

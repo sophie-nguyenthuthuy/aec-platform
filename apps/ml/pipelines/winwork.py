@@ -28,6 +28,11 @@ log = logging.getLogger(__name__)
 
 MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
+# Dev-only bypass: when AEC_PIPELINE_DEV_STUB=1, swap Claude for a canned-response
+# shim so the graph can be exercised end-to-end without ANTHROPIC_API_KEY. Intended
+# for local smoke tests only — never enable in staging/prod.
+PIPELINE_DEV_STUB = os.getenv("AEC_PIPELINE_DEV_STUB") == "1"
+
 
 # ---------- Graph state ----------
 
@@ -124,7 +129,67 @@ async def _node_precedents(state: PipelineState, deps: PipelineDeps) -> Pipeline
     return {**state, "precedents": precedents}
 
 
-def _llm() -> ChatAnthropic:
+class _StubLLMResponse:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+class _StubLLM:
+    """Offline shim used when AEC_PIPELINE_DEV_STUB=1.
+
+    Picks a canned JSON shape based on the system prompt so both the scope node
+    and the draft node get well-formed output. The surrounding nodes (benchmark,
+    fee, confidence) run unchanged, so this still proves the graph wiring and
+    DB writes — just not Claude's actual creative work.
+    """
+
+    async def ainvoke(self, messages):  # noqa: ANN001 — matches ChatAnthropic shape
+        system = next((m for m in messages if isinstance(m, SystemMessage)), None)
+        system_text = (system.content if system else "") or ""
+        if "scope of work" in system_text.lower():
+            payload = {
+                "items": [
+                    {
+                        "id": "s1",
+                        "phase": "Concept",
+                        "title": "Khảo sát hiện trạng & ý tưởng thiết kế",
+                        "description": "Thu thập yêu cầu, khảo sát, đề xuất ý tưởng concept.",
+                        "deliverables": ["Báo cáo khảo sát", "Moodboard", "Concept sơ bộ"],
+                        "hours_estimate": 40,
+                    },
+                    {
+                        "id": "s2",
+                        "phase": "Schematic",
+                        "title": "Thiết kế sơ bộ",
+                        "description": "Mặt bằng, mặt đứng, phối cảnh chính.",
+                        "deliverables": ["Mặt bằng", "Mặt đứng", "Phối cảnh"],
+                        "hours_estimate": 80,
+                    },
+                    {
+                        "id": "s3",
+                        "phase": "Construction Documents",
+                        "title": "Hồ sơ thi công",
+                        "description": "Hồ sơ kỹ thuật đầy đủ để thi công.",
+                        "deliverables": ["Bản vẽ kỹ thuật", "Khối lượng BOQ", "Tiêu chuẩn vật liệu"],
+                        "hours_estimate": 160,
+                    },
+                ]
+            }
+        else:
+            payload = {
+                "title": "[DEV] Đề xuất thiết kế — Biệt thự Thảo Điền",
+                "notes": (
+                    "Đề xuất thiết kế thuộc diện bản nháp dev-stub. "
+                    "Nội dung này được sinh tự động để kiểm thử quy trình, không phải phản hồi thực từ Claude."
+                ),
+            }
+        return _StubLLMResponse(json.dumps(payload, ensure_ascii=False))
+
+
+def _llm():
+    if PIPELINE_DEV_STUB:
+        log.warning("WINWORK pipeline running with AEC_PIPELINE_DEV_STUB=1 — LLM calls stubbed")
+        return _StubLLM()
     return ChatAnthropic(model=MODEL_NAME, temperature=0.2, max_tokens=4096)
 
 
@@ -290,26 +355,48 @@ def _extract_json(content: str | list) -> str:
 def _build_graph(deps: PipelineDeps):
     graph = StateGraph(PipelineState)
 
-    async def wrap(node):
-        async def runner(state):
-            return await node(state, deps)
-        return runner
+    # LangGraph's async runner awaits coroutine-returning callables only when
+    # the node itself is declared `async def` — a sync lambda that *returns*
+    # a coroutine is treated as a sync write and errors with
+    # "Expected dict, got <coroutine object>". Use explicit async closures
+    # so each node is detected as async and properly awaited.
+    #
+    # Node names are prefixed with `n_` to avoid collision with PipelineState
+    # TypedDict keys (benchmark, precedents, scope_of_work, fee_breakdown,
+    # confidence). LangGraph rejects a node sharing a key name with a state
+    # field since they address into the same namespace.
+    async def run_benchmark(state: PipelineState) -> PipelineState:
+        return await _node_benchmark_lookup(state, deps)
 
-    # LangGraph's add_node expects sync reference; we use closures above
-    graph.add_node("benchmark", lambda s: _node_benchmark_lookup(s, deps))
-    graph.add_node("precedents", lambda s: _node_precedents(s, deps))
-    graph.add_node("scope", lambda s: _node_scope_expansion(s, deps))
-    graph.add_node("fee", lambda s: _node_fee_calculation(s, deps))
-    graph.add_node("draft", lambda s: _node_proposal_draft(s, deps))
-    graph.add_node("confidence", lambda s: _node_confidence(s, deps))
+    async def run_precedents(state: PipelineState) -> PipelineState:
+        return await _node_precedents(state, deps)
 
-    graph.set_entry_point("benchmark")
-    graph.add_edge("benchmark", "precedents")
-    graph.add_edge("precedents", "scope")
-    graph.add_edge("scope", "fee")
-    graph.add_edge("fee", "draft")
-    graph.add_edge("draft", "confidence")
-    graph.add_edge("confidence", END)
+    async def run_scope(state: PipelineState) -> PipelineState:
+        return await _node_scope_expansion(state, deps)
+
+    async def run_fee(state: PipelineState) -> PipelineState:
+        return await _node_fee_calculation(state, deps)
+
+    async def run_draft(state: PipelineState) -> PipelineState:
+        return await _node_proposal_draft(state, deps)
+
+    async def run_confidence(state: PipelineState) -> PipelineState:
+        return await _node_confidence(state, deps)
+
+    graph.add_node("n_benchmark", run_benchmark)
+    graph.add_node("n_precedents", run_precedents)
+    graph.add_node("n_scope", run_scope)
+    graph.add_node("n_fee", run_fee)
+    graph.add_node("n_draft", run_draft)
+    graph.add_node("n_confidence", run_confidence)
+
+    graph.set_entry_point("n_benchmark")
+    graph.add_edge("n_benchmark", "n_precedents")
+    graph.add_edge("n_precedents", "n_scope")
+    graph.add_edge("n_scope", "n_fee")
+    graph.add_edge("n_fee", "n_draft")
+    graph.add_edge("n_draft", "n_confidence")
+    graph.add_edge("n_confidence", END)
     return graph.compile()
 
 

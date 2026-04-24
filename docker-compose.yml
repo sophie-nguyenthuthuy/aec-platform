@@ -21,12 +21,20 @@ services:
       interval: 5s
       retries: 10
 
+  # Runtime DB role split:
+  #   aec      — superuser, used ONLY by alembic (DDL needs CREATE/OWN).
+  #   aec_app  — NOBYPASSRLS, used by every runtime connection (API + workers).
+  # Superusers implicitly bypass RLS, so connecting app traffic as `aec` would
+  # render every `tenant_isolation_*` policy a no-op. Migration 0010_app_role
+  # provisions aec_app with CRUD grants + ALTER DEFAULT PRIVILEGES.
   api:
     build:
       context: .
       dockerfile: infra/docker/api.Dockerfile
     environment:
-      DATABASE_URL: postgresql+asyncpg://aec:aec@postgres:5432/aec
+      # Runtime = non-superuser; policies are enforced.
+      DATABASE_URL: postgresql+asyncpg://aec_app:aec_app@postgres:5432/aec
+      # Migrations = superuser; alembic reads this via env.py.
       DATABASE_URL_SYNC: postgresql://aec:aec@postgres:5432/aec
       REDIS_URL: redis://redis:6379/0
       SUPABASE_JWT_SECRET: dev-secret-change-me
@@ -49,14 +57,19 @@ services:
       context: .
       dockerfile: infra/docker/worker.Dockerfile
     environment:
-      DATABASE_URL: postgresql+asyncpg://aec:aec@postgres:5432/aec
+      DATABASE_URL: postgresql+asyncpg://aec_app:aec_app@postgres:5432/aec
       DATABASE_URL_SYNC: postgresql://aec:aec@postgres:5432/aec
       REDIS_URL: redis://redis:6379/0
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    # depends_on: api ensures migrations (which create aec_app) complete before
+    # any worker tries to auth as aec_app. Without this, a fresh volume can
+    # race the worker startup against alembic and fail with
+    # "password authentication failed for user aec_app".
     depends_on:
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }
+      api:      { condition: service_started }
     volumes:
       - ./apps/worker:/app/apps/worker
       - ./apps/api:/app/apps/api
@@ -70,7 +83,7 @@ services:
       context: .
       dockerfile: infra/docker/api.Dockerfile
     environment:
-      DATABASE_URL: postgresql+asyncpg://aec:aec@postgres:5432/aec
+      DATABASE_URL: postgresql+asyncpg://aec_app:aec_app@postgres:5432/aec
       DATABASE_URL_SYNC: postgresql://aec:aec@postgres:5432/aec
       REDIS_URL: redis://redis:6379/0
       SUPABASE_JWT_SECRET: dev-secret-change-me
@@ -80,6 +93,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }
+      api:      { condition: service_started }  # wait for migrations (see worker above)
     # `arq` auto-discovers cron_jobs from WorkerSettings, so weekly_report_cron
     # runs inside this process on Mon 06:00 UTC.
     command: ["arq", "workers.queue.WorkerSettings"]

@@ -259,6 +259,7 @@ async def test_update_match_status_sets_reviewer(client, fake_db):
 
 async def test_create_proposal_returns_winwork_url(client, fake_db):
     from models.bidradar import TenderMatch
+    from models.winwork import Proposal as ProposalModel
 
     tender_id = uuid4()
     match = TenderMatch(
@@ -268,7 +269,16 @@ async def test_create_proposal_returns_winwork_url(client, fake_db):
         status="new",
         proposal_id=None,
     )
-    tender = SimpleNamespace(id=tender_id)
+    tender = SimpleNamespace(
+        id=tender_id,
+        title="Cải tạo trụ sở UBND Quận 1",
+        issuer="UBND Quận 1",
+        submission_deadline=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        raw_url="https://muasamcong.mpi.gov.vn/tender/001",
+        description="HQ renovation scope.",
+        budget_vnd=6_000_000_000,
+        currency="VND",
+    )
 
     q = MagicMock()
     q.first.return_value = (match, tender)
@@ -281,3 +291,52 @@ async def test_create_proposal_returns_winwork_url(client, fake_db):
     assert data["proposal_id"]
     assert match.status == "pursuing"
     assert match.proposal_id is not None
+
+    # The bidradar → winwork handoff now seeds a real proposals row so the
+    # target URL renders instead of 404'ing.
+    seeded = [p for p in fake_db.added if isinstance(p, ProposalModel)]
+    assert len(seeded) == 1
+    seed = seeded[0]
+    assert seed.id == match.proposal_id
+    assert seed.organization_id == ORG_ID
+    assert seed.title.startswith("Proposal — ")
+    assert seed.client_name == "UBND Quận 1"
+    assert seed.total_fee_vnd == 6_000_000_000
+    assert seed.notes and "HQ renovation scope." in seed.notes
+
+
+async def test_create_proposal_is_idempotent_when_match_has_proposal(client, fake_db):
+    """Re-clicking 'Create proposal' must not re-seed a new draft."""
+    from models.bidradar import TenderMatch
+    from models.winwork import Proposal as ProposalModel
+
+    tender_id = uuid4()
+    existing_proposal_id = uuid4()
+    match = TenderMatch(
+        id=uuid4(),
+        organization_id=ORG_ID,
+        tender_id=tender_id,
+        status="pursuing",
+        proposal_id=existing_proposal_id,
+    )
+    tender = SimpleNamespace(
+        id=tender_id,
+        title="Anything",
+        issuer=None,
+        submission_deadline=None,
+        raw_url=None,
+        description=None,
+        budget_vnd=None,
+        currency="VND",
+    )
+
+    q = MagicMock()
+    q.first.return_value = (match, tender)
+    fake_db.push_execute(q)
+
+    res = await client.post(f"/api/v1/bidradar/matches/{match.id}/create-proposal")
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert UUID(data["proposal_id"]) == existing_proposal_id
+    seeded = [p for p in fake_db.added if isinstance(p, ProposalModel)]
+    assert seeded == []

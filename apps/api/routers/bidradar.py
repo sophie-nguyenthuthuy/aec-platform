@@ -14,6 +14,7 @@ from core.envelope import Envelope, Meta, ok, paginated
 from db.deps import get_db
 from middleware.auth import AuthContext, require_auth
 from models.bidradar import FirmProfile as FirmProfileModel, Tender, TenderDigest, TenderMatch
+from models.winwork import Proposal as ProposalModel
 from schemas.bidradar import (
     AIRecommendation,
     CreateProposalRequest,
@@ -466,7 +467,42 @@ async def create_proposal(
     if match.proposal_id is not None:
         proposal_id = match.proposal_id
     else:
+        # Seed a draft proposal in the `proposals` table so the WinWork detail
+        # page has a real row to render. We prefill what we know from the tender
+        # (title, budget → total_fee hint, a notes blob with the full brief), and
+        # leave AI enrichment to the user via the Generate step in the editor.
         proposal_id = uuid4()
+        notes_parts = [f"Source tender: {tender.title}"]
+        if tender.issuer:
+            notes_parts.append(f"Issuer: {tender.issuer}")
+        if tender.submission_deadline:
+            notes_parts.append(f"Submission deadline: {tender.submission_deadline.isoformat()}")
+        if tender.raw_url:
+            notes_parts.append(f"Tender URL: {tender.raw_url}")
+        if tender.description:
+            notes_parts.append("")
+            notes_parts.append(tender.description)
+
+        seed = ProposalModel(
+            id=proposal_id,
+            organization_id=auth.organization_id,
+            project_id=None,
+            title=f"Proposal — {tender.title}"[:500],
+            status="draft",
+            client_name=tender.issuer,
+            client_email=None,
+            scope_of_work=None,
+            fee_breakdown=None,
+            total_fee_vnd=tender.budget_vnd,
+            total_fee_currency=tender.currency or "VND",
+            valid_until=None,
+            ai_generated=False,
+            ai_confidence=None,
+            notes="\n".join(notes_parts),
+            created_by=auth.user_id,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(seed)
         match.proposal_id = proposal_id
         match.status = MatchStatus.pursuing.value
         match.reviewed_by = auth.user_id

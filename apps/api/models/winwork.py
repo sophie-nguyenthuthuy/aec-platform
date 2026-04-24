@@ -4,11 +4,17 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Boolean, CHAR, Date, ForeignKey, Numeric, Text
+from sqlalchemy import BigInteger, Boolean, CHAR, Date, DateTime, ForeignKey, Numeric, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
+
+# Postgres columns are `timestamp with time zone`; mirror that at the ORM layer
+# so asyncpg round-trips tz-aware datetimes without "can't subtract offset-naive
+# and offset-aware" errors at flush time. See apps/api/models/pulse.py for the
+# same pattern.
+TZ = DateTime(timezone=True)
 
 
 class Proposal(Base):
@@ -29,10 +35,10 @@ class Proposal(Base):
     ai_generated: Mapped[bool] = mapped_column(Boolean, default=False)
     ai_confidence: Mapped[Decimal | None] = mapped_column(Numeric)
     notes: Mapped[str | None] = mapped_column(Text)
-    sent_at: Mapped[datetime | None] = mapped_column()
-    responded_at: Mapped[datetime | None] = mapped_column()
+    sent_at: Mapped[datetime | None] = mapped_column(TZ)
+    responded_at: Mapped[datetime | None] = mapped_column(TZ)
     created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class ProposalTemplate(Base):
