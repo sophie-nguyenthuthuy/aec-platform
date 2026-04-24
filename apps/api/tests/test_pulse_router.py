@@ -22,47 +22,76 @@ from httpx import ASGITransport, AsyncClient
 
 
 # Stub the heavy LangChain / LangGraph modules so `ml.pipelines.pulse` can be
-# imported without them installed. Tests never exercise the real LLM — they
-# monkeypatch the three pipeline entrypoints.
+# imported on CI images that ship without them. Tests never exercise the real
+# LLM — they monkeypatch the three pipeline entrypoints.
+#
+# IMPORTANT: only stub modules that are NOT already importable. If the real
+# package is installed (dev machines, rich CI), leave sys.modules alone —
+# otherwise a bare ModuleType stub here would shadow the real package and
+# break *other* test files that do `from langchain_core.language_models
+# import ...` later in the same pytest session (the stub has no __path__,
+# so `langchain_core` stops behaving like a package).
+def _stub_if_missing(name: str, build) -> None:
+    try:
+        __import__(name)
+    except ImportError:
+        sys.modules[name] = build()
+
+
 def _install_langchain_stubs() -> None:
-    if "langchain_anthropic" in sys.modules:
-        return
-    anthropic_mod = ModuleType("langchain_anthropic")
-    anthropic_mod.ChatAnthropic = type("ChatAnthropic", (), {"__init__": lambda *a, **k: None})
-    sys.modules["langchain_anthropic"] = anthropic_mod
+    def _anthropic() -> ModuleType:
+        m = ModuleType("langchain_anthropic")
+        m.ChatAnthropic = type("ChatAnthropic", (), {"__init__": lambda *a, **k: None})
+        return m
 
-    core_mod = ModuleType("langchain_core")
-    messages_mod = ModuleType("langchain_core.messages")
-    messages_mod.HumanMessage = type("HumanMessage", (), {})
-    messages_mod.SystemMessage = type("SystemMessage", (), {})
-    parsers_mod = ModuleType("langchain_core.output_parsers")
-    parsers_mod.JsonOutputParser = type("JsonOutputParser", (), {})
-    prompts_mod = ModuleType("langchain_core.prompts")
-    prompts_mod.ChatPromptTemplate = type("ChatPromptTemplate", (), {})
-    sys.modules["langchain_core"] = core_mod
-    sys.modules["langchain_core.messages"] = messages_mod
-    sys.modules["langchain_core.output_parsers"] = parsers_mod
-    sys.modules["langchain_core.prompts"] = prompts_mod
+    def _core() -> ModuleType:
+        return ModuleType("langchain_core")
 
-    langgraph_mod = ModuleType("langgraph")
-    graph_mod = ModuleType("langgraph.graph")
-    graph_mod.END = "__end__"
+    def _core_messages() -> ModuleType:
+        m = ModuleType("langchain_core.messages")
+        m.HumanMessage = type("HumanMessage", (), {})
+        m.SystemMessage = type("SystemMessage", (), {})
+        return m
 
-    class _FakeStateGraph:
-        def __init__(self, *a, **k):
-            pass
-        def add_node(self, *a, **k):
-            return self
-        def add_edge(self, *a, **k):
-            return self
-        def set_entry_point(self, *a, **k):
-            return self
-        def compile(self, *a, **k):
-            return MagicMock()
+    def _core_parsers() -> ModuleType:
+        m = ModuleType("langchain_core.output_parsers")
+        m.JsonOutputParser = type("JsonOutputParser", (), {})
+        return m
 
-    graph_mod.StateGraph = _FakeStateGraph
-    sys.modules["langgraph"] = langgraph_mod
-    sys.modules["langgraph.graph"] = graph_mod
+    def _core_prompts() -> ModuleType:
+        m = ModuleType("langchain_core.prompts")
+        m.ChatPromptTemplate = type("ChatPromptTemplate", (), {})
+        return m
+
+    def _langgraph() -> ModuleType:
+        return ModuleType("langgraph")
+
+    def _langgraph_graph() -> ModuleType:
+        m = ModuleType("langgraph.graph")
+        m.END = "__end__"
+
+        class _FakeStateGraph:
+            def __init__(self, *a, **k):
+                pass
+            def add_node(self, *a, **k):
+                return self
+            def add_edge(self, *a, **k):
+                return self
+            def set_entry_point(self, *a, **k):
+                return self
+            def compile(self, *a, **k):
+                return MagicMock()
+
+        m.StateGraph = _FakeStateGraph
+        return m
+
+    _stub_if_missing("langchain_anthropic", _anthropic)
+    _stub_if_missing("langchain_core", _core)
+    _stub_if_missing("langchain_core.messages", _core_messages)
+    _stub_if_missing("langchain_core.output_parsers", _core_parsers)
+    _stub_if_missing("langchain_core.prompts", _core_prompts)
+    _stub_if_missing("langgraph", _langgraph)
+    _stub_if_missing("langgraph.graph", _langgraph_graph)
 
 
 _install_langchain_stubs()
@@ -723,3 +752,194 @@ async def test_send_report_rejects_empty_recipients(client, fake_db, fake_auth):
         f"/api/v1/pulse/client-reports/{rid}/send", json={"recipients": []}
     )
     assert res.status_code == 422
+
+
+# ---------- Cross-module report aggregation (SiteEye + CostPulse) ----------
+
+async def test_aggregate_report_inputs_with_siteeye_and_costpulse(
+    fake_db, fake_auth
+):
+    """Aggregator should pull progress + photos from SiteEye and budget from
+    CostPulse, and derive projected-final cost from approved change orders.
+
+    We preload FakeAsyncSession with ordered execute results matching the
+    query order inside `_aggregate_report_inputs`:
+      1. completed tasks
+      2. milestones
+      3. open change orders
+      4. latest progress snapshot
+      5. recent site photos
+      6. latest approved estimate
+    """
+    from routers.pulse import _aggregate_report_inputs
+    from models.pulse import (
+        ChangeOrder as ChangeOrderModel,
+        Milestone as MilestoneModel,
+        Task as TaskModel,
+    )
+    from models.siteeye import ProgressSnapshot, SitePhoto
+    from models.costpulse import Estimate
+
+    project_id = uuid4()
+    org_id = fake_auth.organization_id
+
+    # 1) completed tasks
+    task = TaskModel(
+        id=uuid4(),
+        organization_id=org_id,
+        project_id=project_id,
+        title="Pour slab on grade",
+        status="done",
+        priority="normal",
+        phase="construction",
+        tags=[],
+        completed_at=datetime(2026, 4, 10, tzinfo=timezone.utc),
+        created_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
+    )
+    fake_db.set_execute_result(_execute_result(scalars_all=[task]))
+
+    # 2) milestones
+    ms = MilestoneModel(
+        id=uuid4(),
+        organization_id=org_id,
+        project_id=project_id,
+        name="Foundation complete",
+        due_date=date(2026, 5, 1),
+        status="upcoming",
+    )
+    fake_db.set_execute_result(_execute_result(scalars_all=[ms]))
+
+    # 3) open + approved change orders (300M approved, 150M submitted)
+    co_approved = ChangeOrderModel(
+        id=uuid4(),
+        organization_id=org_id,
+        project_id=project_id,
+        number="CO-001",
+        title="Added footing reinforcement",
+        status="approved",
+        cost_impact_vnd=300_000_000,
+        schedule_impact_days=3,
+        created_at=datetime(2026, 4, 5, tzinfo=timezone.utc),
+    )
+    co_submitted = ChangeOrderModel(
+        id=uuid4(),
+        organization_id=org_id,
+        project_id=project_id,
+        number="CO-002",
+        title="Client-requested finish upgrade",
+        status="submitted",
+        cost_impact_vnd=150_000_000,
+        schedule_impact_days=0,
+        created_at=datetime(2026, 4, 12, tzinfo=timezone.utc),
+    )
+    fake_db.set_execute_result(
+        _execute_result(scalars_all=[co_approved, co_submitted])
+    )
+
+    # 4) progress snapshot (SiteEye)
+    snap = ProgressSnapshot(
+        id=uuid4(),
+        organization_id=org_id,
+        project_id=project_id,
+        snapshot_date=date(2026, 4, 20),
+        overall_progress_pct=42.5,
+        phase_progress={"foundation": 85, "superstructure": 10},
+        ai_notes="Slab curing; framing next week.",
+        created_at=datetime(2026, 4, 20, tzinfo=timezone.utc),
+    )
+    fake_db.set_execute_result(_execute_result(scalar_one_or_none=snap))
+
+    # 5) site photos (SiteEye)
+    photo = SitePhoto(
+        id=uuid4(),
+        organization_id=org_id,
+        project_id=project_id,
+        thumbnail_url="https://cdn.test/thumbs/slab.jpg",
+        taken_at=datetime(2026, 4, 18, 9, 0, tzinfo=timezone.utc),
+        tags=["slab", "concrete"],
+        ai_analysis={"caption": "Slab on grade — day after pour"},
+        created_at=datetime(2026, 4, 18, 10, 0, tzinfo=timezone.utc),
+    )
+    fake_db.set_execute_result(_execute_result(scalars_all=[photo]))
+
+    # 6) approved estimate (CostPulse) — 10B VND baseline
+    est = Estimate(
+        id=uuid4(),
+        organization_id=org_id,
+        project_id=project_id,
+        name="Approved BoQ v2",
+        version=2,
+        status="approved",
+        total_vnd=10_000_000_000,
+        created_at=datetime(2026, 3, 15, tzinfo=timezone.utc),
+    )
+    fake_db.set_execute_result(_execute_result(scalar_one_or_none=est))
+
+    aggregated = await _aggregate_report_inputs(
+        fake_db,
+        project_id=project_id,
+        date_from=date(2026, 4, 1),
+        date_to=date(2026, 4, 22),
+    )
+
+    # Pulse-owned sections
+    assert len(aggregated["completed_tasks"]) == 1
+    assert aggregated["completed_tasks"][0]["title"] == "Pour slab on grade"
+    assert aggregated["milestones"][0]["name"] == "Foundation complete"
+    assert {c["number"] for c in aggregated["change_orders"]} == {"CO-001", "CO-002"}
+
+    # Only the approved CO should contribute to the rolled-up totals.
+    totals = aggregated["approved_change_order_totals"]
+    assert totals["cost_impact_vnd"] == 300_000_000
+    assert totals["schedule_impact_days"] == 3
+
+    # SiteEye progress
+    prog = aggregated["progress"]
+    assert prog is not None
+    assert prog["overall_progress_pct"] == pytest.approx(42.5)
+    assert prog["phase_progress"]["foundation"] == 85
+    assert "curing" in prog["ai_notes"]
+
+    # SiteEye photos
+    photos = aggregated["photos"]
+    assert len(photos) == 1
+    assert photos[0]["thumbnail_url"].endswith("slab.jpg")
+    assert photos[0]["caption"].startswith("Slab on grade")
+    assert "slab" in photos[0]["tags"]
+
+    # CostPulse budget + CO-adjusted projection
+    budget = aggregated["budget"]
+    assert budget is not None
+    assert budget["budget_vnd"] == 10_000_000_000
+    assert budget["approved_co_cost_vnd"] == 300_000_000
+    assert budget["projected_final_vnd"] == 10_300_000_000
+    assert budget["variance_vnd"] == 300_000_000
+    assert budget["variance_pct"] == pytest.approx(3.0, abs=0.01)
+
+
+async def test_aggregate_report_inputs_without_sibling_data_returns_nulls(
+    fake_db, fake_auth
+):
+    """Empty DB should yield empty sections, not 5xx or exceptions.
+
+    Uses FakeAsyncSession's default empty MagicMock result for every execute
+    call — matching a tenant where SiteEye/CostPulse haven't been seeded yet.
+    """
+    from routers.pulse import _aggregate_report_inputs
+
+    aggregated = await _aggregate_report_inputs(
+        fake_db,
+        project_id=uuid4(),
+        date_from=None,
+        date_to=None,
+    )
+    assert aggregated["completed_tasks"] == []
+    assert aggregated["milestones"] == []
+    assert aggregated["change_orders"] == []
+    assert aggregated["approved_change_order_totals"] == {
+        "cost_impact_vnd": 0,
+        "schedule_impact_days": 0,
+    }
+    assert aggregated["progress"] is None
+    assert aggregated["photos"] == []
+    assert aggregated["budget"] is None

@@ -621,6 +621,14 @@ async def _aggregate_report_inputs(
     date_from: date | None,
     date_to: date | None,
 ) -> dict:
+    """Collect the facts the LLM needs to write a client report.
+
+    Pulse owns tasks/milestones/change-orders directly. Progress% and site
+    photos come from SiteEye; budget comes from CostPulse. Cross-module reads
+    are best-effort — if a sibling table is missing rows (or the module hasn't
+    been seeded on this tenant yet), we return empty values rather than 5xx'ing
+    the report. The LLM prompt is written to tolerate missing sections.
+    """
     tasks_q = select(TaskModel).where(TaskModel.project_id == project_id)
     if date_from:
         tasks_q = tasks_q.where(TaskModel.completed_at >= date_from)
@@ -646,6 +654,21 @@ async def _aggregate_report_inputs(
         )
     ).scalars().all()
 
+    approved_co_cost = sum(
+        int(c.cost_impact_vnd or 0)
+        for c in open_cos
+        if c.status == ChangeOrderStatus.approved.value
+    )
+    approved_co_schedule = sum(
+        int(c.schedule_impact_days or 0)
+        for c in open_cos
+        if c.status == ChangeOrderStatus.approved.value
+    )
+
+    progress = await _latest_progress_snapshot(db, project_id, date_to)
+    photos = await _recent_site_photos(db, project_id, date_from, date_to)
+    budget = await _project_budget_summary(db, project_id, approved_co_cost)
+
     return {
         "completed_tasks": [
             {"id": str(t.id), "title": t.title, "completed_at": t.completed_at, "phase": t.phase}
@@ -664,4 +687,133 @@ async def _aggregate_report_inputs(
             }
             for c in open_cos
         ],
+        "approved_change_order_totals": {
+            "cost_impact_vnd": approved_co_cost,
+            "schedule_impact_days": approved_co_schedule,
+        },
+        "progress": progress,
+        "photos": photos,
+        "budget": budget,
+    }
+
+
+async def _latest_progress_snapshot(
+    db: AsyncSession, project_id: UUID, as_of: date | None
+) -> dict | None:
+    """Pick the newest ProgressSnapshot at or before `as_of` (or overall).
+
+    Best-effort: missing SiteEye tables or empty data → return None so the LLM
+    just omits the progress section.
+    """
+    try:
+        from models.siteeye import ProgressSnapshot  # lazy: module may be absent
+    except ImportError:
+        return None
+
+    stmt = select(ProgressSnapshot).where(ProgressSnapshot.project_id == project_id)
+    if as_of is not None:
+        stmt = stmt.where(ProgressSnapshot.snapshot_date <= as_of)
+    stmt = stmt.order_by(ProgressSnapshot.snapshot_date.desc()).limit(1)
+
+    try:
+        snap = (await db.execute(stmt)).scalar_one_or_none()
+    except Exception:
+        return None
+    if snap is None:
+        return None
+
+    return {
+        "snapshot_date": snap.snapshot_date,
+        "overall_progress_pct": float(snap.overall_progress_pct)
+        if snap.overall_progress_pct is not None
+        else None,
+        "phase_progress": snap.phase_progress or {},
+        "ai_notes": snap.ai_notes,
+    }
+
+
+async def _recent_site_photos(
+    db: AsyncSession,
+    project_id: UUID,
+    date_from: date | None,
+    date_to: date | None,
+    limit: int = 8,
+) -> list[dict]:
+    """Return up to `limit` recent site photos for the report period.
+
+    Cap is tuned for client-report layout; the AI pipeline can pick a subset.
+    """
+    try:
+        from models.siteeye import SitePhoto
+    except ImportError:
+        return []
+
+    stmt = select(SitePhoto).where(SitePhoto.project_id == project_id)
+    if date_from is not None:
+        stmt = stmt.where(SitePhoto.taken_at >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(SitePhoto.taken_at <= date_to)
+    stmt = stmt.order_by(SitePhoto.taken_at.desc().nullslast()).limit(limit)
+
+    try:
+        rows = (await db.execute(stmt)).scalars().all()
+    except Exception:
+        return []
+
+    return [
+        {
+            "id": str(p.id),
+            "thumbnail_url": p.thumbnail_url,
+            "taken_at": p.taken_at,
+            "tags": list(p.tags or []),
+            "caption": (p.ai_analysis or {}).get("caption") if p.ai_analysis else None,
+        }
+        for p in rows
+    ]
+
+
+async def _project_budget_summary(
+    db: AsyncSession, project_id: UUID, approved_co_cost_vnd: int
+) -> dict | None:
+    """Budget snapshot: latest approved estimate + CO-adjusted projection.
+
+    CostPulse doesn't yet model realised spend, so "actual" is proxied by
+    approved change-order cost impact — the part of variance we actually have
+    hard numbers for. The report section should phrase this as "projected
+    final cost" not "actual spend". Returns None when there is no approved
+    estimate on file (the LLM will omit the financials section entirely).
+    """
+    try:
+        from models.costpulse import Estimate
+    except ImportError:
+        return None
+
+    stmt = (
+        select(Estimate)
+        .where(
+            Estimate.project_id == project_id,
+            Estimate.status == "approved",
+        )
+        .order_by(Estimate.version.desc(), Estimate.created_at.desc())
+        .limit(1)
+    )
+    try:
+        est = (await db.execute(stmt)).scalar_one_or_none()
+    except Exception:
+        return None
+    if est is None or est.total_vnd is None:
+        return None
+
+    budget = int(est.total_vnd)
+    projected_final = budget + int(approved_co_cost_vnd or 0)
+    variance = projected_final - budget
+    return {
+        "estimate_id": str(est.id),
+        "estimate_name": est.name,
+        "estimate_version": est.version,
+        "budget_vnd": budget,
+        "approved_co_cost_vnd": int(approved_co_cost_vnd or 0),
+        "projected_final_vnd": projected_final,
+        "variance_vnd": variance,
+        "variance_pct": round((variance / budget) * 100.0, 2) if budget else 0.0,
     }
