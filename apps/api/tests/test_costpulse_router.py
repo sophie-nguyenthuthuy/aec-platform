@@ -9,10 +9,11 @@ its `WHERE` clause by `organization_id`. End-to-end RLS against Postgres
 lives in `test_costpulse_rls.py` (skipped unless DATABASE_URL points at a
 live DB).
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
@@ -51,7 +52,7 @@ class FakeAsyncSession:
 
     async def refresh(self, obj: Any) -> None:
         if hasattr(obj, "created_at") and obj.created_at is None:
-            obj.created_at = datetime.now(timezone.utc)
+            obj.created_at = datetime.now(UTC)
 
     async def execute(self, stmt: Any = None, *_a: Any, **_k: Any) -> Any:
         self.executed_stmts.append(stmt)
@@ -72,9 +73,10 @@ def fake_db() -> FakeAsyncSession:
 
 @pytest.fixture
 def app(fake_db) -> FastAPI:
+    from fastapi import HTTPException
+
     from core.envelope import http_exception_handler, unhandled_exception_handler
     from db.deps import get_db
-    from fastapi import HTTPException
     from middleware.auth import AuthContext, require_auth
     from routers import costpulse as costpulse_router
 
@@ -107,6 +109,7 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 
 # ---------- Helpers to build model rows ----------
 
+
 def _material_price_row(**overrides: Any):
     base = dict(
         id=uuid4(),
@@ -136,13 +139,14 @@ def _supplier_row(**overrides: Any):
         contact={"email": "sales@hoaphat.example.vn"},
         verified=True,
         rating=Decimal("4.5"),
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     base.update(overrides)
     return SimpleNamespace(**base)
 
 
 # ---------- Prices ----------
+
 
 async def test_lookup_prices_returns_paginated_rows(client, fake_db):
     row = _material_price_row()
@@ -162,12 +166,8 @@ async def test_lookup_prices_returns_paginated_rows(client, fake_db):
 
 
 async def test_price_history_returns_points_and_deltas(client, fake_db):
-    older = _material_price_row(
-        effective_date=date(2025, 4, 1), price_vnd=Decimal("1400000")
-    )
-    newer = _material_price_row(
-        effective_date=date(2026, 4, 1), price_vnd=Decimal("1580000")
-    )
+    older = _material_price_row(effective_date=date(2025, 4, 1), price_vnd=Decimal("1400000"))
+    newer = _material_price_row(effective_date=date(2026, 4, 1), price_vnd=Decimal("1580000"))
     q = MagicMock()
     q.scalars.return_value.all.return_value = [older, newer]
     fake_db.push_execute(q)
@@ -217,6 +217,7 @@ async def test_price_override_is_captured_as_crowdsource(client, fake_db):
 
 # ---------- Suppliers ----------
 
+
 async def test_list_suppliers_paginates(client, fake_db):
     count_q = MagicMock()
     count_q.scalar_one.return_value = 2
@@ -258,6 +259,7 @@ async def test_create_supplier_scopes_to_caller_org(client, fake_db):
 
 # ---------- RFQ ----------
 
+
 async def test_create_rfq_enqueues_dispatch_job(client, fake_db, monkeypatch):
     from models.costpulse import Rfq
 
@@ -293,7 +295,7 @@ async def test_list_rfq_filters_by_caller_org(client, fake_db):
         sent_to=[],
         responses=[],
         deadline=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     q = MagicMock()
     q.scalars.return_value.all.return_value = [rfq_row]
@@ -314,6 +316,7 @@ async def test_list_rfq_filters_by_caller_org(client, fake_db):
 
 
 # ---------- Estimates (RLS-style scoping at query level) ----------
+
 
 async def test_get_estimate_scopes_query_to_caller_org(client, fake_db):
     q = MagicMock()
@@ -341,6 +344,7 @@ async def test_approve_estimate_404_for_missing_or_other_org(client, fake_db):
 
 
 # ---------- AI estimate (router wiring; pipeline mocked) ----------
+
 
 async def test_estimate_from_brief_delegates_to_pipeline(client, fake_db, monkeypatch):
     from schemas.costpulse import AiEstimateResult, BoqItemOut, EstimateConfidence
@@ -370,7 +374,12 @@ async def test_estimate_from_brief_delegates_to_pipeline(client, fake_db, monkey
         missing_price_codes=[],
     )
     mock = AsyncMock(return_value=fake_result)
+    # Router does `from ml.pipelines.costpulse import estimate_from_brief`,
+    # which lands under a different sys.modules entry than the `apps.*` form
+    # because tests put both `apps/` and the repo root on sys.path. Patch
+    # both to be safe.
     monkeypatch.setattr("apps.ml.pipelines.costpulse.estimate_from_brief", mock)
+    monkeypatch.setattr("ml.pipelines.costpulse.estimate_from_brief", mock)
 
     res = await client.post(
         "/api/v1/costpulse/estimate/from-brief",
@@ -395,6 +404,7 @@ async def test_estimate_from_brief_delegates_to_pipeline(client, fake_db, monkey
 
 # ---------- COSTPULSE → PULSE variance feed ----------
 
+
 def _estimate_row(**overrides: Any):
     """Build a SimpleNamespace that stands in for an Estimate ORM instance.
 
@@ -414,15 +424,13 @@ def _estimate_row(**overrides: Any):
         method="ai_generated",
         created_by=USER_ID,
         approved_by=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     base.update(overrides)
     return SimpleNamespace(**base)
 
 
-async def test_approve_estimate_emits_change_order_when_variance_exceeds_threshold(
-    client, fake_db
-):
+async def test_approve_estimate_emits_change_order_when_variance_exceeds_threshold(client, fake_db):
     """Second approval on a project with a 10% budget swing emits a draft CO."""
     from models.pulse import ChangeOrder
 
@@ -474,20 +482,18 @@ async def test_approve_estimate_emits_change_order_when_variance_exceeds_thresho
     assert co.ai_analysis["variance_pct"] == pytest.approx(10.0)
 
 
-async def test_approve_estimate_skips_co_when_variance_below_threshold(
-    client, fake_db
-):
+async def test_approve_estimate_skips_co_when_variance_below_threshold(client, fake_db):
     """A 1% shift is rounding noise — no change order should fire."""
     from models.pulse import ChangeOrder
 
     project_id = uuid4()
-    prior = _estimate_row(
-        id=uuid4(), project_id=project_id, status="approved", total_vnd=1_000_000_000
-    )
+    prior = _estimate_row(id=uuid4(), project_id=project_id, status="approved", total_vnd=1_000_000_000)
     new = _estimate_row(project_id=project_id, status="in_review", total_vnd=1_010_000_000)
 
-    q1 = MagicMock(); q1.scalar_one_or_none.return_value = new
-    q2 = MagicMock(); q2.scalar_one_or_none.return_value = prior
+    q1 = MagicMock()
+    q1.scalar_one_or_none.return_value = new
+    q2 = MagicMock()
+    q2.scalar_one_or_none.return_value = prior
     fake_db.push_execute(q1)
     fake_db.push_execute(q2)
 
@@ -503,8 +509,10 @@ async def test_approve_estimate_skips_co_when_no_prior_baseline(client, fake_db)
 
     new = _estimate_row(status="in_review", total_vnd=1_000_000_000)
 
-    q1 = MagicMock(); q1.scalar_one_or_none.return_value = new
-    q2 = MagicMock(); q2.scalar_one_or_none.return_value = None  # no prior
+    q1 = MagicMock()
+    q1.scalar_one_or_none.return_value = new
+    q2 = MagicMock()
+    q2.scalar_one_or_none.return_value = None  # no prior
     fake_db.push_execute(q1)
     fake_db.push_execute(q2)
 
@@ -521,10 +529,9 @@ async def test_approve_estimate_is_idempotent_for_repeated_approval(client, fake
     project_id = uuid4()
     # Already approved: `was_already_approved` guard should short-circuit the
     # whole variance branch, so we only queue the initial SELECT result.
-    already = _estimate_row(
-        project_id=project_id, status="approved", total_vnd=1_100_000_000
-    )
-    q1 = MagicMock(); q1.scalar_one_or_none.return_value = already
+    already = _estimate_row(project_id=project_id, status="approved", total_vnd=1_100_000_000)
+    q1 = MagicMock()
+    q1.scalar_one_or_none.return_value = already
     fake_db.push_execute(q1)
 
     res = await client.post(f"/api/v1/costpulse/estimates/{already.id}/approve")
@@ -540,9 +547,7 @@ async def test_approve_estimate_skips_co_when_duplicate_number_exists(client, fa
     from models.pulse import ChangeOrder
 
     project_id = uuid4()
-    prior = _estimate_row(
-        id=uuid4(), project_id=project_id, status="approved", total_vnd=1_000_000_000
-    )
+    prior = _estimate_row(id=uuid4(), project_id=project_id, status="approved", total_vnd=1_000_000_000)
     new = _estimate_row(project_id=project_id, status="in_review", total_vnd=1_200_000_000)
 
     existing_co = SimpleNamespace(
@@ -551,9 +556,12 @@ async def test_approve_estimate_skips_co_when_duplicate_number_exists(client, fa
         number=f"COST-{new.id.hex[:8].upper()}",
     )
 
-    q1 = MagicMock(); q1.scalar_one_or_none.return_value = new
-    q2 = MagicMock(); q2.scalar_one_or_none.return_value = prior
-    q3 = MagicMock(); q3.scalar_one_or_none.return_value = existing_co
+    q1 = MagicMock()
+    q1.scalar_one_or_none.return_value = new
+    q2 = MagicMock()
+    q2.scalar_one_or_none.return_value = prior
+    q3 = MagicMock()
+    q3.scalar_one_or_none.return_value = existing_co
     fake_db.push_execute(q1)
     fake_db.push_execute(q2)
     fake_db.push_execute(q3)

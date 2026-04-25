@@ -1,7 +1,8 @@
 """HANDOVER FastAPI router — project closeout & as-built intelligence endpoints."""
+
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
@@ -33,9 +34,9 @@ from schemas.handover import (
     PackageListFilters,
     PackageStatus,
     PackageSummary,
+    PromotedDrawingSummary,
     PromoteDrawingsRequest,
     PromoteDrawingsResponse,
-    PromotedDrawingSummary,
     WarrantyExtractRequest,
     WarrantyExtractResponse,
     WarrantyItem,
@@ -50,6 +51,7 @@ router = APIRouter(prefix="/api/v1/handover", tags=["handover"])
 
 # ---------- Packages ----------
 
+
 @router.post("/packages", status_code=status.HTTP_201_CREATED)
 async def create_package(
     payload: HandoverPackageCreate,
@@ -59,25 +61,29 @@ async def create_package(
 
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     INSERT INTO handover_packages
                       (organization_id, project_id, name, scope_summary, created_by)
                     VALUES
                       (:org, :project_id, :name, CAST(:scope AS jsonb), :created_by)
                     RETURNING *
                     """
-                ),
-                {
-                    "org": str(auth.organization_id),
-                    "project_id": str(payload.project_id),
-                    "name": payload.name,
-                    "scope": _json(payload.scope_summary),
-                    "created_by": str(auth.user_id),
-                },
+                    ),
+                    {
+                        "org": str(auth.organization_id),
+                        "project_id": str(payload.project_id),
+                        "name": payload.name,
+                        "scope": _json(payload.scope_summary),
+                        "created_by": str(auth.user_id),
+                    },
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
 
         if payload.auto_populate:
             await seed_closeout_items(
@@ -98,15 +104,14 @@ async def list_packages(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    filters = PackageListFilters(
-        project_id=project_id, status=package_status, limit=limit, offset=offset
-    )
+    filters = PackageListFilters(project_id=project_id, status=package_status, limit=limit, offset=offset)
     where, params = _package_where(filters, auth.organization_id)
     async with TenantAwareSession(auth.organization_id) as session:
         rows = (
-            await session.execute(
-                text(
-                    f"""
+            (
+                await session.execute(
+                    text(
+                        f"""
                     SELECT
                       p.*,
                       COALESCE(ci.total, 0)::int AS closeout_total,
@@ -138,14 +143,15 @@ async def list_packages(
                     ORDER BY p.created_at DESC
                     LIMIT :limit OFFSET :offset
                     """
-                ),
-                {**params, "limit": limit, "offset": offset},
+                    ),
+                    {**params, "limit": limit, "offset": offset},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         total = (
-            await session.execute(
-                text(f"SELECT COUNT(*) FROM handover_packages p WHERE {where}"), params
-            )
+            await session.execute(text(f"SELECT COUNT(*) FROM handover_packages p WHERE {where}"), params)
         ).scalar_one()
 
     items = [PackageSummary.model_validate(dict(r)).model_dump(mode="json") for r in rows]
@@ -159,36 +165,46 @@ async def get_package(
 ):
     async with TenantAwareSession(auth.organization_id) as session:
         pkg_row = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     SELECT * FROM handover_packages
                     WHERE id = :id AND organization_id = :org
                     """
-                ),
-                {"id": str(package_id), "org": str(auth.organization_id)},
+                    ),
+                    {"id": str(package_id), "org": str(auth.organization_id)},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if pkg_row is None:
             raise HTTPException(status_code=404, detail="package_not_found")
 
         item_rows = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     SELECT * FROM closeout_items
                     WHERE package_id = :id
                     ORDER BY sort_order ASC, created_at ASC
                     """
-                ),
-                {"id": str(package_id)},
+                    ),
+                    {"id": str(package_id)},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
 
-    detail = PackageDetail.model_validate({
-        **dict(pkg_row),
-        "closeout_items": [CloseoutItem.model_validate(dict(r)) for r in item_rows],
-    })
+    detail = PackageDetail.model_validate(
+        {
+            **dict(pkg_row),
+            "closeout_items": [CloseoutItem.model_validate(dict(r)) for r in item_rows],
+        }
+    )
     return ok(detail.model_dump(mode="json"))
 
 
@@ -208,7 +224,7 @@ async def update_package(
         params["status"] = payload.status.value
         if payload.status == PackageStatus.delivered:
             assigns.append("delivered_at = :delivered_at")
-            params["delivered_at"] = datetime.now(timezone.utc)
+            params["delivered_at"] = datetime.now(UTC)
     if payload.scope_summary is not None:
         assigns.append("scope_summary = CAST(:scope AS jsonb)")
         params["scope"] = _json(payload.scope_summary)
@@ -217,23 +233,28 @@ async def update_package(
 
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
-            await session.execute(
-                text(
-                    f"""
-                    UPDATE handover_packages SET {', '.join(assigns)}
+            (
+                await session.execute(
+                    text(
+                        f"""
+                    UPDATE handover_packages SET {", ".join(assigns)}
                     WHERE id = :id AND organization_id = :org
                     RETURNING *
                     """
-                ),
-                params,
+                    ),
+                    params,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
     if row is None:
         raise HTTPException(status_code=404, detail="package_not_found")
     return ok(HandoverPackage.model_validate(dict(row)).model_dump(mode="json"))
 
 
 # ---------- Closeout items ----------
+
 
 @router.post("/packages/{package_id}/closeout-items", status_code=status.HTTP_201_CREATED)
 async def add_closeout_item(
@@ -252,9 +273,10 @@ async def add_closeout_item(
             raise HTTPException(status_code=404, detail="package_not_found")
 
         row = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     INSERT INTO closeout_items
                       (organization_id, package_id, category, title, description,
                        required, sort_order, updated_at)
@@ -263,18 +285,21 @@ async def add_closeout_item(
                        :required, :sort_order, NOW())
                     RETURNING *
                     """
-                ),
-                {
-                    "org": str(auth.organization_id),
-                    "package_id": str(package_id),
-                    "category": payload.category.value,
-                    "title": payload.title,
-                    "description": payload.description,
-                    "required": payload.required,
-                    "sort_order": payload.sort_order,
-                },
+                    ),
+                    {
+                        "org": str(auth.organization_id),
+                        "package_id": str(package_id),
+                        "category": payload.category.value,
+                        "title": payload.title,
+                        "description": payload.description,
+                        "required": payload.required,
+                        "sort_order": payload.sort_order,
+                    },
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
     return ok(CloseoutItem.model_validate(dict(row)).model_dump(mode="json"))
 
 
@@ -301,17 +326,21 @@ async def update_closeout_item(
 
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
-            await session.execute(
-                text(
-                    f"""
-                    UPDATE closeout_items SET {', '.join(assigns)}
+            (
+                await session.execute(
+                    text(
+                        f"""
+                    UPDATE closeout_items SET {", ".join(assigns)}
                     WHERE id = :id AND organization_id = :org
                     RETURNING *
                     """
-                ),
-                params,
+                    ),
+                    params,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
     if row is None:
         raise HTTPException(status_code=404, detail="closeout_item_not_found")
     return ok(CloseoutItem.model_validate(dict(row)).model_dump(mode="json"))
@@ -319,35 +348,41 @@ async def update_closeout_item(
 
 # ---------- As-built drawings ----------
 
+
 @router.post("/as-builts", status_code=status.HTTP_201_CREATED)
 async def register_as_built(
     payload: AsBuiltRegister,
     auth: Annotated[AuthContext, Depends(require_auth)],
 ):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with TenantAwareSession(auth.organization_id) as session:
         existing = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     SELECT * FROM as_built_drawings
                     WHERE project_id = :project_id AND drawing_code = :code
                       AND organization_id = :org
                     """
-                ),
-                {
-                    "project_id": str(payload.project_id),
-                    "code": payload.drawing_code,
-                    "org": str(auth.organization_id),
-                },
+                    ),
+                    {
+                        "project_id": str(payload.project_id),
+                        "code": payload.drawing_code,
+                        "org": str(auth.organization_id),
+                    },
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
 
         if existing is None:
             row = (
-                await session.execute(
-                    text(
-                        """
+                (
+                    await session.execute(
+                        text(
+                            """
                         INSERT INTO as_built_drawings
                           (organization_id, project_id, package_id, drawing_code,
                            discipline, title, current_version, current_file_id,
@@ -358,43 +393,51 @@ async def register_as_built(
                            ARRAY[]::uuid[], CAST(:changelog AS jsonb), :now)
                         RETURNING *
                         """
-                    ),
-                    {
-                        "org": str(auth.organization_id),
-                        "project_id": str(payload.project_id),
-                        "package_id": str(payload.package_id) if payload.package_id else None,
-                        "code": payload.drawing_code,
-                        "discipline": payload.discipline.value,
-                        "title": payload.title,
-                        "file_id": str(payload.file_id),
-                        "changelog": _json([
-                            {
-                                "version": 1,
-                                "file_id": str(payload.file_id),
-                                "change_note": payload.change_note,
-                                "recorded_at": now.isoformat(),
-                            }
-                        ]),
-                        "now": now,
-                    },
+                        ),
+                        {
+                            "org": str(auth.organization_id),
+                            "project_id": str(payload.project_id),
+                            "package_id": str(payload.package_id) if payload.package_id else None,
+                            "code": payload.drawing_code,
+                            "discipline": payload.discipline.value,
+                            "title": payload.title,
+                            "file_id": str(payload.file_id),
+                            "changelog": _json(
+                                [
+                                    {
+                                        "version": 1,
+                                        "file_id": str(payload.file_id),
+                                        "change_note": payload.change_note,
+                                        "recorded_at": now.isoformat(),
+                                    }
+                                ]
+                            ),
+                            "now": now,
+                        },
+                    )
                 )
-            ).mappings().one()
+                .mappings()
+                .one()
+            )
         else:
             new_version = (existing["current_version"] or 0) + 1
             superseded = list(existing["superseded_file_ids"] or [])
             if existing["current_file_id"]:
                 superseded.append(existing["current_file_id"])
             changelog = list(existing["changelog"] or [])
-            changelog.append({
-                "version": new_version,
-                "file_id": str(payload.file_id),
-                "change_note": payload.change_note,
-                "recorded_at": now.isoformat(),
-            })
+            changelog.append(
+                {
+                    "version": new_version,
+                    "file_id": str(payload.file_id),
+                    "change_note": payload.change_note,
+                    "recorded_at": now.isoformat(),
+                }
+            )
             row = (
-                await session.execute(
-                    text(
-                        """
+                (
+                    await session.execute(
+                        text(
+                            """
                         UPDATE as_built_drawings
                         SET current_version = :version,
                             current_file_id = :file_id,
@@ -407,20 +450,23 @@ async def register_as_built(
                         WHERE id = :id
                         RETURNING *
                         """
-                    ),
-                    {
-                        "version": new_version,
-                        "file_id": str(payload.file_id),
-                        "superseded": [str(s) for s in superseded],
-                        "changelog": _json(changelog),
-                        "title": payload.title,
-                        "discipline": payload.discipline.value,
-                        "package_id": str(payload.package_id) if payload.package_id else None,
-                        "now": now,
-                        "id": existing["id"],
-                    },
+                        ),
+                        {
+                            "version": new_version,
+                            "file_id": str(payload.file_id),
+                            "superseded": [str(s) for s in superseded],
+                            "changelog": _json(changelog),
+                            "title": payload.title,
+                            "discipline": payload.discipline.value,
+                            "package_id": str(payload.package_id) if payload.package_id else None,
+                            "now": now,
+                            "id": existing["id"],
+                        },
+                    )
                 )
-            ).mappings().one()
+                .mappings()
+                .one()
+            )
     return ok(AsBuiltDrawing.model_validate(dict(row)).model_dump(mode="json"))
 
 
@@ -440,17 +486,21 @@ async def list_as_builts(
         params["discipline"] = discipline
     async with TenantAwareSession(auth.organization_id) as session:
         rows = (
-            await session.execute(
-                text(
-                    f"""
+            (
+                await session.execute(
+                    text(
+                        f"""
                     SELECT * FROM as_built_drawings
                     WHERE {where}
                     ORDER BY discipline, drawing_code
                     """
-                ),
-                params,
+                    ),
+                    params,
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
     items = [AsBuiltDrawing.model_validate(dict(r)).model_dump(mode="json") for r in rows]
     return ok(items)
 
@@ -471,16 +521,20 @@ async def promote_drawings_from_drawbridge(
     """
     async with TenantAwareSession(auth.organization_id) as session:
         package = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     SELECT id, project_id FROM handover_packages
                     WHERE id = :pkg AND organization_id = :org
                     """
-                ),
-                {"pkg": str(package_id), "org": str(auth.organization_id)},
+                    ),
+                    {"pkg": str(package_id), "org": str(auth.organization_id)},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if package is None:
             raise HTTPException(status_code=404, detail="package_not_found")
 
@@ -489,8 +543,12 @@ async def promote_drawings_from_drawbridge(
         # Pull candidate drawbridge documents. ORDER BY (drawing_number, created_at DESC)
         # then dedupe in Python so we get the newest Document per drawing_number
         # without relying on Postgres DISTINCT ON quirks.
-        where = ["d.organization_id = :org", "d.project_id = :project_id",
-                 "d.drawing_number IS NOT NULL", "d.file_id IS NOT NULL"]
+        where = [
+            "d.organization_id = :org",
+            "d.project_id = :project_id",
+            "d.drawing_number IS NOT NULL",
+            "d.file_id IS NOT NULL",
+        ]
         params: dict[str, Any] = {
             "org": str(auth.organization_id),
             "project_id": str(project_id),
@@ -503,19 +561,23 @@ async def promote_drawings_from_drawbridge(
             params["dn_like"] = payload.drawing_number_like
 
         docs = (
-            await session.execute(
-                text(
-                    f"""
+            (
+                await session.execute(
+                    text(
+                        f"""
                     SELECT d.id, d.drawing_number, d.title, d.revision, d.discipline,
                            d.file_id, d.created_at
                     FROM documents d
-                    WHERE {' AND '.join(where)}
+                    WHERE {" AND ".join(where)}
                     ORDER BY d.drawing_number ASC, d.created_at DESC
                     """
-                ),
-                params,
+                    ),
+                    params,
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
 
         # Keep only the latest per drawing_number (first one in the sort above).
         latest_per_number: dict[str, dict[str, Any]] = {}
@@ -525,16 +587,17 @@ async def promote_drawings_from_drawbridge(
                 latest_per_number[dn] = dict(d)
 
         summaries: list[PromotedDrawingSummary] = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for drawing_code, doc in latest_per_number.items():
             title = (doc["title"] or drawing_code)[:200]
             discipline = (doc["discipline"] or "architecture").lower()
 
             existing = (
-                await session.execute(
-                    text(
-                        """
+                (
+                    await session.execute(
+                        text(
+                            """
                         SELECT id, current_version, current_file_id,
                                superseded_file_ids, changelog
                         FROM as_built_drawings
@@ -542,18 +605,20 @@ async def promote_drawings_from_drawbridge(
                           AND project_id = :project_id
                           AND drawing_code = :code
                         """
-                    ),
-                    {
-                        "org": str(auth.organization_id),
-                        "project_id": str(project_id),
-                        "code": drawing_code,
-                    },
+                        ),
+                        {
+                            "org": str(auth.organization_id),
+                            "project_id": str(project_id),
+                            "code": drawing_code,
+                        },
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
 
-            change_note = (
-                f"Promoted from DRAWBRIDGE document {doc['id']}"
-                + (f" (rev {doc['revision']})" if doc["revision"] else "")
+            change_note = f"Promoted from DRAWBRIDGE document {doc['id']}" + (
+                f" (rev {doc['revision']})" if doc["revision"] else ""
             )
 
             if existing is None:
@@ -669,6 +734,7 @@ async def promote_drawings_from_drawbridge(
 
 # ---------- O&M manual ----------
 
+
 @router.post("/om-manuals/generate", status_code=status.HTTP_202_ACCEPTED)
 async def generate_om_manual(
     payload: OmManualGenerateRequest,
@@ -678,7 +744,7 @@ async def generate_om_manual(
 
     manual_id = uuid4()
     job_id = uuid4()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     title = payload.title or f"O&M Manual — {payload.discipline.value}"
 
     async with TenantAwareSession(auth.organization_id) as session:
@@ -749,9 +815,10 @@ async def generate_om_manual(
     new_status = OmManualStatus.ready if equipment else OmManualStatus.failed
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     UPDATE om_manuals SET
                       status = :status,
                       equipment = CAST(:equipment AS jsonb),
@@ -759,15 +826,18 @@ async def generate_om_manual(
                     WHERE id = :id
                     RETURNING *
                     """
-                ),
-                {
-                    "status": new_status.value,
-                    "equipment": _json([e.model_dump(mode="json") for e in equipment]),
-                    "schedule": _json([t.model_dump(mode="json") for t in schedule]),
-                    "id": str(manual_id),
-                },
+                    ),
+                    {
+                        "status": new_status.value,
+                        "equipment": _json([e.model_dump(mode="json") for e in equipment]),
+                        "schedule": _json([t.model_dump(mode="json") for t in schedule]),
+                        "id": str(manual_id),
+                    },
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         await session.execute(
             text("UPDATE ai_jobs SET status = 'completed', completed_at = NOW() WHERE id = :job_id"),
             {"job_id": str(job_id)},
@@ -783,22 +853,27 @@ async def list_om_manuals(
 ):
     async with TenantAwareSession(auth.organization_id) as session:
         rows = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     SELECT * FROM om_manuals
                     WHERE package_id = :id AND organization_id = :org
                     ORDER BY generated_at DESC
                     """
-                ),
-                {"id": str(package_id), "org": str(auth.organization_id)},
+                    ),
+                    {"id": str(package_id), "org": str(auth.organization_id)},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
     items = [OmManual.model_validate(dict(r)).model_dump(mode="json") for r in rows]
     return ok(items)
 
 
 # ---------- Warranties ----------
+
 
 @router.post("/warranties/extract", status_code=status.HTTP_201_CREATED)
 async def extract_warranty(
@@ -821,9 +896,10 @@ async def extract_warranty(
         created: list[dict] = []
         for item in items:
             row = (
-                await session.execute(
-                    text(
-                        """
+                (
+                    await session.execute(
+                        text(
+                            """
                         INSERT INTO warranty_items
                           (organization_id, project_id, package_id, item_name, category,
                            vendor, contract_file_id, warranty_period_months,
@@ -834,23 +910,26 @@ async def extract_warranty(
                            :start_date, :expiry_date, :coverage, CAST(:contact AS jsonb))
                         RETURNING *
                         """
-                    ),
-                    {
-                        "org": str(auth.organization_id),
-                        "project_id": str(item.project_id),
-                        "package_id": str(item.package_id) if item.package_id else None,
-                        "item_name": item.item_name,
-                        "category": item.category,
-                        "vendor": item.vendor,
-                        "contract_file_id": str(item.contract_file_id) if item.contract_file_id else None,
-                        "period": item.warranty_period_months,
-                        "start_date": item.start_date,
-                        "expiry_date": item.expiry_date,
-                        "coverage": item.coverage,
-                        "contact": _json(item.claim_contact),
-                    },
+                        ),
+                        {
+                            "org": str(auth.organization_id),
+                            "project_id": str(item.project_id),
+                            "package_id": str(item.package_id) if item.package_id else None,
+                            "item_name": item.item_name,
+                            "category": item.category,
+                            "vendor": item.vendor,
+                            "contract_file_id": str(item.contract_file_id) if item.contract_file_id else None,
+                            "period": item.warranty_period_months,
+                            "start_date": item.start_date,
+                            "expiry_date": item.expiry_date,
+                            "coverage": item.coverage,
+                            "contact": _json(item.claim_contact),
+                        },
+                    )
                 )
-            ).mappings().one()
+                .mappings()
+                .one()
+            )
             created.append(dict(row))
 
     response = WarrantyExtractResponse(
@@ -868,9 +947,10 @@ async def create_warranty(
 ):
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     INSERT INTO warranty_items
                       (organization_id, project_id, package_id, item_name, category,
                        vendor, contract_file_id, warranty_period_months,
@@ -881,24 +961,27 @@ async def create_warranty(
                        :start_date, :expiry_date, :coverage, CAST(:contact AS jsonb), :notes)
                     RETURNING *
                     """
-                ),
-                {
-                    "org": str(auth.organization_id),
-                    "project_id": str(payload.project_id),
-                    "package_id": str(payload.package_id) if payload.package_id else None,
-                    "item_name": payload.item_name,
-                    "category": payload.category,
-                    "vendor": payload.vendor,
-                    "contract_file_id": str(payload.contract_file_id) if payload.contract_file_id else None,
-                    "period": payload.warranty_period_months,
-                    "start_date": payload.start_date,
-                    "expiry_date": payload.expiry_date,
-                    "coverage": payload.coverage,
-                    "contact": _json(payload.claim_contact),
-                    "notes": payload.notes,
-                },
+                    ),
+                    {
+                        "org": str(auth.organization_id),
+                        "project_id": str(payload.project_id),
+                        "package_id": str(payload.package_id) if payload.package_id else None,
+                        "item_name": payload.item_name,
+                        "category": payload.category,
+                        "vendor": payload.vendor,
+                        "contract_file_id": str(payload.contract_file_id) if payload.contract_file_id else None,
+                        "period": payload.warranty_period_months,
+                        "start_date": payload.start_date,
+                        "expiry_date": payload.expiry_date,
+                        "coverage": payload.coverage,
+                        "contact": _json(payload.claim_contact),
+                        "notes": payload.notes,
+                    },
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
     return ok(_to_warranty_schema(dict(row)).model_dump(mode="json"))
 
 
@@ -923,23 +1006,23 @@ async def list_warranties(
     where, params = _warranty_where(filters, auth.organization_id)
     async with TenantAwareSession(auth.organization_id) as session:
         rows = (
-            await session.execute(
-                text(
-                    f"""
+            (
+                await session.execute(
+                    text(
+                        f"""
                     SELECT * FROM warranty_items
                     WHERE {where}
                     ORDER BY expiry_date ASC NULLS LAST, created_at DESC
                     LIMIT :limit OFFSET :offset
                     """
-                ),
-                {**params, "limit": limit, "offset": offset},
+                    ),
+                    {**params, "limit": limit, "offset": offset},
+                )
             )
-        ).mappings().all()
-        total = (
-            await session.execute(
-                text(f"SELECT COUNT(*) FROM warranty_items WHERE {where}"), params
-            )
-        ).scalar_one()
+            .mappings()
+            .all()
+        )
+        total = (await session.execute(text(f"SELECT COUNT(*) FROM warranty_items WHERE {where}"), params)).scalar_one()
 
     items = [_to_warranty_schema(dict(r)).model_dump(mode="json") for r in rows]
     return paginated(items, page=offset // limit + 1, per_page=limit, total=total)
@@ -967,23 +1050,28 @@ async def update_warranty(
 
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
-            await session.execute(
-                text(
-                    f"""
-                    UPDATE warranty_items SET {', '.join(assigns)}
+            (
+                await session.execute(
+                    text(
+                        f"""
+                    UPDATE warranty_items SET {", ".join(assigns)}
                     WHERE id = :id AND organization_id = :org
                     RETURNING *
                     """
-                ),
-                params,
+                    ),
+                    params,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
     if row is None:
         raise HTTPException(status_code=404, detail="warranty_not_found")
     return ok(_to_warranty_schema(dict(row)).model_dump(mode="json"))
 
 
 # ---------- Defects ----------
+
 
 @router.post("/defects", status_code=status.HTTP_201_CREATED)
 async def create_defect(
@@ -992,9 +1080,10 @@ async def create_defect(
 ):
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     INSERT INTO defects
                       (organization_id, project_id, package_id, title, description,
                        location, photo_file_ids, priority, assignee_id, reported_by)
@@ -1004,21 +1093,24 @@ async def create_defect(
                        :priority, :assignee_id, :reported_by)
                     RETURNING *
                     """
-                ),
-                {
-                    "org": str(auth.organization_id),
-                    "project_id": str(payload.project_id),
-                    "package_id": str(payload.package_id) if payload.package_id else None,
-                    "title": payload.title,
-                    "description": payload.description,
-                    "location": _json(payload.location) if payload.location is not None else None,
-                    "photos": [str(p) for p in payload.photo_file_ids],
-                    "priority": payload.priority.value,
-                    "assignee_id": str(payload.assignee_id) if payload.assignee_id else None,
-                    "reported_by": str(auth.user_id),
-                },
+                    ),
+                    {
+                        "org": str(auth.organization_id),
+                        "project_id": str(payload.project_id),
+                        "package_id": str(payload.package_id) if payload.package_id else None,
+                        "title": payload.title,
+                        "description": payload.description,
+                        "location": _json(payload.location) if payload.location is not None else None,
+                        "photos": [str(p) for p in payload.photo_file_ids],
+                        "priority": payload.priority.value,
+                        "assignee_id": str(payload.assignee_id) if payload.assignee_id else None,
+                        "reported_by": str(auth.user_id),
+                    },
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
     return ok(Defect.model_validate(dict(row)).model_dump(mode="json"))
 
 
@@ -1045,9 +1137,10 @@ async def list_defects(
     where, params = _defect_where(filters, auth.organization_id)
     async with TenantAwareSession(auth.organization_id) as session:
         rows = (
-            await session.execute(
-                text(
-                    f"""
+            (
+                await session.execute(
+                    text(
+                        f"""
                     SELECT * FROM defects
                     WHERE {where}
                     ORDER BY
@@ -1061,15 +1154,14 @@ async def list_defects(
                       reported_at DESC
                     LIMIT :limit OFFSET :offset
                     """
-                ),
-                {**params, "limit": limit, "offset": offset},
+                    ),
+                    {**params, "limit": limit, "offset": offset},
+                )
             )
-        ).mappings().all()
-        total = (
-            await session.execute(
-                text(f"SELECT COUNT(*) FROM defects WHERE {where}"), params
-            )
-        ).scalar_one()
+            .mappings()
+            .all()
+        )
+        total = (await session.execute(text(f"SELECT COUNT(*) FROM defects WHERE {where}"), params)).scalar_one()
 
     items = [Defect.model_validate(dict(r)).model_dump(mode="json") for r in rows]
     return paginated(items, page=offset // limit + 1, per_page=limit, total=total)
@@ -1088,7 +1180,7 @@ async def update_defect(
         params["status"] = payload.status.value
         if payload.status == DefectStatus.resolved:
             assigns.append("resolved_at = :resolved_at")
-            params["resolved_at"] = datetime.now(timezone.utc)
+            params["resolved_at"] = datetime.now(UTC)
     if payload.priority is not None:
         assigns.append("priority = :priority")
         params["priority"] = payload.priority.value
@@ -1112,17 +1204,21 @@ async def update_defect(
 
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
-            await session.execute(
-                text(
-                    f"""
-                    UPDATE defects SET {', '.join(assigns)}
+            (
+                await session.execute(
+                    text(
+                        f"""
+                    UPDATE defects SET {", ".join(assigns)}
                     WHERE id = :id AND organization_id = :org
                     RETURNING *
                     """
-                ),
-                params,
+                    ),
+                    params,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
     if row is None:
         raise HTTPException(status_code=404, detail="defect_not_found")
     return ok(Defect.model_validate(dict(row)).model_dump(mode="json"))
@@ -1130,8 +1226,10 @@ async def update_defect(
 
 # ---------- Helpers ----------
 
+
 def _json(value: Any) -> str | None:
     import json as _std_json
+
     if value is None:
         return None
     return _std_json.dumps(value, default=_default_serializer, ensure_ascii=False)

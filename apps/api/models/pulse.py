@@ -7,7 +7,8 @@ from uuid import UUID
 from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, Numeric, Text
 
 TZ = DateTime(timezone=True)
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
@@ -26,16 +27,12 @@ class Task(Base):
     project_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
-    parent_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE")
-    )
+    parent_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"))
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="todo", nullable=False)
     priority: Mapped[str] = mapped_column(Text, default="normal", nullable=False)
-    assignee_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    assignee_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     phase: Mapped[str | None] = mapped_column(Text)
     discipline: Mapped[str | None] = mapped_column(Text)
     start_date: Mapped[date | None] = mapped_column(Date)
@@ -43,9 +40,7 @@ class Task(Base):
     completed_at: Mapped[datetime | None] = mapped_column(TZ)
     position: Mapped[Decimal | None] = mapped_column(Numeric)
     tags: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ)
 
 
@@ -83,9 +78,7 @@ class ChangeOrder(Base):
     ai_analysis: Mapped[dict | None] = mapped_column(JSONB)
     submitted_at: Mapped[datetime | None] = mapped_column(TZ)
     approved_at: Mapped[datetime | None] = mapped_column(TZ)
-    approved_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    approved_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ)
 
 
@@ -102,9 +95,7 @@ class MeetingNote(Base):
     attendees: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
     raw_notes: Mapped[str | None] = mapped_column(Text)
     ai_structured: Mapped[dict | None] = mapped_column(JSONB)
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ)
 
 

@@ -1,8 +1,9 @@
 """FastAPI router for DRAWBRIDGE — document intelligence, conflict detection, RFIs."""
+
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
@@ -11,33 +12,39 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.envelope import Envelope, Meta, ok, paginated
+from core.envelope import Envelope, ok, paginated
 from db.deps import get_db
 from middleware.auth import AuthContext, require_auth
 from models.core import File as FileModel
 from models.drawbridge import (
     Conflict as ConflictModel,
+)
+from models.drawbridge import (
     Document as DocumentModel,
+)
+from models.drawbridge import (
     DocumentChunk as DocumentChunkModel,
+)
+from models.drawbridge import (
     DocumentSet as DocumentSetModel,
+)
+from models.drawbridge import (
     Rfi as RfiModel,
 )
 from schemas.drawbridge import (
     Conflict,
     ConflictExcerpt,
-    ConflictListFilters,
     ConflictScanRequest,
     ConflictScanResponse,
     ConflictStatus,
     ConflictUpdate,
     ConflictWithExcerpts,
     Discipline,
+    DocType,
     Document,
-    DocumentListFilters,
     DocumentSet,
     DocumentSetCreate,
     DocumentUpload,
-    DocType,
     ExtractRequest,
     ExtractResponse,
     ProcessingStatus,
@@ -48,7 +55,6 @@ from schemas.drawbridge import (
     RfiCreate,
     RfiDraft,
     RfiGenerateFromConflictRequest,
-    RfiListFilters,
     RfiPriority,
     RfiStatus,
     RfiUpdate,
@@ -61,6 +67,7 @@ router = APIRouter(prefix="/api/v1/drawbridge", tags=["drawbridge"])
 # Helpers
 # ============================================================
 
+
 def _dict(m: Any) -> dict[str, Any]:
     """Convert SQLAlchemy model to dict for pydantic validation."""
     return {c.name: getattr(m, c.name) for c in m.__table__.columns}
@@ -70,6 +77,7 @@ async def _storage_put(file_bytes: bytes, name: str, mime: str) -> str:
     """Upload to S3. Minimal implementation — swap for boto3 in production."""
     try:
         import boto3
+
         from core.config import get_settings
 
         settings = get_settings()
@@ -87,6 +95,7 @@ async def _load_conflict_excerpts(
     db: AsyncSession, conflict: ConflictModel
 ) -> tuple[ConflictExcerpt | None, ConflictExcerpt | None]:
     """Hydrate a conflict with side-by-side excerpts from both documents."""
+
     async def _one(doc_id: UUID | None, chunk_id: UUID | None) -> ConflictExcerpt | None:
         if doc_id is None:
             return None
@@ -111,6 +120,7 @@ async def _load_conflict_excerpts(
 # ============================================================
 # Documents
 # ============================================================
+
 
 @router.post("/documents/upload", response_model=Envelope[Document])
 async def upload_document(
@@ -311,6 +321,7 @@ async def delete_document(
 
 # ---------- Document sets ----------
 
+
 @router.post("/document-sets", response_model=Envelope[DocumentSet])
 async def create_document_set(
     payload: DocumentSetCreate,
@@ -349,6 +360,7 @@ async def list_document_sets(
 # Q&A
 # ============================================================
 
+
 @router.post("/query", response_model=Envelope[QueryResponse])
 async def drawbridge_query(
     payload: QueryRequest,
@@ -378,6 +390,7 @@ async def drawbridge_query(
 # ============================================================
 # Conflict detection
 # ============================================================
+
 
 @router.post("/conflict-scan", response_model=Envelope[ConflictScanResponse])
 async def conflict_scan(
@@ -473,7 +486,7 @@ async def update_conflict(
         status_value = payload.status.value if hasattr(payload.status, "value") else payload.status
         row.status = status_value
         if status_value in ("resolved", "dismissed"):
-            row.resolved_at = datetime.now(timezone.utc)
+            row.resolved_at = datetime.now(UTC)
             row.resolved_by = auth.user_id
         elif status_value == "open":
             row.resolved_at = None
@@ -489,6 +502,7 @@ async def update_conflict(
 # ============================================================
 # Extraction
 # ============================================================
+
 
 @router.post("/extract", response_model=Envelope[ExtractResponse])
 async def extract_from_document(
@@ -525,6 +539,7 @@ async def extract_from_document(
 # ============================================================
 # RFIs
 # ============================================================
+
 
 @router.get("/rfis", response_model=Envelope[list[Rfi]])
 async def list_rfis(
@@ -581,7 +596,7 @@ async def create_rfi(
         raised_by=auth.user_id,
         assigned_to=payload.assigned_to,
         due_date=payload.due_date,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     db.add(row)
     await db.commit()
@@ -664,7 +679,7 @@ async def generate_rfi_from_conflict(
         raised_by=auth.user_id,
         assigned_to=payload.assigned_to,
         due_date=payload.due_date,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     db.add(row)
     await db.commit()

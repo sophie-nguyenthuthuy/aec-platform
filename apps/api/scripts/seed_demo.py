@@ -6,12 +6,13 @@ Run locally with:
 Idempotent: re-running updates existing rows rather than duplicating them.
 Prints credentials for the demo user at the end.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import random
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
 import jwt
@@ -94,9 +95,7 @@ async def _upsert_user(session: AsyncSession) -> UUID:
     return UUID(str(row))
 
 
-async def _upsert_membership(
-    session: AsyncSession, *, org_id: UUID, user_id: UUID, role: str
-) -> None:
+async def _upsert_membership(session: AsyncSession, *, org_id: UUID, user_id: UUID, role: str) -> None:
     await session.execute(
         text(
             """
@@ -112,9 +111,7 @@ async def _upsert_membership(
 async def _upsert_project(session: AsyncSession, *, org_id: UUID) -> UUID:
     existing = (
         await session.execute(
-            text(
-                "SELECT id FROM projects WHERE organization_id = :org AND name = :name"
-            ),
+            text("SELECT id FROM projects WHERE organization_id = :org AND name = :name"),
             {"org": str(org_id), "name": DEMO_PROJECT_NAME},
         )
     ).scalar_one_or_none()
@@ -148,9 +145,7 @@ async def _upsert_project(session: AsyncSession, *, org_id: UUID) -> UUID:
     return UUID(str(row))
 
 
-async def _seed_visits(
-    session: AsyncSession, *, org_id: UUID, project_id: UUID, user_id: UUID
-) -> list[UUID]:
+async def _seed_visits(session: AsyncSession, *, org_id: UUID, project_id: UUID, user_id: UUID) -> list[UUID]:
     visit_ids: list[UUID] = []
     today = date.today()
     for i in range(5):
@@ -184,16 +179,12 @@ async def _seed_visits(
     return visit_ids
 
 
-async def _seed_photos(
-    session: AsyncSession, *, org_id: UUID, project_id: UUID, visit_ids: list[UUID]
-) -> list[UUID]:
+async def _seed_photos(session: AsyncSession, *, org_id: UUID, project_id: UUID, visit_ids: list[UUID]) -> list[UUID]:
     photo_ids: list[UUID] = []
     for visit_id in visit_ids:
         for _ in range(6):
             phase = random.choice(PHASES)
-            safety = random.choices(
-                ["clear", "warning", "critical"], weights=[80, 15, 5]
-            )[0]
+            safety = random.choices(["clear", "warning", "critical"], weights=[80, 15, 5])[0]
             ai = {
                 "description": "Ongoing structural work visible on this elevation.",
                 "detected_elements": [phase, random.choice(["rebar", "formwork", "crane"])],
@@ -220,7 +211,7 @@ async def _seed_photos(
                         "project_id": str(project_id),
                         "visit": str(visit_id),
                         "thumb": f"https://picsum.photos/seed/{uuid4()}/480/360",
-                        "taken_at": datetime.now(timezone.utc) - timedelta(hours=random.randint(1, 200)),
+                        "taken_at": datetime.now(UTC) - timedelta(hours=random.randint(1, 200)),
                         "tags": [phase],
                         "ai": json.dumps(ai),
                         "safety": safety,
@@ -231,9 +222,7 @@ async def _seed_photos(
     return photo_ids
 
 
-async def _seed_progress(
-    session: AsyncSession, *, org_id: UUID, project_id: UUID, photo_ids: list[UUID]
-) -> None:
+async def _seed_progress(session: AsyncSession, *, org_id: UUID, project_id: UUID, photo_ids: list[UUID]) -> None:
     today = date.today()
     base = 30.0
     for i in range(8, -1, -1):
@@ -271,9 +260,7 @@ async def _seed_progress(
         )
 
 
-async def _seed_incidents(
-    session: AsyncSession, *, org_id: UUID, project_id: UUID, photo_ids: list[UUID]
-) -> None:
+async def _seed_incidents(session: AsyncSession, *, org_id: UUID, project_id: UUID, photo_ids: list[UUID]) -> None:
     for i, (incident_type, severity, description) in enumerate(INCIDENT_TYPES):
         await session.execute(
             text(
@@ -289,7 +276,7 @@ async def _seed_incidents(
             {
                 "org": str(org_id),
                 "project_id": str(project_id),
-                "detected": datetime.now(timezone.utc) - timedelta(hours=6 + i * 12),
+                "detected": datetime.now(UTC) - timedelta(hours=6 + i * 12),
                 "type": incident_type,
                 "severity": severity,
                 "photo": str(photo_ids[i]) if i < len(photo_ids) else None,

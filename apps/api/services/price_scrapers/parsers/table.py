@@ -19,6 +19,7 @@ in it.
 This module has no external dependencies, so every piece of extraction
 logic can be exercised with plain list-of-lists input.
 """
+
 from __future__ import annotations
 
 import logging
@@ -38,23 +39,40 @@ logger = logging.getLogger(__name__)
 # stripped) before matching. Listed in priority order — the first alias
 # hit wins, so "đơn giá" beats the more general "giá" when both appear.
 _NAME_ALIASES: tuple[str, ...] = (
-    "ten vat lieu", "ten vat tu", "ten vat", "mo ta",
-    "ten hang", "chung loai", "danh muc", "vat lieu",
-    "material", "description", "item",
+    "ten vat lieu",
+    "ten vat tu",
+    "ten vat",
+    "mo ta",
+    "ten hang",
+    "chung loai",
+    "danh muc",
+    "vat lieu",
+    "material",
+    "description",
+    "item",
     # Bare "Tên" — listed last (lowest priority) so longer variants win
     # when both are present. Bulletins do occasionally just say "Tên".
     "ten",
 )
 
 _UNIT_ALIASES: tuple[str, ...] = (
-    "don vi tinh", "don vi", "dvt", "dv tinh",
-    "unit", "uom",
+    "don vi tinh",
+    "don vi",
+    "dvt",
+    "dv tinh",
+    "unit",
+    "uom",
 )
 
 _PRICE_ALIASES: tuple[str, ...] = (
-    "don gia truoc thue", "don gia", "gia (vnd)", "gia vnd",
-    "gia", "don-gia",
-    "price", "unit price",
+    "don gia truoc thue",
+    "don gia",
+    "gia (vnd)",
+    "gia vnd",
+    "gia",
+    "don-gia",
+    "price",
+    "unit price",
 )
 
 
@@ -143,14 +161,15 @@ def extract_prices_from_table(
     if cols is None or header_idx is None:
         logger.info(
             "parser.table: no header row found in %d rows (province=%s)",
-            len(rows), province,
+            len(rows),
+            province,
         )
         return []
 
     scraped: list[ScrapedPrice] = []
     max_idx = max(cols.name, cols.unit, cols.price)
 
-    for row in rows[header_idx + 1:]:
+    for row in rows[header_idx + 1 :]:
         # Skip ragged rows (merged cells / section separators).
         if len(row) <= max_idx:
             continue
@@ -167,7 +186,9 @@ def extract_prices_from_table(
         except InvalidOperation:
             logger.debug(
                 "parser.table: unparseable price %r for %r (province=%s)",
-                price_cell, raw_name, province,
+                price_cell,
+                raw_name,
+                province,
             )
             continue
 
@@ -187,7 +208,9 @@ def extract_prices_from_table(
 
     logger.info(
         "parser.table: extracted %d rows (province=%s, header_row=%d)",
-        len(scraped), province, header_idx,
+        len(scraped),
+        province,
+        header_idx,
     )
     return scraped
 

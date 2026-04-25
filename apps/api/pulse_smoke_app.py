@@ -1,4 +1,5 @@
 """Slim app exposing only the Pulse router for smoke testing."""
+
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException

@@ -4,6 +4,7 @@ Uploads the raw bytes to S3 under a tenant-scoped key, records a row in `files`,
 and for images optionally produces a compressed thumbnail so the mobile PWA
 doesn't have to render a 5 MB JPEG over cellular.
 """
+
 from __future__ import annotations
 
 import io

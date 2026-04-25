@@ -6,9 +6,10 @@ Confirms:
   * Both jobs are present in `WorkerSettings.functions`.
   * The monthly cron is present in `WorkerSettings.cron_jobs`.
 """
+
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -53,9 +54,7 @@ async def test_scrape_all_prices_job_enqueues_one_per_slug(monkeypatch):
 
     assert out == {"enqueued": ["moc", "hanoi", "hcmc"]}
     assert pool.enqueue_job.await_count == 3
-    for (args, _kw), expected_slug in zip(
-        pool.enqueue_job.await_args_list, ["moc", "hanoi", "hcmc"]
-    ):
+    for (args, _kw), expected_slug in zip(pool.enqueue_job.await_args_list, ["moc", "hanoi", "hcmc"], strict=False):
         name, slug = args
         assert name == "scrape_prices_job"
         assert slug == expected_slug
@@ -81,8 +80,5 @@ def test_worker_settings_registers_monthly_cron():
     # arq.cron.CronJob exposes the underlying coroutine as `.coroutine` in
     # recent versions; older ones stash it on `.func`. Accept either.
     crons = WorkerSettings.cron_jobs
-    targets = [
-        getattr(c, "coroutine", None) or getattr(c, "func", None)
-        for c in crons
-    ]
+    targets = [getattr(c, "coroutine", None) or getattr(c, "func", None) for c in crons]
     assert scrape_all_prices_job in targets

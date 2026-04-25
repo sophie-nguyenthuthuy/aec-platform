@@ -12,16 +12,13 @@ don't need Postgres or Elasticsearch. The properties we care about:
   * `sparse_query` override flows through to `_sparse_search` (HyDE-dilute
     protection for Q&A) while dense gets the full `query_text`.
 """
+
 from __future__ import annotations
 
 import asyncio
 import sys
 import time
 from pathlib import Path
-from uuid import uuid4
-
-import pytest
-
 
 _ML_ROOT = Path(__file__).resolve().parent.parent
 _API_ROOT = _ML_ROOT.parent / "api"
@@ -31,6 +28,7 @@ for _p in (_ML_ROOT, _API_ROOT):
 
 
 # ---------- _reciprocal_rank_fusion --------------------------------------
+
 
 def _doc(doc_id: str, score: float = 0.0) -> dict:
     return {"id": doc_id, "content": f"content-{doc_id}", "score": score}
@@ -113,6 +111,7 @@ def test_rrf_empty_inputs_returns_empty():
 
 # ---------- _hybrid_search -----------------------------------------------
 
+
 async def test_hybrid_search_runs_dense_and_sparse_concurrently(monkeypatch):
     """Both retrievals should await concurrently — wall-clock for two 100ms
     stubs should be ~100ms total, not ~200ms. This is the latency win the
@@ -132,7 +131,11 @@ async def test_hybrid_search_runs_dense_and_sparse_concurrently(monkeypatch):
 
     start = time.perf_counter()
     fused = await cg._hybrid_search(
-        db=None, query_text="q", categories=None, jurisdiction=None, top_k=5,
+        db=None,
+        query_text="q",
+        categories=None,
+        jurisdiction=None,
+        top_k=5,
     )
     elapsed = time.perf_counter() - start
 
@@ -158,7 +161,11 @@ async def test_hybrid_search_falls_back_to_dense_when_sparse_empty(monkeypatch):
     monkeypatch.setattr(cg, "_sparse_search", _sparse_empty)
 
     fused = await cg._hybrid_search(
-        db=None, query_text="q", categories=None, jurisdiction=None, top_k=5,
+        db=None,
+        query_text="q",
+        categories=None,
+        jurisdiction=None,
+        top_k=5,
     )
     assert [d["id"] for d in fused] == ["a", "b", "c"]
 
@@ -212,7 +219,11 @@ async def test_hybrid_search_defaults_sparse_query_to_query_text(monkeypatch):
     monkeypatch.setattr(cg, "_sparse_search", _sparse)
 
     await cg._hybrid_search(
-        db=None, query_text="same query", categories=None, jurisdiction=None, top_k=5,
+        db=None,
+        query_text="same query",
+        categories=None,
+        jurisdiction=None,
+        top_k=5,
     )
     assert captured["dense_q"] == captured["sparse_q"] == "same query"
 

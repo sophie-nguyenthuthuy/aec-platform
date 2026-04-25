@@ -7,6 +7,7 @@ parsers when the bulletin link is a binary attachment, and falls back
 to the HTML-table path otherwise. Legacy .doc / .xls bulletins are
 still logged and skipped — no parser for those yet.
 """
+
 from __future__ import annotations
 
 import logging
@@ -61,8 +62,7 @@ class HCMCScraper(BaseScraper):
                 )
             if ext == ".doc":
                 logger.warning(
-                    "HCMC scraper: legacy .doc bulletin (%s); skipping — "
-                    "no parser for binary Word format yet",
+                    "HCMC scraper: legacy .doc bulletin (%s); skipping — no parser for binary Word format yet",
                     bulletin_url,
                 )
                 return []
@@ -105,9 +105,7 @@ def _ext_of(url: str) -> str:
     return path[dot:].lower()
 
 
-_HCMC_BULLETIN_RE = re.compile(
-    r'href="([^"]*(?:thong-bao-gia|cong-bo-gia)[^"]*)"', re.IGNORECASE
-)
+_HCMC_BULLETIN_RE = re.compile(r'href="([^"]*(?:thong-bao-gia|cong-bo-gia)[^"]*)"', re.IGNORECASE)
 
 
 def _find_latest_hcmc_bulletin_url(listing_html: str) -> str | None:

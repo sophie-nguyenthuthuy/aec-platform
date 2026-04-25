@@ -16,6 +16,7 @@ grouping all run real code. Skipped when the DB URL isn't set.
     export COSTPULSE_RLS_DB_URL=postgresql+asyncpg://aec:aec@localhost:55432/aec
     pytest apps/api/tests/test_costpulse_pipeline_openai.py -v
 """
+
 from __future__ import annotations
 
 import json
@@ -106,19 +107,12 @@ async def org_and_user(session: AsyncSession):
 
     # Clean up in FK order. The pipeline creates estimates + boq_items under this org.
     await session.execute(
-        text(
-            "DELETE FROM boq_items WHERE estimate_id IN "
-            "(SELECT id FROM estimates WHERE organization_id = :o)"
-        ),
+        text("DELETE FROM boq_items WHERE estimate_id IN (SELECT id FROM estimates WHERE organization_id = :o)"),
         {"o": str(org_id)},
     )
-    await session.execute(
-        text("DELETE FROM estimates WHERE organization_id = :o"), {"o": str(org_id)}
-    )
+    await session.execute(text("DELETE FROM estimates WHERE organization_id = :o"), {"o": str(org_id)})
     await session.execute(text("DELETE FROM users WHERE id = :u"), {"u": str(user_id)})
-    await session.execute(
-        text("DELETE FROM organizations WHERE id = :o"), {"o": str(org_id)}
-    )
+    await session.execute(text("DELETE FROM organizations WHERE id = :o"), {"o": str(org_id)})
     await session.commit()
 
 
@@ -140,22 +134,38 @@ async def seeded_prices(session: AsyncSession):
         "ON CONFLICT (material_code, province, effective_date) DO UPDATE "
         "SET price_vnd = EXCLUDED.price_vnd RETURNING id"
     )
-    p1 = (await session.execute(
-        upsert,
-        {
-            "i": str(uuid4()), "c": "INT_CONC_C30", "n": "Concrete C30 (integration)",
-            "cat": "concrete", "u": "m3", "p": 2_000_000, "pr": "Hanoi",
-            "s": "government", "d": today,
-        },
-    )).scalar_one()
-    p2 = (await session.execute(
-        upsert,
-        {
-            "i": str(uuid4()), "c": "INT_REBAR_CB500", "n": "Rebar CB500 (integration)",
-            "cat": "steel", "u": "kg", "p": 20_000, "pr": "Hanoi",
-            "s": "government", "d": today,
-        },
-    )).scalar_one()
+    p1 = (
+        await session.execute(
+            upsert,
+            {
+                "i": str(uuid4()),
+                "c": "INT_CONC_C30",
+                "n": "Concrete C30 (integration)",
+                "cat": "concrete",
+                "u": "m3",
+                "p": 2_000_000,
+                "pr": "Hanoi",
+                "s": "government",
+                "d": today,
+            },
+        )
+    ).scalar_one()
+    p2 = (
+        await session.execute(
+            upsert,
+            {
+                "i": str(uuid4()),
+                "c": "INT_REBAR_CB500",
+                "n": "Rebar CB500 (integration)",
+                "cat": "steel",
+                "u": "kg",
+                "p": 20_000,
+                "pr": "Hanoi",
+                "s": "government",
+                "d": today,
+            },
+        )
+    ).scalar_one()
     await session.commit()
 
     yield {"concrete": p1, "rebar": p2}
@@ -169,11 +179,10 @@ async def seeded_prices(session: AsyncSession):
 # ---------- Tests ----------
 
 
-async def test_estimate_from_brief_end_to_end_with_mocked_llm(
-    monkeypatch, session, org_and_user, seeded_prices
-):
+async def test_estimate_from_brief_end_to_end_with_mocked_llm(monkeypatch, session, org_and_user, seeded_prices):
     """Full graph: LLM (mocked) → price lookup (real) → persist (real)."""
     from apps.ml.pipelines import costpulse as pipeline
+
     from schemas.costpulse import (
         EstimateConfidence,
         EstimateFromBriefRequest,
@@ -227,10 +236,8 @@ async def test_estimate_from_brief_end_to_end_with_mocked_llm(
     # ---- LLM interaction ----
     assert len(fake_llm.calls) == 1, "expected a single LLM roundtrip"
     prompt_msgs = fake_llm.calls[0]
-    assert any("residential" in str(m.content) for m in prompt_msgs), \
-        "project_type should appear in the user prompt"
-    assert any("200" in str(m.content) for m in prompt_msgs), \
-        "area_sqm should appear in the user prompt"
+    assert any("residential" in str(m.content) for m in prompt_msgs), "project_type should appear in the user prompt"
+    assert any("200" in str(m.content) for m in prompt_msgs), "area_sqm should appear in the user prompt"
 
     # ---- Result shape ----
     assert result.estimate_id is not None
@@ -244,16 +251,22 @@ async def test_estimate_from_brief_end_to_end_with_mocked_llm(
     # steel:    5000 kg * 1.05 waste * 20_000   = 105_000_000
     # subtotal = 311_000_000, contingency 10% = 31_100_000, grand = 342_100_000
     expected_total = Decimal("342100000")
-    assert result.total_vnd == int(expected_total), (
-        f"expected {expected_total}, got {result.total_vnd}"
-    )
+    assert result.total_vnd == int(expected_total), f"expected {expected_total}, got {result.total_vnd}"
 
     # ---- DB state: Estimate row ----
-    row = (await session.execute(
-        text("SELECT name, method, confidence, total_vnd, organization_id, created_by "
-             "FROM estimates WHERE id = :id"),
-        {"id": str(result.estimate_id)},
-    )).mappings().first()
+    row = (
+        (
+            await session.execute(
+                text(
+                    "SELECT name, method, confidence, total_vnd, organization_id, created_by "
+                    "FROM estimates WHERE id = :id"
+                ),
+                {"id": str(result.estimate_id)},
+            )
+        )
+        .mappings()
+        .first()
+    )
     assert row is not None, "estimate row must be persisted"
     assert row["name"] == "Integration Test Estimate"
     assert row["method"] == EstimateMethod.ai_generated.value
@@ -263,11 +276,19 @@ async def test_estimate_from_brief_end_to_end_with_mocked_llm(
     assert str(row["created_by"]) == str(user_id)
 
     # ---- DB state: BoqItem rows ----
-    boq_rows = (await session.execute(
-        text("SELECT code, description, material_code, quantity, unit_price_vnd, total_price_vnd "
-             "FROM boq_items WHERE estimate_id = :id ORDER BY sort_order"),
-        {"id": str(result.estimate_id)},
-    )).mappings().all()
+    boq_rows = (
+        (
+            await session.execute(
+                text(
+                    "SELECT code, description, material_code, quantity, unit_price_vnd, total_price_vnd "
+                    "FROM boq_items WHERE estimate_id = :id ORDER BY sort_order"
+                ),
+                {"id": str(result.estimate_id)},
+            )
+        )
+        .mappings()
+        .all()
+    )
 
     # 8 section parents (BOQ_SECTIONS) + 2 children under section 04 + 1 contingency row = 11
     assert len(boq_rows) == 11, f"expected 11 rows, got {len(boq_rows)}"
@@ -287,11 +308,10 @@ async def test_estimate_from_brief_end_to_end_with_mocked_llm(
     assert Decimal(contingency_row["total_price_vnd"]) == Decimal("31100000")
 
 
-async def test_estimate_from_brief_handles_bad_llm_output(
-    monkeypatch, session, org_and_user
-):
+async def test_estimate_from_brief_handles_bad_llm_output(monkeypatch, session, org_and_user):
     """LLM returning garbage → pipeline still produces a (zero-total) estimate."""
     from apps.ml.pipelines import costpulse as pipeline
+
     from schemas.costpulse import EstimateFromBriefRequest
 
     org_id, user_id = org_and_user
@@ -318,18 +338,19 @@ async def test_estimate_from_brief_handles_bad_llm_output(
     # No elements ⇒ no priced rows ⇒ zero total (just the section scaffold + 0% contingency)
     assert result.total_vnd == 0
     # Only the 8 section headers + the contingency row should be present
-    boq_count = (await session.execute(
-        text("SELECT COUNT(*) FROM boq_items WHERE estimate_id = :id"),
-        {"id": str(result.estimate_id)},
-    )).scalar_one()
+    boq_count = (
+        await session.execute(
+            text("SELECT COUNT(*) FROM boq_items WHERE estimate_id = :id"),
+            {"id": str(result.estimate_id)},
+        )
+    ).scalar_one()
     assert boq_count == 9
 
 
-async def test_estimate_from_brief_flags_missing_prices(
-    monkeypatch, session, org_and_user
-):
+async def test_estimate_from_brief_flags_missing_prices(monkeypatch, session, org_and_user):
     """When the LLM emits a code we don't have priced, `missing_price_codes` reflects it."""
     from apps.ml.pipelines import costpulse as pipeline
+
     from schemas.costpulse import EstimateFromBriefRequest
 
     org_id, user_id = org_and_user

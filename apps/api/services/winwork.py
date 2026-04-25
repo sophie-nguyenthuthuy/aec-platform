@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -9,7 +9,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.core import Project
-from models.winwork import FeeBenchmark, Proposal, ProposalTemplate
+from models.winwork import FeeBenchmark, Proposal
 from schemas.winwork import (
     BenchmarkFilters,
     FeeEstimateRequest,
@@ -25,8 +25,8 @@ from schemas.winwork import (
     WinRateAnalytics,
 )
 
-
 # ---------- Fee benchmarks ----------
+
 
 async def lookup_benchmarks(session: AsyncSession, filters: BenchmarkFilters) -> list[FeeBenchmark]:
     stmt = select(FeeBenchmark).where(FeeBenchmark.country_code == filters.country_code)
@@ -109,9 +109,8 @@ def _construction_cost_per_sqm(project_type: str) -> int:
 
 # ---------- Proposals CRUD ----------
 
-async def list_proposals(
-    session: AsyncSession, filters: ProposalListFilters
-) -> tuple[list[Proposal], int]:
+
+async def list_proposals(session: AsyncSession, filters: ProposalListFilters) -> tuple[list[Proposal], int]:
     stmt = select(Proposal)
     count_stmt = select(func.count()).select_from(Proposal)
 
@@ -127,9 +126,7 @@ async def list_proposals(
         count_stmt = count_stmt.where(or_(Proposal.title.ilike(term), Proposal.client_name.ilike(term)))
 
     stmt = (
-        stmt.order_by(Proposal.created_at.desc())
-        .offset((filters.page - 1) * filters.per_page)
-        .limit(filters.per_page)
+        stmt.order_by(Proposal.created_at.desc()).offset((filters.page - 1) * filters.per_page).limit(filters.per_page)
     )
 
     total = (await session.execute(count_stmt)).scalar_one()
@@ -141,9 +138,7 @@ async def get_proposal(session: AsyncSession, proposal_id: UUID) -> Proposal | N
     return await session.get(Proposal, proposal_id)
 
 
-async def create_proposal(
-    session: AsyncSession, org_id: UUID, user_id: UUID, data: ProposalCreate
-) -> Proposal:
+async def create_proposal(session: AsyncSession, org_id: UUID, user_id: UUID, data: ProposalCreate) -> Proposal:
     proposal = Proposal(
         id=uuid4(),
         organization_id=org_id,
@@ -160,16 +155,14 @@ async def create_proposal(
         notes=data.notes,
         ai_generated=False,
         created_by=user_id,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     session.add(proposal)
     await session.flush()
     return proposal
 
 
-async def update_proposal(
-    session: AsyncSession, proposal_id: UUID, data: ProposalUpdate
-) -> Proposal | None:
+async def update_proposal(session: AsyncSession, proposal_id: UUID, data: ProposalUpdate) -> Proposal | None:
     proposal = await session.get(Proposal, proposal_id)
     if proposal is None:
         return None
@@ -183,14 +176,12 @@ async def update_proposal(
     return proposal
 
 
-async def mark_outcome(
-    session: AsyncSession, proposal_id: UUID, data: ProposalOutcomeUpdate
-) -> Proposal | None:
+async def mark_outcome(session: AsyncSession, proposal_id: UUID, data: ProposalOutcomeUpdate) -> Proposal | None:
     proposal = await session.get(Proposal, proposal_id)
     if proposal is None:
         return None
     proposal.status = data.status
-    proposal.responded_at = datetime.now(timezone.utc)
+    proposal.responded_at = datetime.now(UTC)
     notes = proposal.notes or ""
     if data.reason:
         notes = f"{notes}\n[outcome reason] {data.reason}".strip()
@@ -224,7 +215,7 @@ async def _seed_project_from_proposal(
     """
     name = proposal.title
     if name.startswith("Proposal — "):
-        name = name[len("Proposal — "):]
+        name = name[len("Proposal — ") :]
     name = name[:200] or f"Project from proposal {proposal.id}"
 
     project = Project(
@@ -238,7 +229,7 @@ async def _seed_project_from_proposal(
             "seeded_from": "winwork.proposal",
             "proposal_id": str(proposal.id),
         },
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     session.add(project)
     await session.flush()
@@ -249,7 +240,7 @@ async def mark_sent(session: AsyncSession, proposal_id: UUID) -> Proposal | None
     stmt = (
         update(Proposal)
         .where(Proposal.id == proposal_id)
-        .values(status="sent", sent_at=datetime.now(timezone.utc))
+        .values(status="sent", sent_at=datetime.now(UTC))
         .returning(Proposal)
     )
     result = await session.execute(stmt)
@@ -257,6 +248,7 @@ async def mark_sent(session: AsyncSession, proposal_id: UUID) -> Proposal | None
 
 
 # ---------- Analytics ----------
+
 
 async def win_rate_analytics(session: AsyncSession) -> WinRateAnalytics:
     status_counts_stmt = select(Proposal.status, func.count(Proposal.id)).group_by(Proposal.status)
@@ -322,9 +314,8 @@ async def win_rate_analytics(session: AsyncSession) -> WinRateAnalytics:
 
 # ---------- Email send (stub) ----------
 
-async def send_proposal_email(
-    session: AsyncSession, proposal: Proposal, payload: SendProposalRequest
-) -> None:
+
+async def send_proposal_email(session: AsyncSession, proposal: Proposal, payload: SendProposalRequest) -> None:
     """Email sending intentionally left as a stub. Hook in an SMTP/SES client here,
     render the proposal via TipTap → HTML, and enqueue a Celery task for delivery
     so the request returns quickly."""
@@ -335,6 +326,7 @@ async def send_proposal_email(
 
 
 # ---------- Persistence hook for the AI pipeline ----------
+
 
 async def persist_generated_proposal(
     session: AsyncSession,
@@ -362,7 +354,7 @@ async def persist_generated_proposal(
         ai_generated=True,
         ai_confidence=Decimal(str(ai_output.get("confidence", 0.0))),
         created_by=user_id,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     session.add(proposal)
     await session.flush()

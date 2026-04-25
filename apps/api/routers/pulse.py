@@ -1,7 +1,8 @@
 """FastAPI router for PROJECTPULSE endpoints."""
+
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -10,33 +11,40 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
-from core.envelope import Envelope, Meta, ok, paginated
+from core.envelope import Envelope, ok, paginated
 from db.deps import get_db
 from middleware.auth import AuthContext, require_auth
 from models.pulse import (
     ChangeOrder as ChangeOrderModel,
+)
+from models.pulse import (
     ClientReport as ClientReportModel,
+)
+from models.pulse import (
     MeetingNote as MeetingNoteModel,
+)
+from models.pulse import (
     Milestone as MilestoneModel,
+)
+from models.pulse import (
     Task as TaskModel,
 )
 from schemas.pulse import (
+    RAG,
     ChangeOrder,
     ChangeOrderAIAnalysis,
     ChangeOrderApproval,
     ChangeOrderCreate,
     ChangeOrderStatus,
-    ChangeOrderUpdate,
     ClientReport,
     ClientReportContent,
     MeetingNote,
     MeetingNoteCreate,
-    MeetingStructureRequest,
     MeetingStructured,
+    MeetingStructureRequest,
     Milestone,
     Phase,
     ProjectDashboard,
-    RAG,
     ReportGenerateRequest,
     ReportSendRequest,
     ReportStatus,
@@ -48,11 +56,11 @@ from schemas.pulse import (
     TaskUpdate,
 )
 
-
 router = APIRouter(prefix="/api/v1/pulse", tags=["pulse"])
 
 
 # ---------- Dashboard ----------
+
 
 @router.get("/projects/{project_id}/dashboard", response_model=Envelope[ProjectDashboard])
 async def project_dashboard(
@@ -64,9 +72,7 @@ async def project_dashboard(
 
     counts_rows = (
         await db.execute(
-            select(TaskModel.status, func.count())
-            .where(TaskModel.project_id == project_id)
-            .group_by(TaskModel.status)
+            select(TaskModel.status, func.count()).where(TaskModel.project_id == project_id).group_by(TaskModel.status)
         )
     ).all()
     counts = TaskCountsByStatus()
@@ -88,22 +94,25 @@ async def project_dashboard(
     ).scalar_one()
 
     milestones_rows = (
-        await db.execute(
-            select(MilestoneModel)
-            .where(
-                MilestoneModel.project_id == project_id,
-                MilestoneModel.status == "upcoming",
+        (
+            await db.execute(
+                select(MilestoneModel)
+                .where(
+                    MilestoneModel.project_id == project_id,
+                    MilestoneModel.status == "upcoming",
+                )
+                .order_by(MilestoneModel.due_date.asc())
+                .limit(5)
             )
-            .order_by(MilestoneModel.due_date.asc())
-            .limit(5)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     upcoming = [Milestone.model_validate(m) for m in milestones_rows]
 
     open_co_rows = (
         await db.execute(
-            select(func.count(), func.coalesce(func.sum(ChangeOrderModel.cost_impact_vnd), 0))
-            .where(
+            select(func.count(), func.coalesce(func.sum(ChangeOrderModel.cost_impact_vnd), 0)).where(
                 ChangeOrderModel.project_id == project_id,
                 ChangeOrderModel.status.in_(["draft", "submitted"]),
             )
@@ -151,6 +160,7 @@ async def project_dashboard(
 
 
 # ---------- Tasks ----------
+
 
 @router.get("/tasks", response_model=Envelope[list[Task]])
 async def list_tasks(
@@ -205,7 +215,7 @@ async def create_task(
         position=payload.position,
         tags=list(payload.tags),
         created_by=auth.user_id,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     db.add(task)
     await db.flush()
@@ -230,7 +240,7 @@ async def update_task(
             data[key] = data[key].value if hasattr(data[key], "value") else data[key]
 
     if data.get("status") == TaskStatus.done.value and task.completed_at is None:
-        task.completed_at = datetime.now(timezone.utc)
+        task.completed_at = datetime.now(UTC)
     elif "status" in data and data["status"] != TaskStatus.done.value:
         task.completed_at = None
 
@@ -259,7 +269,7 @@ async def bulk_update_tasks(
             continue
         if item.status is not None:
             task.status = item.status.value
-            task.completed_at = datetime.now(timezone.utc) if item.status == TaskStatus.done else None
+            task.completed_at = datetime.now(UTC) if item.status == TaskStatus.done else None
         if item.phase is not None:
             task.phase = item.phase.value
         if item.position is not None:
@@ -275,6 +285,7 @@ async def bulk_update_tasks(
 
 
 # ---------- Change orders ----------
+
 
 @router.get("/change-orders", response_model=Envelope[list[ChangeOrder]])
 async def list_change_orders(
@@ -319,7 +330,7 @@ async def create_change_order(
         cost_impact_vnd=payload.cost_impact_vnd,
         schedule_impact_days=payload.schedule_impact_days,
         status=ChangeOrderStatus.draft.value,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     db.add(co)
     await db.flush()
@@ -354,7 +365,7 @@ async def analyze_change_order(
     co.ai_analysis = analysis.model_dump(mode="json")
     if co.status == ChangeOrderStatus.draft.value:
         co.status = ChangeOrderStatus.submitted.value
-        co.submitted_at = datetime.now(timezone.utc)
+        co.submitted_at = datetime.now(UTC)
     await db.flush()
     await db.refresh(co)
     return ok(ChangeOrder.model_validate(co))
@@ -373,7 +384,7 @@ async def approve_change_order(
 
     if payload.decision == "approve":
         co.status = ChangeOrderStatus.approved.value
-        co.approved_at = datetime.now(timezone.utc)
+        co.approved_at = datetime.now(UTC)
         co.approved_by = auth.user_id
     else:
         co.status = ChangeOrderStatus.rejected.value
@@ -384,6 +395,7 @@ async def approve_change_order(
 
 
 # ---------- Meeting notes ----------
+
 
 @router.post("/meeting-notes", response_model=Envelope[MeetingNote], status_code=status.HTTP_201_CREATED)
 async def create_meeting_note(
@@ -399,7 +411,7 @@ async def create_meeting_note(
         attendees=list(payload.attendees),
         raw_notes=payload.raw_notes,
         created_by=auth.user_id,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     db.add(note)
     await db.flush()
@@ -416,9 +428,7 @@ async def structure_meeting_notes(
     from ml.pipelines.pulse import structure_meeting_notes as ai_structure
 
     try:
-        structured: MeetingStructured = await ai_structure(
-            raw_notes=payload.raw_notes, language=payload.language
-        )
+        structured: MeetingStructured = await ai_structure(raw_notes=payload.raw_notes, language=payload.language)
     except Exception as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Meeting structuring failed: {exc}") from exc
 
@@ -433,7 +443,7 @@ async def structure_meeting_notes(
                 raw_notes=payload.raw_notes,
                 ai_structured=structured,
                 created_by=auth.user_id,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
         )
 
@@ -454,7 +464,7 @@ async def structure_meeting_notes(
             attendees=[],
             raw_notes=payload.raw_notes,
             created_by=auth.user_id,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         db.add(note)
 
@@ -465,6 +475,7 @@ async def structure_meeting_notes(
 
 
 # ---------- Client reports ----------
+
 
 @router.post("/client-reports/generate", response_model=Envelope[ClientReport], status_code=status.HTTP_201_CREATED)
 async def generate_client_report(
@@ -513,7 +524,7 @@ async def generate_client_report(
         rendered_html=rendered,
         pdf_url=pdf_url,
         status=ReportStatus.draft.value,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     db.add(report)
     await db.flush()
@@ -534,9 +545,11 @@ async def _render_and_store_pdf(
     notices if WeasyPrint or S3 is misconfigured, but not worth 5xx'ing the
     report (which the user just spent LLM tokens producing).
     """
-    from ml.pipelines.pulse import PDFRendererUnavailable, render_report_pdf
-    from services.pdf_storage import upload_report_pdf
     import logging
+
+    from ml.pipelines.pulse import PDFRendererUnavailable, render_report_pdf
+
+    from services.pdf_storage import upload_report_pdf
 
     logger = logging.getLogger(__name__)
 
@@ -590,7 +603,7 @@ async def send_client_report(
         pass
 
     report.status = ReportStatus.sent.value
-    report.sent_at = datetime.now(timezone.utc)
+    report.sent_at = datetime.now(UTC)
     report.sent_to = list(payload.recipients)
     await db.flush()
     await db.refresh(report)
@@ -598,6 +611,7 @@ async def send_client_report(
 
 
 # ---------- helpers ----------
+
 
 async def _project_context(db: AsyncSession, project_id: UUID) -> dict:
     row = (
@@ -638,31 +652,37 @@ async def _aggregate_report_inputs(
     completed_tasks = (await db.execute(tasks_q)).scalars().all()
 
     milestones = (
-        await db.execute(
-            select(MilestoneModel).where(MilestoneModel.project_id == project_id).order_by(MilestoneModel.due_date.asc())
+        (
+            await db.execute(
+                select(MilestoneModel)
+                .where(MilestoneModel.project_id == project_id)
+                .order_by(MilestoneModel.due_date.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     open_cos = (
-        await db.execute(
-            select(ChangeOrderModel).where(
-                and_(
-                    ChangeOrderModel.project_id == project_id,
-                    ChangeOrderModel.status.in_(["submitted", "approved"]),
+        (
+            await db.execute(
+                select(ChangeOrderModel).where(
+                    and_(
+                        ChangeOrderModel.project_id == project_id,
+                        ChangeOrderModel.status.in_(["submitted", "approved"]),
+                    )
                 )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     approved_co_cost = sum(
-        int(c.cost_impact_vnd or 0)
-        for c in open_cos
-        if c.status == ChangeOrderStatus.approved.value
+        int(c.cost_impact_vnd or 0) for c in open_cos if c.status == ChangeOrderStatus.approved.value
     )
     approved_co_schedule = sum(
-        int(c.schedule_impact_days or 0)
-        for c in open_cos
-        if c.status == ChangeOrderStatus.approved.value
+        int(c.schedule_impact_days or 0) for c in open_cos if c.status == ChangeOrderStatus.approved.value
     )
 
     progress = await _latest_progress_snapshot(db, project_id, date_to)
@@ -674,9 +694,7 @@ async def _aggregate_report_inputs(
             {"id": str(t.id), "title": t.title, "completed_at": t.completed_at, "phase": t.phase}
             for t in completed_tasks
         ],
-        "milestones": [
-            {"name": m.name, "due_date": m.due_date, "status": m.status} for m in milestones
-        ],
+        "milestones": [{"name": m.name, "due_date": m.due_date, "status": m.status} for m in milestones],
         "change_orders": [
             {
                 "number": c.number,
@@ -697,9 +715,7 @@ async def _aggregate_report_inputs(
     }
 
 
-async def _latest_progress_snapshot(
-    db: AsyncSession, project_id: UUID, as_of: date | None
-) -> dict | None:
+async def _latest_progress_snapshot(db: AsyncSession, project_id: UUID, as_of: date | None) -> dict | None:
     """Pick the newest ProgressSnapshot at or before `as_of` (or overall).
 
     Best-effort: missing SiteEye tables or empty data → return None so the LLM
@@ -724,9 +740,7 @@ async def _latest_progress_snapshot(
 
     return {
         "snapshot_date": snap.snapshot_date,
-        "overall_progress_pct": float(snap.overall_progress_pct)
-        if snap.overall_progress_pct is not None
-        else None,
+        "overall_progress_pct": float(snap.overall_progress_pct) if snap.overall_progress_pct is not None else None,
         "phase_progress": snap.phase_progress or {},
         "ai_notes": snap.ai_notes,
     }
@@ -772,9 +786,7 @@ async def _recent_site_photos(
     ]
 
 
-async def _project_budget_summary(
-    db: AsyncSession, project_id: UUID, approved_co_cost_vnd: int
-) -> dict | None:
+async def _project_budget_summary(db: AsyncSession, project_id: UUID, approved_co_cost_vnd: int) -> dict | None:
     """Budget snapshot: latest approved estimate + CO-adjusted projection.
 
     CostPulse doesn't yet model realised spend, so "actual" is proxied by

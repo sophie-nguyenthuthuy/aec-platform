@@ -1,4 +1,5 @@
 """SQLAlchemy models for DRAWBRIDGE module (documents, chunks, conflicts, RFIs)."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -6,7 +7,8 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, Text, func
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
@@ -22,9 +24,7 @@ class DocumentSet(Base):
     organization_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
-    project_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE")
-    )
+    project_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(Text, nullable=False)
     discipline: Mapped[str | None] = mapped_column(Text)
     revision: Mapped[str | None] = mapped_column(Text)
@@ -39,15 +39,11 @@ class Document(Base):
     organization_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
-    project_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE")
-    )
+    project_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"))
     document_set_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("document_sets.id", ondelete="SET NULL")
     )
-    file_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL")
-    )
+    file_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL"))
     doc_type: Mapped[str | None] = mapped_column(Text)
     drawing_number: Mapped[str | None] = mapped_column(Text)
     title: Mapped[str | None] = mapped_column(Text)
@@ -70,9 +66,7 @@ class DocumentChunk(Base):
     organization_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
-    project_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE")
-    )
+    project_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"))
     page_number: Mapped[int | None] = mapped_column(Integer)
     chunk_type: Mapped[str | None] = mapped_column(Text)
     content: Mapped[str | None] = mapped_column(Text)
@@ -87,9 +81,7 @@ class Conflict(Base):
     organization_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
-    project_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE")
-    )
+    project_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"))
     status: Mapped[str] = mapped_column(Text, default="open")
     severity: Mapped[str | None] = mapped_column(Text)
     conflict_type: Mapped[str | None] = mapped_column(Text)
@@ -110,9 +102,7 @@ class Conflict(Base):
     resolution_notes: Mapped[str | None] = mapped_column(Text)
     detected_at: Mapped[datetime] = mapped_column(TZ)
     resolved_at: Mapped[datetime | None] = mapped_column(TZ)
-    resolved_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    resolved_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
 
 
 class Rfi(Base):
@@ -122,23 +112,15 @@ class Rfi(Base):
     organization_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
-    project_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE")
-    )
+    project_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"))
     number: Mapped[str | None] = mapped_column(Text)
     subject: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="open")
     priority: Mapped[str] = mapped_column(Text, default="normal")
-    related_document_ids: Mapped[list[UUID]] = mapped_column(
-        ARRAY(PGUUID(as_uuid=True)), default=list
-    )
-    raised_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
-    assigned_to: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    related_document_ids: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID(as_uuid=True)), default=list)
+    raised_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    assigned_to: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     due_date: Mapped[date | None] = mapped_column(Date)
     response: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())

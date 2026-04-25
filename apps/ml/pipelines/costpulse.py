@@ -9,24 +9,21 @@ Graph topology (LangGraph):
     drawing_file_ids → drawing_parser (GPT-4o vision, per-page) →
         quantity_takeoff → material_mapper → price_lookup → assembler → persist
 """
+
 from __future__ import annotations
 
 import base64
 import json
 import logging
-from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from typing import Any, TypedDict
 from uuid import UUID, uuid4
 
+from core.config import get_settings
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
-from sqlalchemy import and_, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from core.config import get_settings
 from models.costpulse import BoqItem, Estimate, MaterialPrice
 from schemas.costpulse import (
     AiEstimateResult,
@@ -38,6 +35,8 @@ from schemas.costpulse import (
     EstimateMethod,
     EstimateStatus,
 )
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 _settings = get_settings()
@@ -312,7 +311,9 @@ async def drawing_parser_node(state: DrawingsState, *, db: AsyncSession) -> Draw
 
     for file_id_str in state.get("file_ids", []):
         file_id = UUID(file_id_str)
-        file_row = (await db.execute(select(FileModel).where(FileModel.id == file_id))).scalar_one_or_none()
+        file_row = (
+            await db.execute(select(FileModel).where(FileModel.id == file_id))
+        ).scalar_one_or_none()
         if file_row is None:
             continue
 
@@ -325,7 +326,10 @@ async def drawing_parser_node(state: DrawingsState, *, db: AsyncSession) -> Draw
                 SystemMessage(content=DRAWING_PARSER_SYSTEM),
                 HumanMessage(
                     content=[
-                        {"type": "text", "text": "Extract quantifiable elements from this drawing."},
+                        {
+                            "type": "text",
+                            "text": "Extract quantifiable elements from this drawing.",
+                        },
                         {
                             "type": "image_url",
                             "image_url": {"url": f"data:{file_row.mime_type};base64,{image_b64}"},
@@ -497,7 +501,9 @@ async def estimate_from_drawings(
         project_id=payload.project_id,
         name=payload.name,
         method=EstimateMethod.ai_generated,
-        confidence=EstimateConfidence.detailed if not out.get("missing") else EstimateConfidence.preliminary,
+        confidence=EstimateConfidence.detailed
+        if not out.get("missing")
+        else EstimateConfidence.preliminary,
         priced=out.get("priced", []),
         missing=out.get("missing", []),
         contingency_pct=payload.include_contingency_pct,
@@ -579,7 +585,9 @@ async def _assemble_and_persist(
                     description=ch.get("description") or ch.get("name") or "",
                     unit=ch.get("unit"),
                     quantity=Decimal(str(ch.get("quantity") or 0)),
-                    unit_price_vnd=Decimal(str(ch["unit_price_vnd"])) if ch.get("unit_price_vnd") is not None else None,
+                    unit_price_vnd=Decimal(str(ch["unit_price_vnd"]))
+                    if ch.get("unit_price_vnd") is not None
+                    else None,
                     total_price_vnd=line_total,
                     material_code=ch.get("material_code"),
                     source=BoqItemSource.ai_extracted.value,
@@ -619,10 +627,16 @@ async def _assemble_and_persist(
     await db.refresh(estimate)
 
     refreshed = (
-        await db.execute(
-            select(BoqItem).where(BoqItem.estimate_id == estimate_id).order_by(BoqItem.sort_order)
+        (
+            await db.execute(
+                select(BoqItem)
+                .where(BoqItem.estimate_id == estimate_id)
+                .order_by(BoqItem.sort_order)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     warnings: list[str] = []
     if missing:

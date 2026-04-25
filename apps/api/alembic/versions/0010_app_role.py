@@ -30,10 +30,10 @@ Revision ID: 0010_app_role
 Revises: 0009_codeguard_hnsw
 Create Date: 2026-04-23
 """
+
 from __future__ import annotations
 
 from alembic import op
-
 
 revision = "0010_app_role"
 down_revision = "0009_codeguard_hnsw"
@@ -76,13 +76,8 @@ def upgrade() -> None:
     # tables that exist *right now*, so we pair it with ALTER DEFAULT
     # PRIVILEGES below for future tables.
     op.execute(f"GRANT USAGE ON SCHEMA public TO {_APP_ROLE}")
-    op.execute(
-        f"GRANT SELECT, INSERT, UPDATE, DELETE "
-        f"ON ALL TABLES IN SCHEMA public TO {_APP_ROLE}"
-    )
-    op.execute(
-        f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {_APP_ROLE}"
-    )
+    op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {_APP_ROLE}")
+    op.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {_APP_ROLE}")
 
     # Future-proofing: any table/sequence subsequently created by `aec` (the
     # migration role) auto-grants the same DML to aec_app. Without this,
@@ -94,8 +89,7 @@ def upgrade() -> None:
         f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {_APP_ROLE}"
     )
     op.execute(
-        f"ALTER DEFAULT PRIVILEGES FOR ROLE aec IN SCHEMA public "
-        f"GRANT USAGE, SELECT ON SEQUENCES TO {_APP_ROLE}"
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE aec IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {_APP_ROLE}"
     )
 
 
@@ -108,15 +102,9 @@ def downgrade() -> None:
         f"REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM {_APP_ROLE}"
     )
     op.execute(
-        f"ALTER DEFAULT PRIVILEGES FOR ROLE aec IN SCHEMA public "
-        f"REVOKE USAGE, SELECT ON SEQUENCES FROM {_APP_ROLE}"
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE aec IN SCHEMA public REVOKE USAGE, SELECT ON SEQUENCES FROM {_APP_ROLE}"
     )
-    op.execute(
-        f"REVOKE SELECT, INSERT, UPDATE, DELETE "
-        f"ON ALL TABLES IN SCHEMA public FROM {_APP_ROLE}"
-    )
-    op.execute(
-        f"REVOKE USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public FROM {_APP_ROLE}"
-    )
+    op.execute(f"REVOKE SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public FROM {_APP_ROLE}")
+    op.execute(f"REVOKE USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public FROM {_APP_ROLE}")
     op.execute(f"REVOKE USAGE ON SCHEMA public FROM {_APP_ROLE}")
     op.execute(f"DROP ROLE IF EXISTS {_APP_ROLE}")

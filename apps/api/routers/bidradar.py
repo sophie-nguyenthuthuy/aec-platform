@@ -1,23 +1,29 @@
 """FastAPI router for BIDRADAR endpoints."""
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from ml.pipelines.bidradar import (
+    embed_tender,
+    score_tender_for_firm,
+    scrape_source,
+    send_weekly_digest,
+)
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.envelope import Envelope, Meta, ok, paginated
+from core.envelope import ok, paginated
 from db.deps import get_db
 from middleware.auth import AuthContext, require_auth
-from models.bidradar import FirmProfile as FirmProfileModel, Tender, TenderDigest, TenderMatch
+from models.bidradar import FirmProfile as FirmProfileModel
+from models.bidradar import Tender, TenderDigest, TenderMatch
 from models.winwork import Proposal as ProposalModel
 from schemas.bidradar import (
-    AIRecommendation,
-    CreateProposalRequest,
     CreateProposalResponse,
     FirmProfile,
     FirmProfileInput,
@@ -28,25 +34,20 @@ from schemas.bidradar import (
     ScrapeResult,
     SendDigestRequest,
     TenderDetail,
-    TenderMatch as TenderMatchSchema,
     TenderMatchWithTender,
     TenderSummary,
     UpdateMatchStatusRequest,
     WeeklyDigest,
 )
-
-from ml.pipelines.bidradar import (
-    embed_tender,
-    scrape_source,
-    score_tender_for_firm,
-    send_weekly_digest,
+from schemas.bidradar import (
+    TenderMatch as TenderMatchSchema,
 )
-
 
 router = APIRouter(prefix="/api/v1/bidradar", tags=["bidradar"])
 
 
 # ---------- Firm profile ----------
+
 
 @router.get("/profile")
 async def get_firm_profile(
@@ -69,7 +70,7 @@ async def upsert_firm_profile(
     stmt = select(FirmProfileModel).where(FirmProfileModel.organization_id == auth.organization_id)
     profile = (await db.execute(stmt)).scalar_one_or_none()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if profile is None:
         profile = FirmProfileModel(
             id=uuid4(),
@@ -89,6 +90,7 @@ async def upsert_firm_profile(
 
 
 # ---------- Tenders (aggregated, cross-tenant) ----------
+
 
 @router.get("/tenders")
 async def list_tenders(
@@ -147,6 +149,7 @@ async def get_tender(
 
 # ---------- Matches ----------
 
+
 @router.get("/matches")
 async def list_matches(
     auth: Annotated[AuthContext, Depends(require_auth)],
@@ -176,9 +179,7 @@ async def list_matches(
 
     items = []
     for match, tender in rows:
-        data = TenderMatchWithTender.model_validate(
-            {**match.__dict__, "tender": tender}
-        ).model_dump(mode="json")
+        data = TenderMatchWithTender.model_validate({**match.__dict__, "tender": tender}).model_dump(mode="json")
         items.append(data)
 
     return paginated(
@@ -229,7 +230,7 @@ async def update_match_status(
 
     match.status = payload.status.value
     match.reviewed_by = auth.user_id
-    match.reviewed_at = datetime.now(timezone.utc)
+    match.reviewed_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(match)
     return ok(TenderMatchSchema.model_validate(match).model_dump(mode="json"))
@@ -237,13 +238,14 @@ async def update_match_status(
 
 # ---------- Scrape + score ----------
 
+
 @router.post("/scrape")
 async def trigger_scrape(
     payload: ScrapeRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(UTC)
     try:
         scraped = await scrape_source(source=payload.source.value, max_pages=payload.max_pages)
     except Exception as exc:
@@ -332,7 +334,7 @@ async def trigger_scrape(
             new_tenders=new_count,
             matches_created=matches_created,
             started_at=started_at,
-            completed_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(UTC),
         ).model_dump(mode="json")
     )
 
@@ -351,9 +353,7 @@ async def score_matches(
     if payload.tender_ids:
         tender_ids = payload.tender_ids
     else:
-        tid_stmt = select(Tender.id).where(
-            Tender.submission_deadline > datetime.now(timezone.utc)
-        )
+        tid_stmt = select(Tender.id).where(Tender.submission_deadline > datetime.now(UTC))
         tender_ids = list((await db.execute(tid_stmt)).scalars().all())
 
     scored = await _score_and_persist(
@@ -443,6 +443,7 @@ async def _score_and_persist(
 
 # ---------- Proposal creation (routes to WinWork) ----------
 
+
 @router.post("/matches/{match_id}/create-proposal")
 async def create_proposal(
     match_id: UUID,
@@ -500,13 +501,13 @@ async def create_proposal(
             ai_confidence=None,
             notes="\n".join(notes_parts),
             created_by=auth.user_id,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         db.add(seed)
         match.proposal_id = proposal_id
         match.status = MatchStatus.pursuing.value
         match.reviewed_by = auth.user_id
-        match.reviewed_at = datetime.now(timezone.utc)
+        match.reviewed_at = datetime.now(UTC)
         await db.commit()
 
     winwork_url = f"/winwork/proposals/{proposal_id}?from_tender={tender.id}"
@@ -520,6 +521,7 @@ async def create_proposal(
 
 
 # ---------- Weekly digest ----------
+
 
 @router.get("/digests")
 async def list_digests(
@@ -543,7 +545,7 @@ async def send_digest(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     week_start = (now - timedelta(days=now.weekday())).date()
     week_end = week_start + timedelta(days=6)
 
@@ -552,7 +554,7 @@ async def send_digest(
         .where(
             and_(
                 TenderMatch.organization_id == auth.organization_id,
-                TenderMatch.created_at >= datetime.combine(week_start, datetime.min.time(), tzinfo=timezone.utc),
+                TenderMatch.created_at >= datetime.combine(week_start, datetime.min.time(), tzinfo=UTC),
                 TenderMatch.recommended_bid.is_(True),
             )
         )

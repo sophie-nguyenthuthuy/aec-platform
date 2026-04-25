@@ -13,6 +13,7 @@ parameterise per-province config (URL, canonical province name, slug).
 Provinces that diverge (HCMC publishes only DOCX, some provinces gate
 the listing behind a CAPTCHA) get a bespoke class in their own module.
 """
+
 from __future__ import annotations
 
 import logging
@@ -82,8 +83,7 @@ class GenericProvinceScraper(BaseScraper):
 
     async def scrape(self) -> list[ScrapedPrice]:
         if self._config.listing_url == PENDING_URL:
-            logger.info("scraper.generic[%s]: listing URL not yet verified; skipping",
-                        self._config.slug)
+            logger.info("scraper.generic[%s]: listing URL not yet verified; skipping", self._config.slug)
             return []
 
         client = await self._get_client()
@@ -96,8 +96,7 @@ class GenericProvinceScraper(BaseScraper):
                 base_url=_base_of(self._config.listing_url),
             )
             if bulletin_url is None:
-                logger.warning("scraper.generic[%s]: no bulletin link found",
-                               self._config.slug)
+                logger.warning("scraper.generic[%s]: no bulletin link found", self._config.slug)
                 return []
 
             ext = _ext_of(bulletin_url)
@@ -107,7 +106,9 @@ class GenericProvinceScraper(BaseScraper):
                 bulletin.raise_for_status()
                 logger.info(
                     "scraper.generic[%s]: parsing %s bulletin (%s)",
-                    self._config.slug, fmt, bulletin_url,
+                    self._config.slug,
+                    fmt,
+                    bulletin_url,
                 )
                 return parser(
                     bulletin.content,
@@ -118,7 +119,9 @@ class GenericProvinceScraper(BaseScraper):
                 logger.warning(
                     "scraper.generic[%s]: latest bulletin is a %s attachment (%s); "
                     "skipping — no parser for this format yet",
-                    self._config.slug, ext, bulletin_url,
+                    self._config.slug,
+                    ext,
+                    bulletin_url,
                 )
                 return []
 
@@ -140,9 +143,7 @@ class GenericProvinceScraper(BaseScraper):
                 for r in rows
             ]
         except Exception as exc:
-            raise ScrapeError(
-                f"generic scrape failed for {self._config.slug}: {exc}"
-            ) from exc
+            raise ScrapeError(f"generic scrape failed for {self._config.slug}: {exc}") from exc
 
     async def _get_client(self):
         if self._http is not None:

@@ -1,4 +1,5 @@
 """Pydantic schemas for HANDOVER module."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -8,8 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------- Enums ----------
+
 
 class PackageStatus(str, Enum):
     draft = "draft"
@@ -79,6 +80,7 @@ class DefectPriority(str, Enum):
 
 # ---------- Packages ----------
 
+
 class HandoverPackageCreate(BaseModel):
     project_id: UUID
     name: str = Field(min_length=1, max_length=200)
@@ -125,6 +127,7 @@ class PackageSummary(BaseModel):
 
 # ---------- Closeout items ----------
 
+
 class CloseoutItemCreate(BaseModel):
     category: CloseoutCategory
     title: str = Field(min_length=1, max_length=200)
@@ -161,6 +164,7 @@ class PackageDetail(HandoverPackage):
 
 
 # ---------- As-built drawings ----------
+
 
 class AsBuiltRegister(BaseModel):
     project_id: UUID
@@ -227,6 +231,7 @@ class PromoteDrawingsResponse(BaseModel):
 
 # ---------- O&M manual ----------
 
+
 class EquipmentSpec(BaseModel):
     tag: str = Field(description="Equipment tag, e.g. 'AHU-01'")
     name: str
@@ -274,6 +279,7 @@ class OmManual(BaseModel):
 
 
 # ---------- Warranty ----------
+
 
 class WarrantyExtractRequest(BaseModel):
     project_id: UUID
@@ -330,6 +336,7 @@ class WarrantyExtractResponse(BaseModel):
 
 # ---------- Defects ----------
 
+
 class DefectCreate(BaseModel):
     project_id: UUID
     package_id: UUID | None = None
@@ -373,6 +380,7 @@ class Defect(BaseModel):
 
 
 # ---------- List filters ----------
+
 
 class PackageListFilters(BaseModel):
     project_id: UUID | None = None

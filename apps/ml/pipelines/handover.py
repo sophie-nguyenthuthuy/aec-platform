@@ -11,22 +11,20 @@ JSON output. File contents are loaded from the shared `files` table (S3 keys)
 via the `load_text` helper, which today calls the backing storage; stubbed to
 read `extracted_metadata.text` when a worker has already done OCR.
 """
+
 from __future__ import annotations
 
 import json
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
+from langchain_anthropic import ChatAnthropic
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_anthropic import ChatAnthropic
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from schemas.handover import (
     CloseoutCategory,
     CloseoutItemCreate,
@@ -35,7 +33,8 @@ from schemas.handover import (
     MaintenanceTask,
     WarrantyItemCreate,
 )
-
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 _ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 _MAX_DOC_CHARS = 60_000
@@ -47,19 +46,22 @@ def _llm(temperature: float = 0.1) -> ChatAnthropic:
 
 # ---------- File loading ----------
 
+
 async def _load_text(db: AsyncSession, file_id: UUID) -> tuple[str, str]:
     """Return (filename, extracted_text). Assumes an earlier worker populated
     `extracted_metadata.text`; if absent, returns empty text and the pipeline
     reports low confidence rather than hallucinating.
     """
     row = (
-        await db.execute(
-            text(
-                "SELECT name, extracted_metadata FROM files WHERE id = :id"
-            ),
-            {"id": str(file_id)},
+        (
+            await db.execute(
+                text("SELECT name, extracted_metadata FROM files WHERE id = :id"),
+                {"id": str(file_id)},
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if row is None:
         return ("", "")
     metadata = row.get("extracted_metadata") or {}
@@ -145,31 +147,37 @@ async def generate_om_manual(
         return state
 
     async def node_equipment(state: _OmState) -> _OmState:
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", _OM_EQUIPMENT_SYSTEM),
-            ("human", "Discipline: {discipline}\n\nDocuments:\n{docs}\n\nReturn JSON only."),
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", _OM_EQUIPMENT_SYSTEM),
+                ("human", "Discipline: {discipline}\n\nDocuments:\n{docs}\n\nReturn JSON only."),
+            ]
+        )
         chain = prompt | _llm(temperature=0.0) | JsonOutputParser()
         try:
-            raw = await chain.ainvoke({
-                "discipline": state.discipline.value,
-                "docs": _format_documents(state.documents),
-            })
+            raw = await chain.ainvoke(
+                {
+                    "discipline": state.discipline.value,
+                    "docs": _format_documents(state.documents),
+                }
+            )
         except Exception:
             return state
         for item in raw.get("equipment", []):
             try:
-                state.equipment.append(EquipmentSpec(
-                    tag=str(item.get("tag") or "").strip(),
-                    name=str(item.get("name") or "").strip(),
-                    discipline=Discipline(item.get("discipline") or state.discipline.value),
-                    manufacturer=item.get("manufacturer"),
-                    model=item.get("model"),
-                    serial=item.get("serial"),
-                    location=item.get("location"),
-                    capacity=item.get("capacity"),
-                    notes=item.get("notes"),
-                ))
+                state.equipment.append(
+                    EquipmentSpec(
+                        tag=str(item.get("tag") or "").strip(),
+                        name=str(item.get("name") or "").strip(),
+                        discipline=Discipline(item.get("discipline") or state.discipline.value),
+                        manufacturer=item.get("manufacturer"),
+                        model=item.get("model"),
+                        serial=item.get("serial"),
+                        location=item.get("location"),
+                        capacity=item.get("capacity"),
+                        notes=item.get("notes"),
+                    )
+                )
             except ValueError:
                 continue
         state.equipment = [e for e in state.equipment if e.tag and e.name]
@@ -182,15 +190,19 @@ async def generate_om_manual(
             {"tag": e.tag, "name": e.name, "discipline": e.discipline.value, "capacity": e.capacity}
             for e in state.equipment
         ]
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", _OM_SCHEDULE_SYSTEM),
-            ("human", "Equipment:\n{equipment}\n\nReturn JSON only."),
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", _OM_SCHEDULE_SYSTEM),
+                ("human", "Equipment:\n{equipment}\n\nReturn JSON only."),
+            ]
+        )
         chain = prompt | _llm(temperature=0.1) | JsonOutputParser()
         try:
-            raw = await chain.ainvoke({
-                "equipment": json.dumps(equipment_summary, ensure_ascii=False, indent=2),
-            })
+            raw = await chain.ainvoke(
+                {
+                    "equipment": json.dumps(equipment_summary, ensure_ascii=False, indent=2),
+                }
+            )
         except Exception:
             return state
         valid_tags = {e.tag for e in state.equipment}
@@ -200,14 +212,18 @@ async def generate_om_manual(
                 continue
             duration = task.get("duration_minutes")
             try:
-                state.maintenance_schedule.append(MaintenanceTask(
-                    equipment_tag=tag,
-                    task=str(task.get("task") or "").strip(),
-                    frequency=str(task.get("frequency") or "yearly"),
-                    duration_minutes=int(duration) if isinstance(duration, (int, float)) else None,
-                    tools=[str(t) for t in (task.get("tools") or [])],
-                    safety=task.get("safety"),
-                ))
+                state.maintenance_schedule.append(
+                    MaintenanceTask(
+                        equipment_tag=tag,
+                        task=str(task.get("task") or "").strip(),
+                        frequency=str(task.get("frequency") or "yearly"),
+                        duration_minutes=int(duration)
+                        if isinstance(duration, (int, float))
+                        else None,
+                        tools=[str(t) for t in (task.get("tools") or [])],
+                        safety=task.get("safety"),
+                    )
+                )
             except (TypeError, ValueError):
                 continue
         return state
@@ -259,10 +275,12 @@ async def extract_warranty_items(
     if not documents or all(not content for _, content in documents):
         return []
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", _WARRANTY_SYSTEM),
-        ("human", "Contract documents:\n{docs}\n\nReturn JSON only."),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", _WARRANTY_SYSTEM),
+            ("human", "Contract documents:\n{docs}\n\nReturn JSON only."),
+        ]
+    )
     chain = prompt | _llm(temperature=0.0) | JsonOutputParser()
     try:
         raw = await chain.ainvoke({"docs": _format_documents(documents)})
@@ -283,19 +301,21 @@ async def extract_warranty_items(
 
         contract_file_id = contract_file_ids[i % len(contract_file_ids)]
 
-        results.append(WarrantyItemCreate(
-            project_id=project_id,
-            package_id=package_id,
-            item_name=name,
-            category=item.get("category"),
-            vendor=item.get("vendor"),
-            contract_file_id=contract_file_id,
-            warranty_period_months=int(period) if isinstance(period, (int, float)) else None,
-            start_date=start,
-            expiry_date=expiry,
-            coverage=item.get("coverage"),
-            claim_contact=item.get("claim_contact") or {},
-        ))
+        results.append(
+            WarrantyItemCreate(
+                project_id=project_id,
+                package_id=package_id,
+                item_name=name,
+                category=item.get("category"),
+                vendor=item.get("vendor"),
+                contract_file_id=contract_file_id,
+                warranty_period_months=int(period) if isinstance(period, (int, float)) else None,
+                start_date=start,
+                expiry_date=expiry,
+                coverage=item.get("coverage"),
+                claim_contact=item.get("claim_contact") or {},
+            )
+        )
     return results
 
 
@@ -311,22 +331,87 @@ def _parse_iso_date(value: Any) -> date | None:
 # ---------- Closeout checklist seeding ----------
 
 _DEFAULT_CHECKLIST: list[tuple[CloseoutCategory, str, str, bool]] = [
-    (CloseoutCategory.drawings, "As-built drawings — architecture", "Signed, dated, full set PDF + DWG.", True),
-    (CloseoutCategory.drawings, "As-built drawings — structure", "Include final structural calc report.", True),
-    (CloseoutCategory.drawings, "As-built drawings — MEP", "All disciplines merged, with equipment tags.", True),
+    (
+        CloseoutCategory.drawings,
+        "As-built drawings — architecture",
+        "Signed, dated, full set PDF + DWG.",
+        True,
+    ),
+    (
+        CloseoutCategory.drawings,
+        "As-built drawings — structure",
+        "Include final structural calc report.",
+        True,
+    ),
+    (
+        CloseoutCategory.drawings,
+        "As-built drawings — MEP",
+        "All disciplines merged, with equipment tags.",
+        True,
+    ),
     (CloseoutCategory.documents, "Project scope summary", "Final scope vs. delivered.", True),
-    (CloseoutCategory.documents, "Commissioning report", "All systems tested and signed off.", True),
-    (CloseoutCategory.certificates, "Occupancy / completion certificate", "From local authority.", True),
-    (CloseoutCategory.certificates, "Fire safety approval (PCCC)", "Final inspection certificate.", True),
-    (CloseoutCategory.certificates, "Electrical safety certificate", "From utility / licensed engineer.", True),
-    (CloseoutCategory.warranties, "Consolidated warranty register", "All vendor warranties listed + expiry.", True),
+    (
+        CloseoutCategory.documents,
+        "Commissioning report",
+        "All systems tested and signed off.",
+        True,
+    ),
+    (
+        CloseoutCategory.certificates,
+        "Occupancy / completion certificate",
+        "From local authority.",
+        True,
+    ),
+    (
+        CloseoutCategory.certificates,
+        "Fire safety approval (PCCC)",
+        "Final inspection certificate.",
+        True,
+    ),
+    (
+        CloseoutCategory.certificates,
+        "Electrical safety certificate",
+        "From utility / licensed engineer.",
+        True,
+    ),
+    (
+        CloseoutCategory.warranties,
+        "Consolidated warranty register",
+        "All vendor warranties listed + expiry.",
+        True,
+    ),
     (CloseoutCategory.manuals, "O&M manuals — MEP", "Equipment list + maintenance schedule.", True),
-    (CloseoutCategory.manuals, "Operating instructions for building systems", "Elevators, fire panel, BMS, etc.", True),
-    (CloseoutCategory.permits, "Environmental compliance records", "EIA sign-off, waste disposal.", False),
-    (CloseoutCategory.testing, "Test reports — water, fire, electrical", "Pressure tests, hi-pot, etc.", True),
+    (
+        CloseoutCategory.manuals,
+        "Operating instructions for building systems",
+        "Elevators, fire panel, BMS, etc.",
+        True,
+    ),
+    (
+        CloseoutCategory.permits,
+        "Environmental compliance records",
+        "EIA sign-off, waste disposal.",
+        False,
+    ),
+    (
+        CloseoutCategory.testing,
+        "Test reports — water, fire, electrical",
+        "Pressure tests, hi-pot, etc.",
+        True,
+    ),
     (CloseoutCategory.testing, "Commissioning data sheets", "Air balance, system start-up.", False),
-    (CloseoutCategory.other, "Keys + access register", "Physical + digital access handed over.", True),
-    (CloseoutCategory.other, "Defects list + rectification plan", "Outstanding snags with owners.", True),
+    (
+        CloseoutCategory.other,
+        "Keys + access register",
+        "Physical + digital access handed over.",
+        True,
+    ),
+    (
+        CloseoutCategory.other,
+        "Defects list + rectification plan",
+        "Outstanding snags with owners.",
+        True,
+    ),
 ]
 
 
@@ -343,14 +428,16 @@ async def seed_closeout_items(
     for sort_order, (category, title, description, required) in enumerate(_DEFAULT_CHECKLIST):
         if category == CloseoutCategory.permits and not scope.get("has_environmental_scope", True):
             continue
-        items.append(CloseoutItemCreate(
-            category=category,
-            title=title,
-            description=description,
-            required=required,
-            sort_order=sort_order,
-        ))
-    now = datetime.now(timezone.utc)
+        items.append(
+            CloseoutItemCreate(
+                category=category,
+                title=title,
+                description=description,
+                required=required,
+                sort_order=sort_order,
+            )
+        )
+    now = datetime.now(UTC)
     rows = [
         {
             "id": str(uuid4()),

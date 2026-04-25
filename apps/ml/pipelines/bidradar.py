@@ -5,23 +5,23 @@ Scrapers are pluggable per-source. Scoring runs a LangGraph state machine:
 
 LLM uses Anthropic Claude (matching the rest of the codebase).
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, TypedDict
+from collections.abc import Awaitable, Callable
+from typing import Any, TypedDict
 from uuid import UUID
 
 import httpx
 from bs4 import BeautifulSoup
+from core.config import get_settings
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field, ValidationError
-
-from core.config import get_settings
 from schemas.bidradar import AIRecommendation, CompetitionLevel
 
 logger = logging.getLogger(__name__)
@@ -86,18 +86,20 @@ async def _scrape_mua_sam_cong(max_pages: int) -> list[ScrapedTender]:
                     continue
                 href = link.get("href", "")
                 external_id = href.rstrip("/").split("/")[-1] or href
-                out.append({
-                    "external_id": external_id,
-                    "title": title,
-                    "issuer": _txt(row.select_one(".issuer, .org")),
-                    "type": _txt(row.select_one(".type")),
-                    "budget_vnd": _digits_only(_txt(row.select_one(".budget"))),
-                    "currency": "VND",
-                    "country_code": "VN",
-                    "province": _txt(row.select_one(".province")),
-                    "raw_url": href if href.startswith("http") else f"{base}{href}",
-                    "raw_payload": {"html_snippet": str(row)[:4000]},
-                })
+                out.append(
+                    {
+                        "external_id": external_id,
+                        "title": title,
+                        "issuer": _txt(row.select_one(".issuer, .org")),
+                        "type": _txt(row.select_one(".type")),
+                        "budget_vnd": _digits_only(_txt(row.select_one(".budget"))),
+                        "currency": "VND",
+                        "country_code": "VN",
+                        "province": _txt(row.select_one(".province")),
+                        "raw_url": href if href.startswith("http") else f"{base}{href}",
+                        "raw_payload": {"html_snippet": str(row)[:4000]},
+                    }
+                )
     return out
 
 
@@ -108,7 +110,9 @@ async def _scrape_philgeps(max_pages: int) -> list[ScrapedTender]:
     async with httpx.AsyncClient(headers={"User-Agent": USER_AGENT}) as client:
         for page in range(1, max_pages + 1):
             try:
-                html = await _fetch(client, f"{base}/GEPSNONPILOT/Tender/SplashBidNoticeAbstractUI.aspx?page={page}")
+                html = await _fetch(
+                    client, f"{base}/GEPSNONPILOT/Tender/SplashBidNoticeAbstractUI.aspx?page={page}"
+                )
             except httpx.HTTPError as exc:
                 logger.warning("PhilGEPS page %d failed: %s", page, exc)
                 break
@@ -121,18 +125,20 @@ async def _scrape_philgeps(max_pages: int) -> list[ScrapedTender]:
                 if not title:
                     continue
                 ref = row.get("data-ref") or _txt(row.select_one(".ref")) or title
-                out.append({
-                    "external_id": ref,
-                    "title": title,
-                    "issuer": _txt(row.select_one(".issuer, .org, td.org")),
-                    "type": _txt(row.select_one(".category")),
-                    "budget_vnd": None,
-                    "currency": "PHP",
-                    "country_code": "PH",
-                    "province": _txt(row.select_one(".area, .region")),
-                    "raw_url": base,
-                    "raw_payload": {"row_html": str(row)[:4000]},
-                })
+                out.append(
+                    {
+                        "external_id": ref,
+                        "title": title,
+                        "issuer": _txt(row.select_one(".issuer, .org, td.org")),
+                        "type": _txt(row.select_one(".category")),
+                        "budget_vnd": None,
+                        "currency": "PHP",
+                        "country_code": "PH",
+                        "province": _txt(row.select_one(".area, .region")),
+                        "raw_url": base,
+                        "raw_payload": {"row_html": str(row)[:4000]},
+                    }
+                )
     return out
 
 
@@ -156,17 +162,19 @@ async def _scrape_egp_thailand(max_pages: int) -> list[ScrapedTender]:
                 if not title:
                     continue
                 ref = _txt(row.select_one(".ref, .project-no")) or title
-                out.append({
-                    "external_id": ref,
-                    "title": title,
-                    "issuer": _txt(row.select_one(".agency")),
-                    "budget_vnd": None,
-                    "currency": "THB",
-                    "country_code": "TH",
-                    "province": _txt(row.select_one(".province")),
-                    "raw_url": base,
-                    "raw_payload": {"row_html": str(row)[:4000]},
-                })
+                out.append(
+                    {
+                        "external_id": ref,
+                        "title": title,
+                        "issuer": _txt(row.select_one(".agency")),
+                        "budget_vnd": None,
+                        "currency": "THB",
+                        "country_code": "TH",
+                        "province": _txt(row.select_one(".province")),
+                        "raw_url": base,
+                        "raw_payload": {"row_html": str(row)[:4000]},
+                    }
+                )
     return out
 
 
@@ -190,17 +198,19 @@ async def _scrape_lkpp(max_pages: int) -> list[ScrapedTender]:
                 if not title:
                     continue
                 ref = _txt(row.select_one(".kode, .ref")) or title
-                out.append({
-                    "external_id": ref,
-                    "title": title,
-                    "issuer": _txt(row.select_one(".instansi")),
-                    "budget_vnd": None,
-                    "currency": "IDR",
-                    "country_code": "ID",
-                    "province": _txt(row.select_one(".provinsi")),
-                    "raw_url": base,
-                    "raw_payload": {"row_html": str(row)[:4000]},
-                })
+                out.append(
+                    {
+                        "external_id": ref,
+                        "title": title,
+                        "issuer": _txt(row.select_one(".instansi")),
+                        "budget_vnd": None,
+                        "currency": "IDR",
+                        "country_code": "ID",
+                        "province": _txt(row.select_one(".provinsi")),
+                        "raw_url": base,
+                        "raw_payload": {"row_html": str(row)[:4000]},
+                    }
+                )
     return out
 
 
@@ -224,17 +234,19 @@ async def _scrape_gebiz(max_pages: int) -> list[ScrapedTender]:
                 if not title:
                     continue
                 ref = _txt(row.select_one(".ref-no")) or title
-                out.append({
-                    "external_id": ref,
-                    "title": title,
-                    "issuer": _txt(row.select_one(".agency")),
-                    "budget_vnd": None,
-                    "currency": "SGD",
-                    "country_code": "SG",
-                    "province": None,
-                    "raw_url": base,
-                    "raw_payload": {"row_html": str(row)[:4000]},
-                })
+                out.append(
+                    {
+                        "external_id": ref,
+                        "title": title,
+                        "issuer": _txt(row.select_one(".agency")),
+                        "budget_vnd": None,
+                        "currency": "SGD",
+                        "country_code": "SG",
+                        "province": None,
+                        "raw_url": base,
+                        "raw_payload": {"row_html": str(row)[:4000]},
+                    }
+                )
     return out
 
 
@@ -262,6 +274,7 @@ async def scrape_source(source: str, max_pages: int = 5) -> list[ScrapedTender]:
 # ============================================================
 # Scoring (LangGraph)
 # ============================================================
+
 
 class _LLMScore(BaseModel):
     win_probability: float = Field(ge=0, le=1)
@@ -314,7 +327,11 @@ def _rule_score(state: ScoreState) -> ScoreState:
         overlap = len(tt & pt) / max(len(pt), 1)
         score += 20.0 * min(overlap, 1.0)
 
-    if n["tender_province"] and n["profile_provinces"] and n["tender_province"] in n["profile_provinces"]:
+    if (
+        n["tender_province"]
+        and n["profile_provinces"]
+        and n["tender_province"] in n["profile_provinces"]
+    ):
         score += 15.0
 
     budget = n["tender_budget"]
@@ -369,10 +386,12 @@ def _build_user_prompt(state: ScoreState) -> str:
 
 def _llm_score(state: ScoreState) -> ScoreState:
     try:
-        resp = _llm().invoke([
-            SystemMessage(content=_LLM_SYSTEM),
-            HumanMessage(content=_build_user_prompt(state)),
-        ])
+        resp = _llm().invoke(
+            [
+                SystemMessage(content=_LLM_SYSTEM),
+                HumanMessage(content=_build_user_prompt(state)),
+            ]
+        )
         text = resp.content if isinstance(resp.content, str) else str(resp.content)
         result = _LLMScore.model_validate_json(_extract_json(text))
     except (ValidationError, ValueError, Exception) as exc:
@@ -482,6 +501,7 @@ async def score_tender_for_firm(tender: Any, profile: Any) -> AIRecommendation:
 # Embeddings — push tender text into the shared pgvector index
 # ============================================================
 
+
 async def embed_tender(
     db,
     organization_id: UUID,
@@ -530,6 +550,7 @@ async def embed_tender(
 # Weekly digest — email send via SMTP
 # ============================================================
 
+
 async def send_weekly_digest(
     organization_id: UUID,
     recipients: list[str],
@@ -551,12 +572,15 @@ async def send_weekly_digest(
     if not settings.smtp_host:
         logger.info(
             "SMTP unconfigured; digest payload: org=%s recipients=%s matches=%d",
-            organization_id, recipients, len(match_ids),
+            organization_id,
+            recipients,
+            len(match_ids),
         )
         return
 
-    import aiosmtplib
     from email.message import EmailMessage
+
+    import aiosmtplib
 
     msg = EmailMessage()
     msg["From"] = settings.email_from

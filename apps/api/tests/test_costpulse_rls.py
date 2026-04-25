@@ -15,6 +15,7 @@ policies fire against the same role that serves production traffic.
 If this test regresses, RLS is broken for real users — not just for a
 synthetic test role.
 """
+
 from __future__ import annotations
 
 import os
@@ -54,14 +55,15 @@ async def engine():
     # points the test at a DB that predates it, we want to fail loudly
     # with a clear message rather than reporting "policy didn't fire".
     async with engine.connect() as conn:
-        exists = (await conn.execute(
-            text("SELECT 1 FROM pg_roles WHERE rolname = :r"),
-            {"r": _APP_ROLE},
-        )).scalar()
+        exists = (
+            await conn.execute(
+                text("SELECT 1 FROM pg_roles WHERE rolname = :r"),
+                {"r": _APP_ROLE},
+            )
+        ).scalar()
         if not exists:
             pytest.skip(
-                f"role {_APP_ROLE!r} missing — run `alembic upgrade head` "
-                "so migration 0010_app_role provisions it."
+                f"role {_APP_ROLE!r} missing — run `alembic upgrade head` so migration 0010_app_role provisions it."
             )
 
     yield engine
@@ -85,30 +87,40 @@ async def two_orgs(unscoped_session: AsyncSession):
     estimate_a = uuid4()
     estimate_b = uuid4()
 
-    await unscoped_session.execute(text(
-        "INSERT INTO organizations (id, name, slug) VALUES "
-        "(:a, 'Org A (rls-test)', :sa), (:b, 'Org B (rls-test)', :sb)"
-    ), {"a": str(org_a), "b": str(org_b),
-        "sa": f"rls-a-{org_a}", "sb": f"rls-b-{org_b}"})
-    await unscoped_session.execute(text(
-        "INSERT INTO users (id, email) VALUES (:a, :ea), (:b, :eb)"
-    ), {"a": str(user_a), "b": str(user_b),
-        "ea": f"rls-a-{user_a}@test.local",
-        "eb": f"rls-b-{user_b}@test.local"})
-    await unscoped_session.execute(text(
-        "INSERT INTO estimates (id, organization_id, name, version, status, created_by) "
-        "VALUES (:id, :org, 'A estimate', 1, 'draft', :u)"
-    ), {"id": str(estimate_a), "org": str(org_a), "u": str(user_a)})
-    await unscoped_session.execute(text(
-        "INSERT INTO estimates (id, organization_id, name, version, status, created_by) "
-        "VALUES (:id, :org, 'B estimate', 1, 'draft', :u)"
-    ), {"id": str(estimate_b), "org": str(org_b), "u": str(user_b)})
+    await unscoped_session.execute(
+        text(
+            "INSERT INTO organizations (id, name, slug) VALUES "
+            "(:a, 'Org A (rls-test)', :sa), (:b, 'Org B (rls-test)', :sb)"
+        ),
+        {"a": str(org_a), "b": str(org_b), "sa": f"rls-a-{org_a}", "sb": f"rls-b-{org_b}"},
+    )
+    await unscoped_session.execute(
+        text("INSERT INTO users (id, email) VALUES (:a, :ea), (:b, :eb)"),
+        {"a": str(user_a), "b": str(user_b), "ea": f"rls-a-{user_a}@test.local", "eb": f"rls-b-{user_b}@test.local"},
+    )
+    await unscoped_session.execute(
+        text(
+            "INSERT INTO estimates (id, organization_id, name, version, status, created_by) "
+            "VALUES (:id, :org, 'A estimate', 1, 'draft', :u)"
+        ),
+        {"id": str(estimate_a), "org": str(org_a), "u": str(user_a)},
+    )
+    await unscoped_session.execute(
+        text(
+            "INSERT INTO estimates (id, organization_id, name, version, status, created_by) "
+            "VALUES (:id, :org, 'B estimate', 1, 'draft', :u)"
+        ),
+        {"id": str(estimate_b), "org": str(org_b), "u": str(user_b)},
+    )
     await unscoped_session.commit()
 
     yield {
-        "org_a": org_a, "org_b": org_b,
-        "user_a": user_a, "user_b": user_b,
-        "estimate_a": estimate_a, "estimate_b": estimate_b,
+        "org_a": org_a,
+        "org_b": org_b,
+        "user_a": user_a,
+        "user_b": user_b,
+        "estimate_a": estimate_a,
+        "estimate_b": estimate_b,
     }
 
     # Cleanup in FK-safe order.
@@ -155,18 +167,19 @@ async def test_rls_blocks_cross_org_estimate_read(engine, two_orgs):
         await s.begin()
         await _enter_rls_scope(s, two_orgs["org_a"])
 
-        rows = (await s.execute(text(
-            "SELECT id, organization_id FROM estimates WHERE id IN (:a, :b)"
-        ), {
-            "a": str(two_orgs["estimate_a"]),
-            "b": str(two_orgs["estimate_b"]),
-        })).all()
+        rows = (
+            await s.execute(
+                text("SELECT id, organization_id FROM estimates WHERE id IN (:a, :b)"),
+                {
+                    "a": str(two_orgs["estimate_a"]),
+                    "b": str(two_orgs["estimate_b"]),
+                },
+            )
+        ).all()
 
         visible_ids = {r[0] for r in rows}
         assert two_orgs["estimate_a"] in visible_ids
-        assert two_orgs["estimate_b"] not in visible_ids, (
-            "RLS leak: scoped to org A but saw org B's estimate"
-        )
+        assert two_orgs["estimate_b"] not in visible_ids, "RLS leak: scoped to org A but saw org B's estimate"
         await s.rollback()
 
 
@@ -177,31 +190,35 @@ async def test_rls_blocks_cross_org_boq_read(engine, two_orgs):
     boq_a = uuid4()
     boq_b = uuid4()
     async with factory() as s:
-        await s.execute(text(
-            "INSERT INTO boq_items (id, estimate_id, description) VALUES "
-            "(:ia, :ea, 'A item'), (:ib, :eb, 'B item')"
-        ), {
-            "ia": str(boq_a), "ea": str(two_orgs["estimate_a"]),
-            "ib": str(boq_b), "eb": str(two_orgs["estimate_b"]),
-        })
+        await s.execute(
+            text(
+                "INSERT INTO boq_items (id, estimate_id, description) VALUES (:ia, :ea, 'A item'), (:ib, :eb, 'B item')"
+            ),
+            {
+                "ia": str(boq_a),
+                "ea": str(two_orgs["estimate_a"]),
+                "ib": str(boq_b),
+                "eb": str(two_orgs["estimate_b"]),
+            },
+        )
         await s.commit()
 
     try:
         async with factory() as s:
             await s.begin()
             await _enter_rls_scope(s, two_orgs["org_a"])
-            rows = (await s.execute(text(
-                "SELECT id FROM boq_items WHERE id IN (:a, :b)"
-            ), {"a": str(boq_a), "b": str(boq_b)})).all()
+            rows = (
+                await s.execute(
+                    text("SELECT id FROM boq_items WHERE id IN (:a, :b)"), {"a": str(boq_a), "b": str(boq_b)}
+                )
+            ).all()
             ids = {r[0] for r in rows}
             assert boq_a in ids
             assert boq_b not in ids
             await s.rollback()
     finally:
         async with factory() as s:
-            await s.execute(text(
-                "DELETE FROM boq_items WHERE id IN (:a, :b)"
-            ), {"a": str(boq_a), "b": str(boq_b)})
+            await s.execute(text("DELETE FROM boq_items WHERE id IN (:a, :b)"), {"a": str(boq_a), "b": str(boq_b)})
             await s.commit()
 
 
@@ -211,12 +228,15 @@ async def test_rls_org_switch_flips_visibility(engine, two_orgs):
     async with factory() as s:
         await s.begin()
         await _enter_rls_scope(s, two_orgs["org_b"])
-        rows = (await s.execute(text(
-            "SELECT id FROM estimates WHERE id IN (:a, :b)"
-        ), {
-            "a": str(two_orgs["estimate_a"]),
-            "b": str(two_orgs["estimate_b"]),
-        })).all()
+        rows = (
+            await s.execute(
+                text("SELECT id FROM estimates WHERE id IN (:a, :b)"),
+                {
+                    "a": str(two_orgs["estimate_a"]),
+                    "b": str(two_orgs["estimate_b"]),
+                },
+            )
+        ).all()
         ids = {r[0] for r in rows}
         assert two_orgs["estimate_b"] in ids
         assert two_orgs["estimate_a"] not in ids

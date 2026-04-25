@@ -26,9 +26,9 @@ resource "aws_iam_role" "task_execution" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
+      Effect    = "Allow"
       Principal = { Service = "ecs-tasks.amazonaws.com" }
-      Action = "sts:AssumeRole"
+      Action    = "sts:AssumeRole"
     }]
   })
 }
@@ -43,8 +43,8 @@ resource "aws_iam_role_policy" "task_execution_secrets" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
-      Action = ["secretsmanager:GetSecretValue"]
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue"]
       Resource = [aws_secretsmanager_secret.db.arn]
     }]
   })
@@ -55,9 +55,9 @@ resource "aws_iam_role" "task" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
+      Effect    = "Allow"
       Principal = { Service = "ecs-tasks.amazonaws.com" }
-      Action = "sts:AssumeRole"
+      Action    = "sts:AssumeRole"
     }]
   })
 }
@@ -84,10 +84,10 @@ resource "aws_iam_role_policy" "task_s3" {
 
 locals {
   common_env = [
-    { name = "DATABASE_URL",  value = "postgresql+asyncpg://${var.db_username}:${random_password.db.result}@${aws_db_instance.main.address}:${aws_db_instance.main.port}/${aws_db_instance.main.db_name}" },
-    { name = "REDIS_URL",     value = "rediss://${aws_elasticache_replication_group.main.primary_endpoint_address}:6379/0" },
-    { name = "S3_BUCKET",     value = aws_s3_bucket.files.bucket },
-    { name = "AWS_REGION",    value = var.region },
+    { name = "DATABASE_URL", value = "postgresql+asyncpg://${var.db_username}:${random_password.db.result}@${aws_db_instance.main.address}:${aws_db_instance.main.port}/${aws_db_instance.main.db_name}" },
+    { name = "REDIS_URL", value = "rediss://${aws_elasticache_replication_group.main.primary_endpoint_address}:6379/0" },
+    { name = "S3_BUCKET", value = aws_s3_bucket.files.bucket },
+    { name = "AWS_REGION", value = var.region },
   ]
 }
 
@@ -101,11 +101,11 @@ resource "aws_ecs_task_definition" "api" {
   task_role_arn            = aws_iam_role.task.arn
 
   container_definitions = jsonencode([{
-    name      = "api"
-    image     = var.api_image
-    essential = true
+    name         = "api"
+    image        = var.api_image
+    essential    = true
     portMappings = [{ containerPort = 8000, hostPort = 8000 }]
-    environment = local.common_env
+    environment  = local.common_env
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -127,11 +127,11 @@ resource "aws_ecs_task_definition" "web" {
   task_role_arn            = aws_iam_role.task.arn
 
   container_definitions = jsonencode([{
-    name      = "web"
-    image     = var.web_image
-    essential = true
+    name         = "web"
+    image        = var.web_image
+    essential    = true
     portMappings = [{ containerPort = 3000, hostPort = 3000 }]
-    environment = [{ name = "NEXT_PUBLIC_API_URL", value = "https://api.${var.domain_name}" }]
+    environment  = [{ name = "NEXT_PUBLIC_API_URL", value = "https://api.${var.domain_name}" }]
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -153,10 +153,10 @@ resource "aws_ecs_task_definition" "worker" {
   task_role_arn            = aws_iam_role.task.arn
 
   container_definitions = jsonencode([{
-    name      = "worker"
-    image     = var.worker_image
-    essential = true
-    command   = ["celery", "-A", "tasks", "worker", "--loglevel=info"]
+    name        = "worker"
+    image       = var.worker_image
+    essential   = true
+    command     = ["celery", "-A", "tasks", "worker", "--loglevel=info"]
     environment = local.common_env
     logConfiguration = {
       logDriver = "awslogs"

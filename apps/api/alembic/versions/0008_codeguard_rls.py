@@ -13,6 +13,7 @@ Revision ID: 0008_codeguard_rls
 Revises: 0007_drawbridge_hnsw
 Create Date: 2026-04-23
 """
+
 from __future__ import annotations
 
 from alembic import op

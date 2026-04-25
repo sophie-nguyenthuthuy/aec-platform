@@ -1,4 +1,5 @@
 """Pydantic schemas for CODEGUARD module."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -8,8 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------- Enums ----------
+
 
 class RegulationCategory(str, Enum):
     fire_safety = "fire_safety"
@@ -53,6 +54,7 @@ class ChecklistItemStatus(str, Enum):
 
 # ---------- Regulations ----------
 
+
 class RegulationSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -78,6 +80,7 @@ class RegulationDetail(RegulationSummary):
 
 
 # ---------- Query (Q&A) ----------
+
 
 class QueryRequest(BaseModel):
     project_id: UUID | None = None
@@ -105,6 +108,7 @@ class QueryResponse(BaseModel):
 
 
 # ---------- Auto-scan ----------
+
 
 class ProjectParameters(BaseModel):
     project_type: str = Field(description="residential | commercial | mixed_use | industrial | public")
@@ -146,6 +150,7 @@ class ScanResponse(BaseModel):
 
 # ---------- Permit checklist ----------
 
+
 class PermitChecklistRequest(BaseModel):
     project_id: UUID
     jurisdiction: str
@@ -184,6 +189,7 @@ class MarkItemRequest(BaseModel):
 
 
 # ---------- Compliance check records ----------
+
 
 class ComplianceCheck(BaseModel):
     model_config = ConfigDict(from_attributes=True)

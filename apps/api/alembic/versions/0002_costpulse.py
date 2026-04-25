@@ -4,11 +4,13 @@ Revision ID: 0002_costpulse
 Revises: 0001_core
 Create Date: 2026-04-22
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "0002_costpulse"
 down_revision = "0001_core"
@@ -20,7 +22,12 @@ def upgrade() -> None:
     op.create_table(
         "suppliers",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=True,
+        ),
         sa.Column("name", sa.Text, nullable=False),
         sa.Column("categories", postgresql.ARRAY(sa.Text), server_default=sa.text("ARRAY[]::text[]")),
         sa.Column("provinces", postgresql.ARRAY(sa.Text), server_default=sa.text("ARRAY[]::text[]")),
@@ -47,7 +54,9 @@ def upgrade() -> None:
         sa.Column("effective_date", sa.Date, nullable=False),
         sa.Column("expires_date", sa.Date),
         sa.Column("supplier_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("suppliers.id", ondelete="SET NULL")),
-        sa.UniqueConstraint("material_code", "province", "effective_date", name="uq_material_prices_code_province_date"),
+        sa.UniqueConstraint(
+            "material_code", "province", "effective_date", name="uq_material_prices_code_province_date"
+        ),
     )
     op.create_index("ix_material_prices_code", "material_prices", ["material_code"])
     op.create_index("ix_material_prices_category", "material_prices", ["category"])
@@ -57,7 +66,12 @@ def upgrade() -> None:
     op.create_table(
         "estimates",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("project_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="SET NULL")),
         sa.Column("name", sa.Text, nullable=False),
         sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
@@ -75,7 +89,12 @@ def upgrade() -> None:
     op.create_table(
         "boq_items",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("estimate_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("estimates.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "estimate_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("estimates.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("parent_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("boq_items.id", ondelete="CASCADE")),
         sa.Column("sort_order", sa.Integer, server_default=sa.text("0")),
         sa.Column("code", sa.Text),
@@ -94,11 +113,18 @@ def upgrade() -> None:
     op.create_table(
         "rfqs",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("project_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="SET NULL")),
         sa.Column("estimate_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("estimates.id", ondelete="SET NULL")),
         sa.Column("status", sa.Text, nullable=False, server_default="draft"),
-        sa.Column("sent_to", postgresql.ARRAY(postgresql.UUID(as_uuid=True)), server_default=sa.text("ARRAY[]::uuid[]")),
+        sa.Column(
+            "sent_to", postgresql.ARRAY(postgresql.UUID(as_uuid=True)), server_default=sa.text("ARRAY[]::uuid[]")
+        ),
         sa.Column("responses", postgresql.JSONB, server_default=sa.text("'[]'::jsonb")),
         sa.Column("deadline", sa.Date),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("NOW()")),
@@ -109,8 +135,15 @@ def upgrade() -> None:
     op.create_table(
         "price_alerts",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        ),
         sa.Column("material_code", sa.Text, nullable=False),
         sa.Column("province", sa.Text),
         sa.Column("threshold_pct", sa.Numeric, server_default=sa.text("5")),

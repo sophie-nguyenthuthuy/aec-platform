@@ -14,13 +14,11 @@ Two layers of coverage:
      matters in prod — not a LangChain-wiring test, a "we don't burn tokens
      AND we don't hallucinate when we have nothing to say" test.
 """
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
-
-import pytest
-
 
 _ML_ROOT = Path(__file__).resolve().parent.parent
 _API_ROOT = _ML_ROOT.parent / "api"
@@ -30,6 +28,7 @@ for _p in (_ML_ROOT, _API_ROOT):
 
 
 # ---------- _abstain_response ---------------------------------------------
+
 
 def test_abstain_response_vietnamese():
     from pipelines.codeguard import _abstain_response
@@ -62,6 +61,7 @@ def test_abstain_response_unknown_language_falls_back_to_english():
 
 # ---------- End-to-end: LLM must NOT be called on empty retrieval --------
 
+
 async def test_pipeline_abstains_without_calling_llm_when_retrieval_empty(monkeypatch):
     """The load-bearing contract: empty retrieval → no LLM call, no tokens
     burned, no hallucinated answer.
@@ -76,10 +76,12 @@ async def test_pipeline_abstains_without_calling_llm_when_retrieval_empty(monkey
 
     async def _no_hyde(_q, _lang):
         return ""
+
     monkeypatch.setattr(cg, "_hyde_expand", _no_hyde)
 
     async def _empty_hybrid(*_args, **_kwargs):
         return []
+
     monkeypatch.setattr(cg, "_hybrid_search", _empty_hybrid)
 
     def _llm_must_not_be_called(*_a, **_kw):
@@ -87,6 +89,7 @@ async def test_pipeline_abstains_without_calling_llm_when_retrieval_empty(monkey
             "_llm was constructed on the zero-retrieval path — "
             "the abstain guard should have short-circuited before this."
         )
+
     monkeypatch.setattr(cg, "_llm", _llm_must_not_be_called)
 
     result = await answer_regulation_query(
@@ -112,8 +115,10 @@ async def test_pipeline_abstain_respects_language_parameter(monkeypatch):
 
     async def _no_hyde(_q, _lang):
         return ""
+
     async def _empty_hybrid(*_args, **_kwargs):
         return []
+
     def _llm_must_not_be_called(*_a, **_kw):
         raise AssertionError("_llm should not be constructed on abstain path")
 
@@ -141,8 +146,10 @@ async def test_pipeline_language_autodetected_when_none(monkeypatch):
 
     async def _no_hyde(_q, _lang):
         return ""
+
     async def _empty_hybrid(*_args, **_kwargs):
         return []
+
     def _llm_must_not_be_called(*_a, **_kw):
         raise AssertionError("_llm should not be constructed on abstain path")
 

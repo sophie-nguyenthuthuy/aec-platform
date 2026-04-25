@@ -1,4 +1,5 @@
 """Pydantic schemas for CostPulse module."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -9,8 +10,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------- Enums ----------
+
 
 class MaterialCategory(str, Enum):
     concrete = "concrete"
@@ -61,6 +62,7 @@ class BoqItemSource(str, Enum):
 
 # ---------- Prices ----------
 
+
 class MaterialPriceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -104,6 +106,7 @@ class PriceHistoryResponse(BaseModel):
 
 
 # ---------- Estimates ----------
+
 
 class EstimateFromBriefRequest(BaseModel):
     project_id: UUID | None = None
@@ -191,6 +194,7 @@ class UpdateBoqRequest(BaseModel):
 
 # ---------- Suppliers ----------
 
+
 class SupplierOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -212,6 +216,7 @@ class SupplierCreate(BaseModel):
 
 
 # ---------- RFQ ----------
+
 
 class RfqCreate(BaseModel):
     project_id: UUID | None = None
@@ -236,6 +241,7 @@ class RfqOut(BaseModel):
 
 # ---------- Analytics ----------
 
+
 class CostBenchmarkQuery(BaseModel):
     project_type: str | None = None
     province: str | None = None
@@ -257,6 +263,7 @@ class CostBenchmarkResponse(BaseModel):
 
 
 # ---------- AI pipeline output ----------
+
 
 class AiEstimateResult(BaseModel):
     estimate_id: UUID

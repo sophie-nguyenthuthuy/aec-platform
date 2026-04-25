@@ -16,6 +16,7 @@ We verify two things:
      updates in place rather than inserting a duplicate — which matters
      because provinces republish bulletins with corrections.
 """
+
 from __future__ import annotations
 
 import os
@@ -45,9 +46,7 @@ pytestmark = [
 async def _wipe() -> None:
     """Delete any leftover writer-test rows so runs are independent."""
     async with SessionFactory() as s:
-        await s.execute(
-            text("DELETE FROM material_prices WHERE material_code LIKE 'SCRAPER_WRITER_%'")
-        )
+        await s.execute(text("DELETE FROM material_prices WHERE material_code LIKE 'SCRAPER_WRITER_%'"))
         await s.commit()
 
 
@@ -96,10 +95,18 @@ async def test_write_prices_inserts_new_rows():
     assert summary == {"inserted_or_updated": 2}
 
     async with SessionFactory() as s:
-        out = (await s.execute(
-            text("SELECT material_code, price_vnd, source FROM material_prices "
-                 "WHERE material_code LIKE 'SCRAPER_WRITER_%' ORDER BY material_code")
-        )).mappings().all()
+        out = (
+            (
+                await s.execute(
+                    text(
+                        "SELECT material_code, price_vnd, source FROM material_prices "
+                        "WHERE material_code LIKE 'SCRAPER_WRITER_%' ORDER BY material_code"
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
 
     assert len(out) == 2
     assert out[0]["material_code"] == "SCRAPER_WRITER_CONC"
@@ -117,18 +124,19 @@ async def test_write_prices_updates_on_conflict():
         province="Hanoi",
         effective_date=date(2026, 3, 1),
     )
-    await write_prices([
-        NormalisedPrice(name="Before", price_vnd=Decimal("2000000"), source_url=None, **key)
-    ])
-    await write_prices([
-        NormalisedPrice(name="After", price_vnd=Decimal("2100000"), source_url=None, **key)
-    ])
+    await write_prices([NormalisedPrice(name="Before", price_vnd=Decimal("2000000"), source_url=None, **key)])
+    await write_prices([NormalisedPrice(name="After", price_vnd=Decimal("2100000"), source_url=None, **key)])
 
     async with SessionFactory() as s:
-        out = (await s.execute(
-            text("SELECT name, price_vnd FROM material_prices "
-                 "WHERE material_code = 'SCRAPER_WRITER_UPDATE'")
-        )).mappings().all()
+        out = (
+            (
+                await s.execute(
+                    text("SELECT name, price_vnd FROM material_prices WHERE material_code = 'SCRAPER_WRITER_UPDATE'")
+                )
+            )
+            .mappings()
+            .all()
+        )
 
     assert len(out) == 1, "conflict must UPDATE, not INSERT a duplicate"
     assert out[0]["name"] == "After"

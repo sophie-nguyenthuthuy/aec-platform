@@ -10,6 +10,7 @@ Covers the upload → enqueue → analyze → report chain:
 Redis and the ML pipelines are mocked so this suite runs without Redis,
 Postgres, or any model weights.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -17,7 +18,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
-
 
 ORG_ID = UUID("22222222-2222-2222-2222-222222222222")
 PROJECT_ID = UUID("33333333-3333-3333-3333-333333333333")
@@ -44,6 +44,7 @@ def reset_redis_singleton():
 
 
 # ---------- Enqueue helpers ----------
+
 
 @asyncio_test
 async def test_enqueue_photo_analysis_pushes_serialized_ids(fake_pool):
@@ -85,6 +86,7 @@ async def test_enqueue_weekly_report_serializes_dates(fake_pool):
 
 # ---------- Job handlers ----------
 
+
 @asyncio_test
 async def test_photo_analysis_job_fans_out_and_aggregates(monkeypatch):
     from workers import queue
@@ -96,10 +98,14 @@ async def test_photo_analysis_job_fans_out_and_aggregates(monkeypatch):
     import sys
     import types
 
-    fake_mod = types.ModuleType("apps.ml.pipelines.siteeye")
+    # Worker imports `from ml.pipelines.siteeye import ...` — stub *that*
+    # path. The `apps.*` form resolves to a different sys.modules entry
+    # under the dual-PYTHONPATH used in tests.
+    fake_mod = types.ModuleType("ml.pipelines.siteeye")
     fake_mod.run_photo_analysis = run_photo
     fake_mod._aggregate_progress = aggregate
     monkeypatch.setitem(sys.modules, "apps.ml.pipelines.siteeye", fake_mod)
+    monkeypatch.setitem(sys.modules, "ml.pipelines.siteeye", fake_mod)
 
     photo_ids = [uuid4(), uuid4()]
     result = await queue.photo_analysis_job(
@@ -111,7 +117,7 @@ async def test_photo_analysis_job_fans_out_and_aggregates(monkeypatch):
 
     assert result == {"analyzed": 2}
     assert run_photo.await_count == 2
-    for call, pid in zip(run_photo.await_args_list, photo_ids):
+    for call, pid in zip(run_photo.await_args_list, photo_ids, strict=False):
         assert call.kwargs == {
             "organization_id": ORG_ID,
             "project_id": PROJECT_ID,
@@ -135,10 +141,11 @@ async def test_photo_analysis_job_swallows_per_photo_errors(monkeypatch):
     import sys
     import types
 
-    fake_mod = types.ModuleType("apps.ml.pipelines.siteeye")
+    fake_mod = types.ModuleType("ml.pipelines.siteeye")
     fake_mod.run_photo_analysis = _run
     fake_mod._aggregate_progress = AsyncMock(return_value=None)
     monkeypatch.setitem(sys.modules, "apps.ml.pipelines.siteeye", fake_mod)
+    monkeypatch.setitem(sys.modules, "ml.pipelines.siteeye", fake_mod)
 
     photo_ids = [uuid4(), uuid4()]
     result = await queue.photo_analysis_job(
@@ -163,9 +170,10 @@ async def test_weekly_report_job_delegates_to_pipeline(monkeypatch):
     import sys
     import types
 
-    fake_mod = types.ModuleType("apps.ml.pipelines.siteeye")
+    fake_mod = types.ModuleType("ml.pipelines.siteeye")
     fake_mod.generate_weekly_report = generate
     monkeypatch.setitem(sys.modules, "apps.ml.pipelines.siteeye", fake_mod)
+    monkeypatch.setitem(sys.modules, "ml.pipelines.siteeye", fake_mod)
 
     result = await queue.weekly_report_job(
         ctx={},
@@ -186,10 +194,9 @@ async def test_weekly_report_job_delegates_to_pipeline(monkeypatch):
 
 # ---------- Cron ----------
 
+
 @asyncio_test
-async def test_weekly_report_cron_enqueues_one_job_per_active_project(
-    fake_pool, monkeypatch
-):
+async def test_weekly_report_cron_enqueues_one_job_per_active_project(fake_pool, monkeypatch):
     from workers import queue
 
     active_projects = [
@@ -222,9 +229,7 @@ async def test_weekly_report_cron_enqueues_one_job_per_active_project(
 
     assert result["projects_queued"] == 3
     assert fake_pool.enqueue_job.await_count == 3
-    for call, (org_id, project_id) in zip(
-        fake_pool.enqueue_job.await_args_list, active_projects
-    ):
+    for call, (org_id, project_id) in zip(fake_pool.enqueue_job.await_args_list, active_projects, strict=False):
         name, org_arg, project_arg, *_dates = call.args
         assert name == "weekly_report_job"
         assert org_arg == str(org_id)
@@ -232,9 +237,7 @@ async def test_weekly_report_cron_enqueues_one_job_per_active_project(
 
 
 @asyncio_test
-async def test_weekly_report_cron_no_activity_enqueues_nothing(
-    fake_pool, monkeypatch
-):
+async def test_weekly_report_cron_no_activity_enqueues_nothing(fake_pool, monkeypatch):
     from workers import queue
 
     class _EmptySession:
@@ -261,6 +264,7 @@ async def test_weekly_report_cron_no_activity_enqueues_nothing(
 
 
 # ---------- Worker registration ----------
+
 
 def test_worker_settings_registers_all_job_handlers():
     from workers.queue import (

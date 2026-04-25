@@ -27,22 +27,20 @@ Skipped unless all four env vars are set:
     DATABASE_URL=<same as COSTPULSE_RLS_APP_URL>
     DATABASE_URL_ADMIN=<same as COSTPULSE_RLS_ADMIN_URL>
 """
+
 from __future__ import annotations
 
 import asyncio
 import os
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-
 _REDIS_URL = os.environ.get("REDIS_URL")
-_ADMIN_URL = os.environ.get("DATABASE_URL_ADMIN") or os.environ.get(
-    "COSTPULSE_RLS_ADMIN_URL"
-)
+_ADMIN_URL = os.environ.get("DATABASE_URL_ADMIN") or os.environ.get("COSTPULSE_RLS_ADMIN_URL")
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -71,29 +69,39 @@ async def seed():
     material_code = f"E2E_ARQ_{uuid4().hex[:8].upper()}"
 
     async with admin_factory() as s:
-        await s.execute(text(
-            "INSERT INTO organizations (id, name, slug) VALUES (:id, 'E2E arq', :slug)"
-        ), {"id": str(org_id), "slug": f"e2e-arq-{org_id}"})
-        await s.execute(text(
-            "INSERT INTO users (id, email) VALUES (:id, :email)"
-        ), {"id": str(user_id), "email": f"e2e-arq-{user_id}@test.local"})
+        await s.execute(
+            text("INSERT INTO organizations (id, name, slug) VALUES (:id, 'E2E arq', :slug)"),
+            {"id": str(org_id), "slug": f"e2e-arq-{org_id}"},
+        )
+        await s.execute(
+            text("INSERT INTO users (id, email) VALUES (:id, :email)"),
+            {"id": str(user_id), "email": f"e2e-arq-{user_id}@test.local"},
+        )
         # Alert with NO baseline — first-observation path: no email, just
         # stamp `last_price_vnd` on the first evaluator pass.
-        await s.execute(text(
-            "INSERT INTO price_alerts "
-            "(id, organization_id, user_id, material_code, threshold_pct) "
-            "VALUES (:id, :org, :uid, :code, 5)"
-        ), {
-            "id": str(alert_id), "org": str(org_id),
-            "uid": str(user_id), "code": material_code,
-        })
+        await s.execute(
+            text(
+                "INSERT INTO price_alerts "
+                "(id, organization_id, user_id, material_code, threshold_pct) "
+                "VALUES (:id, :org, :uid, :code, 5)"
+            ),
+            {
+                "id": str(alert_id),
+                "org": str(org_id),
+                "uid": str(user_id),
+                "code": material_code,
+            },
+        )
         # Matching price — `evaluate_price_alerts` joins via a LATERAL on
         # material_code + effective_date DESC. One row is enough.
-        await s.execute(text(
-            "INSERT INTO material_prices "
-            "(id, material_code, name, unit, price_vnd, source, effective_date) "
-            "VALUES (:id, :code, 'E2E Concrete', 'm3', 2100000, 'government', '2026-04-01')"
-        ), {"id": str(material_price_id), "code": material_code})
+        await s.execute(
+            text(
+                "INSERT INTO material_prices "
+                "(id, material_code, name, unit, price_vnd, source, effective_date) "
+                "VALUES (:id, :code, 'E2E Concrete', 'm3', 2100000, 'government', '2026-04-01')"
+            ),
+            {"id": str(material_price_id), "code": material_code},
+        )
         await s.commit()
 
     yield {
@@ -104,19 +112,13 @@ async def seed():
     }
 
     async with admin_factory() as s:
-        await s.execute(
-            text("DELETE FROM price_alerts WHERE id = :id"), {"id": str(alert_id)}
-        )
+        await s.execute(text("DELETE FROM price_alerts WHERE id = :id"), {"id": str(alert_id)})
         await s.execute(
             text("DELETE FROM material_prices WHERE material_code = :code"),
             {"code": material_code},
         )
-        await s.execute(
-            text("DELETE FROM users WHERE id = :id"), {"id": str(user_id)}
-        )
-        await s.execute(
-            text("DELETE FROM organizations WHERE id = :id"), {"id": str(org_id)}
-        )
+        await s.execute(text("DELETE FROM users WHERE id = :id"), {"id": str(user_id)})
+        await s.execute(text("DELETE FROM organizations WHERE id = :id"), {"id": str(org_id)})
         await s.commit()
     await admin_engine.dispose()
 
@@ -183,18 +185,14 @@ async def test_price_alert_evaluator_runs_end_to_end_through_real_worker(seed):
     try:
         async_factory = async_sessionmaker(admin_engine, expire_on_commit=False)
         async with async_factory() as s:
-            row = (await s.execute(
-                sql_text(
-                    "SELECT last_price_vnd FROM price_alerts WHERE id = :id"
-                ),
-                {"id": str(seed["alert_id"])},
-            )).first()
+            row = (
+                await s.execute(
+                    sql_text("SELECT last_price_vnd FROM price_alerts WHERE id = :id"),
+                    {"id": str(seed["alert_id"])},
+                )
+            ).first()
             assert row is not None, "seeded alert vanished"
-            assert row[0] is not None, (
-                "baseline was NOT stamped — evaluator didn't touch this row"
-            )
-            assert Decimal(row[0]) == Decimal(2100000), (
-                f"unexpected baseline: {row[0]} (expected 2100000)"
-            )
+            assert row[0] is not None, "baseline was NOT stamped — evaluator didn't touch this row"
+            assert Decimal(row[0]) == Decimal(2100000), f"unexpected baseline: {row[0]} (expected 2100000)"
     finally:
         await admin_engine.dispose()

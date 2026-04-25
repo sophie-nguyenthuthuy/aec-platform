@@ -6,6 +6,7 @@ The `fake_db` is a minimal async session stub that records `add()` calls
 and satisfies `flush()` / `refresh()` / `get()` / `execute()` with
 parameterisable return values.
 """
+
 from __future__ import annotations
 
 import os
@@ -63,8 +64,7 @@ def pytest_addoption(parser):
         "--integration",
         action="store_true",
         default=False,
-        help="Run integration tests that hit a live Postgres / Redis "
-             "(see Makefile: `make test-api-integration`).",
+        help="Run integration tests that hit a live Postgres / Redis (see Makefile: `make test-api-integration`).",
     )
 
 
@@ -81,8 +81,9 @@ def pytest_collection_modifyitems(config, items):
 
 # ---------- Auth ----------
 
+
 @pytest.fixture
-def fake_auth() -> "AuthContext":
+def fake_auth() -> AuthContext:
     from middleware.auth import AuthContext
 
     return AuthContext(
@@ -94,6 +95,7 @@ def fake_auth() -> "AuthContext":
 
 
 # ---------- Fake DB session ----------
+
 
 class FakeAsyncSession:
     """In-memory async session stub sufficient for router-level tests.
@@ -150,6 +152,7 @@ def fake_db() -> FakeAsyncSession:
 
 # ---------- App with overrides ----------
 
+
 @pytest.fixture
 def app(fake_auth, fake_db) -> Iterator[FastAPI]:
     """Build an isolated FastAPI instance that mounts only the codeguard router.
@@ -191,6 +194,7 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 
 
 # ---------- Shared factories ----------
+
 
 @pytest.fixture
 def make_citation():
@@ -240,25 +244,19 @@ def mock_llm(monkeypatch):
     class _Installer:
         def query(self, *, returns) -> AsyncMock:
             mock = AsyncMock(return_value=returns)
-            monkeypatch.setattr(
-                "ml.pipelines.codeguard.answer_regulation_query", mock
-            )
+            monkeypatch.setattr("ml.pipelines.codeguard.answer_regulation_query", mock)
             installed["query"] = mock
             return mock
 
         def scan(self, *, findings, regs) -> AsyncMock:
             mock = AsyncMock(return_value=(findings, regs))
-            monkeypatch.setattr(
-                "ml.pipelines.codeguard.auto_scan_project", mock
-            )
+            monkeypatch.setattr("ml.pipelines.codeguard.auto_scan_project", mock)
             installed["scan"] = mock
             return mock
 
         def checklist(self, *, items) -> AsyncMock:
             mock = AsyncMock(return_value=items)
-            monkeypatch.setattr(
-                "ml.pipelines.codeguard.generate_permit_checklist", mock
-            )
+            monkeypatch.setattr("ml.pipelines.codeguard.generate_permit_checklist", mock)
             installed["checklist"] = mock
             return mock
 

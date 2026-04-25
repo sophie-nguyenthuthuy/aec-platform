@@ -6,6 +6,7 @@ Architecture:
     → Cross-encoder re-ranking (bge-reranker-v2-m3)
     → LLM generation with structured output (Anthropic Claude)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -17,15 +18,12 @@ from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
 from langchain_anthropic import ChatAnthropic
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import OpenAIEmbeddings
-from langgraph.graph import StateGraph, END
-from sqlalchemy import text, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
-
 from schemas.codeguard import (
     ChecklistItem,
     Citation,
@@ -36,7 +34,8 @@ from schemas.codeguard import (
     RegulationCategory,
     Severity,
 )
-
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # ---------- Model / index clients ----------
 
@@ -57,6 +56,7 @@ def _embedder() -> OpenAIEmbeddings:
 
 # ---------- Language detection & HyDE expansion ----------
 
+
 def _detect_language(text_in: str) -> str:
     # Lightweight heuristic; replace with fasttext lid.176 in production.
     vietnamese_markers = "ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ"
@@ -65,18 +65,24 @@ def _detect_language(text_in: str) -> str:
 
 async def _hyde_expand(question: str, language: str) -> str:
     """Generate a hypothetical regulation excerpt to improve dense retrieval."""
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a Vietnamese building code expert. Given a question, "
-                   "write a plausible regulation paragraph that would answer it. "
-                   "Respond in the target language ({language}). Be specific and technical."),
-        ("human", "{question}"),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "You are a Vietnamese building code expert. Given a question, "
+                "write a plausible regulation paragraph that would answer it. "
+                "Respond in the target language ({language}). Be specific and technical.",
+            ),
+            ("human", "{question}"),
+        ]
+    )
     chain = prompt | _llm(temperature=0.3)
     result = await chain.ainvoke({"question": question, "language": language})
     return result.content if isinstance(result.content, str) else str(result.content)
 
 
 # ---------- Retrieval ----------
+
 
 async def _dense_search(
     db: AsyncSession,
@@ -107,7 +113,7 @@ async def _dense_search(
                1 - (c.embedding_half <=> CAST(:vec AS halfvec)) AS score
         FROM regulation_chunks c
         JOIN regulations r ON r.id = c.regulation_id
-        WHERE {' AND '.join(where_clauses)}
+        WHERE {" AND ".join(where_clauses)}
         ORDER BY c.embedding_half <=> CAST(:vec AS halfvec)
         LIMIT :limit
     """)
@@ -164,7 +170,9 @@ async def _sparse_search(
         # dense-only), but silence in prod masks real ES outages. Log once
         # per failed query at WARNING — noisy enough to show up in alerts,
         # not so noisy it drowns the log if ES is down for an hour.
-        logger.warning("codeguard: BM25/Elasticsearch query failed, falling back to dense-only: %s", exc)
+        logger.warning(
+            "codeguard: BM25/Elasticsearch query failed, falling back to dense-only: %s", exc
+        )
         return []
     finally:
         await es.close()
@@ -232,12 +240,15 @@ async def _hybrid_search(
     return _reciprocal_rank_fusion(dense, sparse)
 
 
-async def _rerank(query_text: str, candidates: list[dict[str, Any]], top_k: int) -> list[dict[str, Any]]:
+async def _rerank(
+    query_text: str, candidates: list[dict[str, Any]], top_k: int
+) -> list[dict[str, Any]]:
     """Cross-encoder re-ranking. Falls back to input order if reranker unavailable."""
     if not _RERANKER_ENDPOINT or not candidates:
         return candidates[:top_k]
     try:
         import httpx
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             res = await client.post(
                 _RERANKER_ENDPOINT,
@@ -251,6 +262,7 @@ async def _rerank(query_text: str, candidates: list[dict[str, Any]], top_k: int)
 
 
 # ---------- Q&A pipeline (LangGraph) ----------
+
 
 class _QAState(BaseModel):
     question: str
@@ -369,14 +381,14 @@ def _ground_citations(
         # Reject `bool` explicitly — Python's `isinstance(True, int)` is True
         # but `candidates[True]` indexing a chunk list is never intended.
         if not isinstance(idx, int) or isinstance(idx, bool):
-            logger.warning(
-                "codeguard: dropping citation with non-int chunk_index=%r", idx
-            )
+            logger.warning("codeguard: dropping citation with non-int chunk_index=%r", idx)
             continue
         if idx < 0 or idx >= len(candidates):
             logger.warning(
                 "codeguard: dropping citation with out-of-range chunk_index=%d "
-                "(have %d candidates)", idx, len(candidates),
+                "(have %d candidates)",
+                idx,
+                len(candidates),
             )
             continue
 
@@ -385,8 +397,8 @@ def _ground_citations(
             regulation_id = UUID(str(src["regulation_id"]))
         except (KeyError, ValueError) as exc:
             logger.warning(
-                "codeguard: dropping citation — source row has no valid "
-                "regulation_id: %s", exc,
+                "codeguard: dropping citation — source row has no valid regulation_id: %s",
+                exc,
             )
             continue
 
@@ -402,17 +414,20 @@ def _ground_citations(
             if isinstance(raw_excerpt, str) and raw_excerpt.strip():
                 logger.warning(
                     "codeguard: replacing ungrounded excerpt for chunk_index=%d "
-                    "(LLM quote not found in source chunk)", idx,
+                    "(LLM quote not found in source chunk)",
+                    idx,
                 )
             excerpt = src_content[:300]
 
-        grounded.append(Citation(
-            regulation_id=regulation_id,
-            regulation=src.get("code_name") or "",
-            section=src.get("section_ref") or "",
-            excerpt=excerpt,
-            source_url=src.get("source_url"),
-        ))
+        grounded.append(
+            Citation(
+                regulation_id=regulation_id,
+                regulation=src.get("code_name") or "",
+                section=src.get("section_ref") or "",
+                excerpt=excerpt,
+                source_url=src.get("source_url"),
+            )
+        )
     return grounded
 
 
@@ -436,7 +451,8 @@ async def answer_regulation_query(
         # `_hybrid_search` runs both concurrently and fuses via RRF.
         query_text = f"{state.question}\n{state.hyde_text}"
         fused = await _hybrid_search(
-            db, query_text,
+            db,
+            query_text,
             categories=state.categories,
             jurisdiction=state.jurisdiction,
             top_k=state.top_k,
@@ -456,21 +472,26 @@ async def answer_regulation_query(
             logger.info(
                 "codeguard: zero retrieval candidates for question=%r lang=%s — "
                 "returning abstain response (LLM skipped)",
-                state.question[:80], state.language,
+                state.question[:80],
+                state.language,
             )
             state.answer = _abstain_response(state.language)
             return state
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", _QA_SYSTEM),
-            ("human", _QA_USER),
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", _QA_SYSTEM),
+                ("human", _QA_USER),
+            ]
+        )
         chain = prompt | _llm(temperature=0.1) | JsonOutputParser()
-        raw = await chain.ainvoke({
-            "language": state.language,
-            "question": state.question,
-            "context": _format_context(state.candidates),
-        })
+        raw = await chain.ainvoke(
+            {
+                "language": state.language,
+                "question": state.question,
+                "context": _format_context(state.candidates),
+            }
+        )
 
         # Citations pass through _ground_citations — the single choke point
         # that rejects hallucinated section refs and excerpts (see its docstring).
@@ -495,8 +516,11 @@ async def answer_regulation_query(
     app = graph.compile()
 
     state = _QAState(
-        question=question, language=lang, jurisdiction=jurisdiction,
-        categories=categories, top_k=top_k,
+        question=question,
+        language=lang,
+        jurisdiction=jurisdiction,
+        categories=categories,
+        top_k=top_k,
     )
     final = await app.ainvoke(state)
     result = final["answer"] if isinstance(final, dict) else final.answer
@@ -552,9 +576,13 @@ async def auto_scan_project(
 
     jurisdiction = None
     if parameters.location:
-        jurisdiction = parameters.location.get("province") or parameters.location.get("jurisdiction")
+        jurisdiction = parameters.location.get("province") or parameters.location.get(
+            "jurisdiction"
+        )
 
-    param_summary = json.dumps(parameters.model_dump(exclude_none=True), ensure_ascii=False, indent=2)
+    param_summary = json.dumps(
+        parameters.model_dump(exclude_none=True), ensure_ascii=False, indent=2
+    )
 
     for category in target_categories:
         query = _category_probe(category, parameters)
@@ -562,8 +590,11 @@ async def auto_scan_project(
         # with graceful dense-only fallback. No HyDE here since the probe
         # query is already engineered for keyword precision.
         fused = await _hybrid_search(
-            db, query,
-            categories=[category], jurisdiction=jurisdiction, top_k=8,
+            db,
+            query,
+            categories=[category],
+            jurisdiction=jurisdiction,
+            top_k=8,
         )
         chunks = await _rerank(query, fused, top_k=6)
         if not chunks:
@@ -572,17 +603,21 @@ async def auto_scan_project(
         for c in chunks:
             all_reg_ids.add(UUID(str(c["regulation_id"])))
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", _SCAN_SYSTEM),
-            ("human", _SCAN_USER),
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", _SCAN_SYSTEM),
+                ("human", _SCAN_USER),
+            ]
+        )
         chain = prompt | _llm(temperature=0.0) | JsonOutputParser()
         try:
-            raw = await chain.ainvoke({
-                "category": category.value,
-                "params": param_summary,
-                "context": _format_context(chunks),
-            })
+            raw = await chain.ainvoke(
+                {
+                    "category": category.value,
+                    "params": param_summary,
+                    "context": _format_context(chunks),
+                }
+            )
         except Exception:
             continue
 
@@ -599,15 +634,17 @@ async def auto_scan_project(
                     source_url=src.get("source_url"),
                 )
             try:
-                all_findings.append(Finding(
-                    status=FindingStatus(f.get("status", "WARN")),
-                    severity=Severity(f.get("severity", "minor")),
-                    category=category,
-                    title=f.get("title", ""),
-                    description=f.get("description", ""),
-                    resolution=f.get("resolution"),
-                    citation=citation,
-                ))
+                all_findings.append(
+                    Finding(
+                        status=FindingStatus(f.get("status", "WARN")),
+                        severity=Severity(f.get("severity", "minor")),
+                        category=category,
+                        title=f.get("title", ""),
+                        description=f.get("description", ""),
+                        resolution=f.get("resolution"),
+                        citation=citation,
+                    )
+                )
             except ValueError:
                 continue
 
@@ -660,28 +697,38 @@ async def generate_permit_checklist(
 ) -> list[ChecklistItem]:
     params_summary = (
         json.dumps(parameters.model_dump(exclude_none=True), ensure_ascii=False, indent=2)
-        if parameters else "(not provided)"
+        if parameters
+        else "(not provided)"
     )
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", _CHECKLIST_SYSTEM),
-        ("human", "Jurisdiction: {jurisdiction}\nProject type: {project_type}\n\nParameters:\n{params}\n\nReturn JSON only."),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", _CHECKLIST_SYSTEM),
+            (
+                "human",
+                "Jurisdiction: {jurisdiction}\nProject type: {project_type}\n\nParameters:\n{params}\n\nReturn JSON only.",
+            ),
+        ]
+    )
     chain = prompt | _llm(temperature=0.2) | JsonOutputParser()
-    raw = await chain.ainvoke({
-        "jurisdiction": jurisdiction,
-        "project_type": project_type,
-        "params": params_summary,
-    })
+    raw = await chain.ainvoke(
+        {
+            "jurisdiction": jurisdiction,
+            "project_type": project_type,
+            "params": params_summary,
+        }
+    )
 
     items: list[ChecklistItem] = []
     for i, item in enumerate(raw.get("items", [])):
-        items.append(ChecklistItem(
-            id=item.get("id") or f"item-{i}",
-            title=item.get("title", ""),
-            description=item.get("description"),
-            regulation_ref=item.get("regulation_ref"),
-            required=bool(item.get("required", True)),
-            status="pending",
-        ))
+        items.append(
+            ChecklistItem(
+                id=item.get("id") or f"item-{i}",
+                title=item.get("title", ""),
+                description=item.get("description"),
+                regulation_ref=item.get("regulation_ref"),
+                required=bool(item.get("required", True)),
+                status="pending",
+            )
+        )
     return items

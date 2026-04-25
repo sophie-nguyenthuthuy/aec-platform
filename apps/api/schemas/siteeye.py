@@ -1,4 +1,5 @@
 """Pydantic schemas for SITEEYE module."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -8,8 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------- Enums ----------
+
 
 class SafetyStatus(str, Enum):
     clear = "clear"
@@ -52,6 +53,7 @@ class ConstructionPhase(str, Enum):
 
 # ---------- Geo ----------
 
+
 class GeoLocation(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lng: float = Field(ge=-180, le=180)
@@ -59,6 +61,7 @@ class GeoLocation(BaseModel):
 
 
 # ---------- Site visits ----------
+
 
 class SiteVisitCreate(BaseModel):
     project_id: UUID
@@ -93,6 +96,7 @@ class VisitListFilters(BaseModel):
 
 
 # ---------- Photos ----------
+
 
 class PhotoDetection(BaseModel):
     label: str
@@ -156,6 +160,7 @@ class PhotoListFilters(BaseModel):
 
 # ---------- Progress ----------
 
+
 class PhaseProgress(BaseModel):
     phase: ConstructionPhase
     pct: float = Field(ge=0.0, le=100.0)
@@ -181,6 +186,7 @@ class ProgressTimeline(BaseModel):
 
 
 # ---------- Safety ----------
+
 
 class SafetyIncident(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -214,6 +220,7 @@ class AcknowledgeIncidentRequest(BaseModel):
 
 
 # ---------- Weekly reports ----------
+
 
 class ReportKPIs(BaseModel):
     days_elapsed: int

@@ -4,7 +4,8 @@ from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy import CHAR, Date, DateTime, ForeignKey, Text
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
@@ -48,19 +49,13 @@ class ComplianceCheck(Base):
     organization_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
-    project_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE")
-    )
+    project_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"))
     check_type: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="pending", nullable=False)
     input: Mapped[dict | None] = mapped_column(JSONB)
     findings: Mapped[list | None] = mapped_column(JSONB)
-    regulations_referenced: Mapped[list[UUID] | None] = mapped_column(
-        ARRAY(PGUUID(as_uuid=True))
-    )
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    regulations_referenced: Mapped[list[UUID] | None] = mapped_column(ARRAY(PGUUID(as_uuid=True)))
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ)
 
 
@@ -70,9 +65,7 @@ class PermitChecklist(Base):
     organization_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
-    project_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE")
-    )
+    project_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"))
     jurisdiction: Mapped[str] = mapped_column(Text, nullable=False)
     project_type: Mapped[str] = mapped_column(Text, nullable=False)
     items: Mapped[list] = mapped_column(JSONB, nullable=False)

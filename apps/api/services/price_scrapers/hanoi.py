@@ -7,11 +7,11 @@ the MOC parsers (the table shape is identical across most provinces'
 DOC sites — they're all based on the same Vietnamese construction
 procurement template) but sets `province='Hanoi'` on every row.
 """
+
 from __future__ import annotations
 
 import logging
 import re
-from datetime import date
 
 from .base import BaseScraper, ScrapedPrice, ScrapeError
 from .ministry import _parse_bulletin_html  # re-use identical table parser
@@ -67,9 +67,7 @@ class HanoiScraper(BaseScraper):
         return httpx.AsyncClient(follow_redirects=True)
 
 
-_HANOI_BULLETIN_RE = re.compile(
-    r'href="([^"]*(?:thong-bao-gia|bao-gia)[^"]*)"', re.IGNORECASE
-)
+_HANOI_BULLETIN_RE = re.compile(r'href="([^"]*(?:thong-bao-gia|bao-gia)[^"]*)"', re.IGNORECASE)
 
 
 def _find_latest_hanoi_bulletin_url(listing_html: str) -> str | None:

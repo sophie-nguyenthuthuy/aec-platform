@@ -4,12 +4,12 @@ The worker shares environment and data access with the API — DATABASE_URL, RED
 ANTHROPIC_API_KEY etc. must be set the same way. Tasks here are thin wrappers around
 service-level functions so they can also be called in-process during tests.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
-from uuid import UUID, uuid4
 
 from celery import Celery
 from celery.schedules import crontab
@@ -32,7 +32,11 @@ app.conf.update(
 
 
 def _run_async(coro):
-    return asyncio.get_event_loop().run_until_complete(coro) if asyncio.get_event_loop().is_running() is False else asyncio.run(coro)
+    return (
+        asyncio.get_event_loop().run_until_complete(coro)
+        if asyncio.get_event_loop().is_running() is False
+        else asyncio.run(coro)
+    )
 
 
 @app.task(name="winwork.send_proposal_email", bind=True, max_retries=3, default_retry_delay=30)

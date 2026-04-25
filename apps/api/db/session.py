@@ -48,9 +48,7 @@ _admin_engine = create_async_engine(
     future=True,
 )
 
-AdminSessionFactory = async_sessionmaker(
-    _admin_engine, expire_on_commit=False, class_=AsyncSession
-)
+AdminSessionFactory = async_sessionmaker(_admin_engine, expire_on_commit=False, class_=AsyncSession)
 
 
 class TenantAwareSession:
@@ -113,9 +111,7 @@ class TenantAwareSession:
             else:
                 await self._session.rollback()
         finally:
-            event.remove(
-                self._session.sync_session, "after_begin", self._after_begin_listener
-            )
+            event.remove(self._session.sync_session, "after_begin", self._after_begin_listener)
             await self._session.close()
 
 

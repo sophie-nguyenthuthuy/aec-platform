@@ -8,6 +8,7 @@ The pipeline in `apps/ml/pipelines/siteeye.py` POSTs JPEG bytes to
 owns the model lifecycle and async batching — nothing else should import
 the ultralytics YOLO runtime directly.
 """
+
 from __future__ import annotations
 
 import io

@@ -7,10 +7,11 @@ with a `FakeTenantSession` that yields an in-memory session with programmable
 `execute()` results. External side-effects (photo-analysis queue, weekly-report
 pipeline, email transport) are mocked at their import site.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from types import ModuleType
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -20,7 +21,6 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -28,6 +28,7 @@ PROJECT_ID = UUID("33333333-3333-3333-3333-333333333333")
 
 
 # ---------- Fake TenantAwareSession ----------
+
 
 class FakeAsyncSession:
     """Minimal AsyncSession stand-in. Router code only calls `.execute(stmt, params)`
@@ -66,9 +67,7 @@ class FakeTenantSession:
         self.organization_id = organization_id
 
     async def __aenter__(self) -> FakeAsyncSession:
-        assert FakeTenantSession.session is not None, (
-            "test did not seed FakeTenantSession.session"
-        )
+        assert FakeTenantSession.session is not None, "test did not seed FakeTenantSession.session"
         return FakeTenantSession.session
 
     async def __aexit__(self, *_exc: Any) -> None:
@@ -76,6 +75,7 @@ class FakeTenantSession:
 
 
 # ---------- App fixture (overrides codeguard-only conftest default) ----------
+
 
 @pytest.fixture
 def app(fake_auth, monkeypatch) -> Iterator[FastAPI]:
@@ -118,6 +118,7 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 
 # ---------- Row factories (match what the raw-SQL queries return) ----------
 
+
 def _visit_row(**overrides: Any) -> dict:
     base = {
         "id": uuid4(),
@@ -130,7 +131,7 @@ def _visit_row(**overrides: Any) -> dict:
         "notes": "L3 slab pour started.",
         "ai_summary": None,
         "photo_count": 0,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
     base.update(overrides)
     return base
@@ -143,12 +144,12 @@ def _photo_row(**overrides: Any) -> dict:
         "site_visit_id": None,
         "file_id": uuid4(),
         "thumbnail_url": None,
-        "taken_at": datetime.now(timezone.utc),
+        "taken_at": datetime.now(UTC),
         "location": None,
         "tags": [],
         "ai_analysis": None,
         "safety_status": "clear",
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
     base.update(overrides)
     return base
@@ -158,7 +159,7 @@ def _incident_row(**overrides: Any) -> dict:
     base = {
         "id": uuid4(),
         "project_id": PROJECT_ID,
-        "detected_at": datetime.now(timezone.utc),
+        "detected_at": datetime.now(UTC),
         "incident_type": "no_ppe",
         "severity": "medium",
         "photo_id": None,
@@ -183,7 +184,7 @@ def _report_row(**overrides: Any) -> dict:
         "pdf_url": None,
         "sent_to": [],
         "sent_at": None,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
     base.update(overrides)
     return base
@@ -216,6 +217,7 @@ def _scalar(value: Any) -> MagicMock:
 # ============================================================
 # Visits
 # ============================================================
+
 
 async def test_create_visit_returns_201_with_row(client, fake_session, fake_auth):
     row = _visit_row()
@@ -260,9 +262,8 @@ async def test_list_visits_paginates_with_count_and_rows(client, fake_session):
 # Photos
 # ============================================================
 
-async def test_upload_photos_persists_each_and_enqueues_job(
-    client, fake_session, fake_auth, monkeypatch
-):
+
+async def test_upload_photos_persists_each_and_enqueues_job(client, fake_session, fake_auth, monkeypatch):
     """Router loops N INSERTs inside one session, then calls `enqueue_photo_analysis`."""
     # 3 photos → 3 execute() calls inside the loop. Fake session happily returns
     # the default MagicMock for each since the router doesn't consume their result.
@@ -319,6 +320,7 @@ async def test_list_photos_returns_paginated_envelope(client, fake_session):
 # Progress
 # ============================================================
 
+
 async def test_progress_timeline_infers_ahead_when_delta_ge_3(client, fake_session):
     t0 = {
         "id": uuid4(),
@@ -328,10 +330,9 @@ async def test_progress_timeline_infers_ahead_when_delta_ge_3(client, fake_sessi
         "phase_progress": {"structure": 50.0},
         "ai_notes": None,
         "photo_ids": [],
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
-    t1 = {**t0, "id": uuid4(), "snapshot_date": date(2026, 4, 15),
-          "overall_progress_pct": 44.0}
+    t1 = {**t0, "id": uuid4(), "snapshot_date": date(2026, 4, 15), "overall_progress_pct": 44.0}
     fake_session.push(_mappings_all([t0, t1]))
 
     res = await client.get(
@@ -353,7 +354,7 @@ async def test_progress_timeline_unknown_with_single_snapshot(client, fake_sessi
         "phase_progress": {},
         "ai_notes": None,
         "photo_ids": [],
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
     fake_session.push(_mappings_all([snap]))
 
@@ -368,6 +369,7 @@ async def test_progress_timeline_unknown_with_single_snapshot(client, fake_sessi
 # ============================================================
 # Safety incidents
 # ============================================================
+
 
 async def test_list_safety_incidents_respects_filters(client, fake_session):
     rows = [_incident_row(severity="high", status="open") for _ in range(2)]
@@ -392,7 +394,7 @@ async def test_acknowledge_incident_marks_resolved(client, fake_session, fake_au
         id=incident_id,
         status="resolved",
         acknowledged_by=fake_auth.user_id,
-        resolved_at=datetime.now(timezone.utc),
+        resolved_at=datetime.now(UTC),
     )
     fake_session.push(_mappings_first(row))
 
@@ -420,6 +422,7 @@ async def test_acknowledge_incident_404_when_missing(client, fake_session):
 # Weekly reports
 # ============================================================
 
+
 async def test_generate_report_rejects_end_before_start(client):
     res = await client.post(
         "/api/v1/siteeye/reports/generate",
@@ -433,9 +436,7 @@ async def test_generate_report_rejects_end_before_start(client):
     assert "week_end" in res.json()["errors"][0]["message"]
 
 
-async def test_generate_report_delegates_to_pipeline(
-    client, fake_auth, monkeypatch
-):
+async def test_generate_report_delegates_to_pipeline(client, fake_auth, monkeypatch):
     """`from apps.ml.pipelines.siteeye import generate_weekly_report` is lazy —
     stub the module in sys.modules so the import inside the handler hits our fake."""
     import sys
@@ -443,24 +444,32 @@ async def test_generate_report_delegates_to_pipeline(
     report_id = uuid4()
     from schemas.siteeye import WeeklyReport
 
-    report = WeeklyReport.model_validate({
-        "id": report_id,
-        "project_id": PROJECT_ID,
-        "week_start": date(2026, 4, 13),
-        "week_end": date(2026, 4, 19),
-        "content": None,
-        "rendered_html": None,
-        "pdf_url": None,
-        "sent_to": [],
-        "sent_at": None,
-        "created_at": datetime.now(timezone.utc),
-    })
+    report = WeeklyReport.model_validate(
+        {
+            "id": report_id,
+            "project_id": PROJECT_ID,
+            "week_start": date(2026, 4, 13),
+            "week_end": date(2026, 4, 19),
+            "content": None,
+            "rendered_html": None,
+            "pdf_url": None,
+            "sent_to": [],
+            "sent_at": None,
+            "created_at": datetime.now(UTC),
+        }
+    )
 
     generate = AsyncMock(return_value=report)
 
+    # Dual PYTHONPATH (`apps/` + repo root) means `apps.ml.pipelines.siteeye`
+    # and `ml.pipelines.siteeye` are *different* sys.modules entries. The
+    # router does `from ml.pipelines.siteeye import ...`, so we must stub
+    # the bare-package form too — without it the real pipeline loads and
+    # tries to hit Postgres.
     fake_mod = ModuleType("apps.ml.pipelines.siteeye")
     fake_mod.generate_weekly_report = generate
     monkeypatch.setitem(sys.modules, "apps.ml.pipelines.siteeye", fake_mod)
+    monkeypatch.setitem(sys.modules, "ml.pipelines.siteeye", fake_mod)
 
     res = await client.post(
         "/api/v1/siteeye/reports/generate",
@@ -495,9 +504,7 @@ async def test_list_reports_returns_paginated_envelope(client, fake_session):
     assert res.json()["meta"]["total"] == 2
 
 
-async def test_send_report_delegates_and_returns_envelope(
-    client, fake_auth, monkeypatch
-):
+async def test_send_report_delegates_and_returns_envelope(client, fake_auth, monkeypatch):
     import sys
 
     report_id = uuid4()
@@ -506,6 +513,7 @@ async def test_send_report_delegates_and_returns_envelope(
     fake_mod = ModuleType("apps.ml.pipelines.siteeye")
     fake_mod.email_weekly_report = email_fn
     monkeypatch.setitem(sys.modules, "apps.ml.pipelines.siteeye", fake_mod)
+    monkeypatch.setitem(sys.modules, "ml.pipelines.siteeye", fake_mod)
 
     res = await client.post(
         f"/api/v1/siteeye/reports/{report_id}/send",
@@ -523,14 +531,13 @@ async def test_send_report_delegates_and_returns_envelope(
     assert kwargs["recipients"] == ["pm@example.com", "owner@example.com"]
 
 
-async def test_send_report_404_when_pipeline_returns_false(
-    client, monkeypatch
-):
+async def test_send_report_404_when_pipeline_returns_false(client, monkeypatch):
     import sys
 
     fake_mod = ModuleType("apps.ml.pipelines.siteeye")
     fake_mod.email_weekly_report = AsyncMock(return_value=False)
     monkeypatch.setitem(sys.modules, "apps.ml.pipelines.siteeye", fake_mod)
+    monkeypatch.setitem(sys.modules, "ml.pipelines.siteeye", fake_mod)
 
     res = await client.post(
         f"/api/v1/siteeye/reports/{uuid4()}/send",

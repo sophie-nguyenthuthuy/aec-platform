@@ -25,6 +25,7 @@ Usage: same as the sibling integration tests — requires TEST_DATABASE_URL.
     TEST_DATABASE_URL=postgresql+asyncpg://aec:aec@localhost:5437/aec \\
       python -m pytest apps/ml/tests/test_codeguard_scan_pipeline_integration.py -v
 """
+
 from __future__ import annotations
 
 import json
@@ -37,7 +38,6 @@ import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 
 _ML_ROOT = Path(__file__).resolve().parent.parent
 _API_ROOT = _ML_ROOT.parent / "api"
@@ -79,9 +79,9 @@ async def test_auto_scan_returns_grounded_findings_with_citations(session, monke
     """Single-category happy path: seed one fire_safety regulation + chunk,
     stub the LLM to return a canned findings list, assert we get back
     Finding objects with Citations grounded in the DB row."""
-    from schemas.codeguard import FindingStatus, ProjectParameters, RegulationCategory, Severity
     import pipelines.codeguard as cg
     from pipelines.codeguard import auto_scan_project
+    from schemas.codeguard import FindingStatus, ProjectParameters, RegulationCategory, Severity
 
     tag = uuid4().hex[:12]
     reg_code = f"TEST_SCAN_{tag}"
@@ -197,7 +197,7 @@ async def test_auto_scan_returns_grounded_findings_with_citations(session, monke
         assert fail.citation is not None
         assert fail.citation.regulation_id == reg_id
         assert fail.citation.regulation == reg_code  # code_name from JOIN
-        assert fail.citation.section == "3.1"          # section_ref from DB
+        assert fail.citation.section == "3.1"  # section_ref from DB
         # Excerpt is chunk content prefix (auto_scan doesn't trust LLM
         # excerpts; it uses `src.get("content")[:300]` directly).
         assert fail.citation.excerpt.startswith("Nhà chung cư"), fail.citation.excerpt
@@ -218,9 +218,9 @@ async def test_auto_scan_skips_categories_with_no_retrieval(session, monkeypatch
     """If a category has no matching chunks (e.g. we seeded fire_safety but
     the scan also probes accessibility), the scan should silently skip that
     category rather than sending the LLM an empty context or aborting."""
-    from schemas.codeguard import ProjectParameters, RegulationCategory
     import pipelines.codeguard as cg
     from pipelines.codeguard import auto_scan_project
+    from schemas.codeguard import ProjectParameters, RegulationCategory
 
     tag = uuid4().hex[:12]
     reg_code = f"TEST_SCAN_SKIP_{tag}"
@@ -266,7 +266,9 @@ async def test_auto_scan_skips_categories_with_no_retrieval(session, monkeypatch
     try:
         findings, reg_ids = await auto_scan_project(
             db=session,
-            parameters=ProjectParameters(project_type="residential", location={"province": "national"}),
+            parameters=ProjectParameters(
+                project_type="residential", location={"province": "national"}
+            ),
             categories=[RegulationCategory.fire_safety, RegulationCategory.accessibility],
         )
         # fire_safety returned empty findings list; accessibility was skipped.

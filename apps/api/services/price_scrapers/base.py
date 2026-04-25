@@ -12,6 +12,7 @@ same materials. We standardise around two shapes:
 A concrete scraper implements `BaseScraper.scrape()` and returns a list
 of `ScrapedPrice`. The runner feeds those through the normaliser + writer.
 """
+
 from __future__ import annotations
 
 import abc

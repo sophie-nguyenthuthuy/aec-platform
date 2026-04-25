@@ -1,10 +1,10 @@
 """Integration tests for POST /api/v1/codeguard/scan."""
+
 from __future__ import annotations
 
 from uuid import uuid4
 
 import pytest
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -58,9 +58,7 @@ async def test_scan_returns_aggregated_counts(client, mock_llm):
     assert len(data["findings"]) == 3
 
 
-async def test_scan_persists_check_with_findings_and_refs(
-    client, fake_db, mock_llm, fake_auth
-):
+async def test_scan_persists_check_with_findings_and_refs(client, fake_db, mock_llm, fake_auth):
     from models.codeguard import ComplianceCheck as ComplianceCheckModel
     from schemas.codeguard import CheckStatus, CheckType
 
@@ -86,9 +84,7 @@ async def test_scan_persists_check_with_findings_and_refs(
     assert len(check.findings) == 1
 
 
-async def test_scan_marks_check_failed_on_pipeline_error(
-    client, fake_db, mock_llm
-):
+async def test_scan_marks_check_failed_on_pipeline_error(client, fake_db, mock_llm):
     from models.codeguard import ComplianceCheck as ComplianceCheckModel
     from schemas.codeguard import CheckStatus
 

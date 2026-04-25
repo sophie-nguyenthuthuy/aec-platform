@@ -7,6 +7,7 @@ paths that don't fit in the async worker pipeline.
 Run locally:
     serve run apps.ml.server:deployment
 """
+
 from __future__ import annotations
 
 import logging
@@ -51,6 +52,7 @@ class MLService:
     def _embed(self):
         if self._embed_client is None:
             from openai import OpenAI
+
             self._embed_client = OpenAI()
         return self._embed_client
 
@@ -58,6 +60,7 @@ class MLService:
         if self._yolo is None:
             try:
                 from ultralytics import YOLO
+
                 self._yolo = YOLO("yolov8n.pt")
             except Exception as exc:  # pragma: no cover
                 log.warning("YOLO unavailable: %s", exc)

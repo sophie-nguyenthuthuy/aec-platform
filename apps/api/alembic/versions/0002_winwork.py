@@ -4,11 +4,13 @@ Revision ID: 0002_winwork
 Revises: 0001_core
 Create Date: 2026-04-22
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "0002_winwork"
 down_revision = "0001_core"
@@ -20,7 +22,12 @@ def upgrade() -> None:
     op.create_table(
         "proposals",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("project_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="SET NULL")),
         sa.Column("title", sa.Text, nullable=False),
         sa.Column("status", sa.Text, server_default="draft"),
@@ -45,7 +52,12 @@ def upgrade() -> None:
     op.create_table(
         "proposal_templates",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("name", sa.Text, nullable=False),
         sa.Column("discipline", sa.Text),
         sa.Column("project_types", postgresql.ARRAY(sa.Text)),

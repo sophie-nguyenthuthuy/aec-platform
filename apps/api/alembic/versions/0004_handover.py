@@ -4,11 +4,13 @@ Revision ID: 0004_handover
 Revises: 0003_siteeye
 Create Date: 2026-04-22
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "0004_handover"
 down_revision = "0003_siteeye"
@@ -20,8 +22,18 @@ def upgrade() -> None:
     op.create_table(
         "handover_packages",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("project_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "project_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("name", sa.Text(), nullable=False),
         sa.Column("status", sa.Text(), nullable=False, server_default="draft"),
         sa.Column("scope_summary", postgresql.JSONB(), server_default=sa.text("'{}'::jsonb")),
@@ -36,15 +48,27 @@ def upgrade() -> None:
     op.create_table(
         "closeout_items",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("package_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("handover_packages.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "package_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("handover_packages.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("category", sa.Text(), nullable=False),
         sa.Column("title", sa.Text(), nullable=False),
         sa.Column("description", sa.Text()),
         sa.Column("required", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("status", sa.Text(), nullable=False, server_default="pending"),
         sa.Column("assignee_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="SET NULL")),
-        sa.Column("file_ids", postgresql.ARRAY(postgresql.UUID(as_uuid=True)), server_default=sa.text("ARRAY[]::uuid[]")),
+        sa.Column(
+            "file_ids", postgresql.ARRAY(postgresql.UUID(as_uuid=True)), server_default=sa.text("ARRAY[]::uuid[]")
+        ),
         sa.Column("notes", sa.Text()),
         sa.Column("sort_order", sa.Integer(), server_default=sa.text("0")),
         sa.Column("updated_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("NOW()")),
@@ -56,15 +80,31 @@ def upgrade() -> None:
     op.create_table(
         "as_built_drawings",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("project_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("package_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("handover_packages.id", ondelete="SET NULL")),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "project_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "package_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("handover_packages.id", ondelete="SET NULL")
+        ),
         sa.Column("drawing_code", sa.Text(), nullable=False),
         sa.Column("discipline", sa.Text(), nullable=False),
         sa.Column("title", sa.Text(), nullable=False),
         sa.Column("current_version", sa.Integer(), nullable=False, server_default=sa.text("1")),
         sa.Column("current_file_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("files.id", ondelete="SET NULL")),
-        sa.Column("superseded_file_ids", postgresql.ARRAY(postgresql.UUID(as_uuid=True)), server_default=sa.text("ARRAY[]::uuid[]")),
+        sa.Column(
+            "superseded_file_ids",
+            postgresql.ARRAY(postgresql.UUID(as_uuid=True)),
+            server_default=sa.text("ARRAY[]::uuid[]"),
+        ),
         sa.Column("changelog", postgresql.JSONB(), server_default=sa.text("'[]'::jsonb")),
         sa.Column("last_updated_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("NOW()")),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("NOW()")),
@@ -76,15 +116,31 @@ def upgrade() -> None:
     op.create_table(
         "om_manuals",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("project_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("package_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("handover_packages.id", ondelete="CASCADE")),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "project_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "package_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("handover_packages.id", ondelete="CASCADE")
+        ),
         sa.Column("title", sa.Text(), nullable=False),
         sa.Column("discipline", sa.Text(), nullable=False),
         sa.Column("status", sa.Text(), nullable=False, server_default="draft"),
         sa.Column("equipment", postgresql.JSONB(), server_default=sa.text("'[]'::jsonb")),
         sa.Column("maintenance_schedule", postgresql.JSONB(), server_default=sa.text("'[]'::jsonb")),
-        sa.Column("source_file_ids", postgresql.ARRAY(postgresql.UUID(as_uuid=True)), server_default=sa.text("ARRAY[]::uuid[]")),
+        sa.Column(
+            "source_file_ids",
+            postgresql.ARRAY(postgresql.UUID(as_uuid=True)),
+            server_default=sa.text("ARRAY[]::uuid[]"),
+        ),
         sa.Column("pdf_file_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("files.id", ondelete="SET NULL")),
         sa.Column("ai_job_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("ai_jobs.id", ondelete="SET NULL")),
         sa.Column("generated_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("NOW()")),
@@ -97,9 +153,21 @@ def upgrade() -> None:
     op.create_table(
         "warranty_items",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("project_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("package_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("handover_packages.id", ondelete="SET NULL")),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "project_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "package_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("handover_packages.id", ondelete="SET NULL")
+        ),
         sa.Column("item_name", sa.Text(), nullable=False),
         sa.Column("category", sa.Text()),
         sa.Column("vendor", sa.Text()),
@@ -120,13 +188,27 @@ def upgrade() -> None:
     op.create_table(
         "defects",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("project_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("package_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("handover_packages.id", ondelete="SET NULL")),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "project_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "package_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("handover_packages.id", ondelete="SET NULL")
+        ),
         sa.Column("title", sa.Text(), nullable=False),
         sa.Column("description", sa.Text()),
         sa.Column("location", postgresql.JSONB()),
-        sa.Column("photo_file_ids", postgresql.ARRAY(postgresql.UUID(as_uuid=True)), server_default=sa.text("ARRAY[]::uuid[]")),
+        sa.Column(
+            "photo_file_ids", postgresql.ARRAY(postgresql.UUID(as_uuid=True)), server_default=sa.text("ARRAY[]::uuid[]")
+        ),
         sa.Column("status", sa.Text(), nullable=False, server_default="open"),
         sa.Column("priority", sa.Text(), nullable=False, server_default="medium"),
         sa.Column("assignee_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="SET NULL")),

@@ -8,10 +8,11 @@ fires in order.
 The detail endpoint fans out to every module, so each test programs the
 exact stack of mocks it needs and asserts on what the router rolled up.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
@@ -119,7 +120,7 @@ def _project_row(**overrides: Any):
         start_date=date(2026, 1, 1),
         end_date=None,
         metadata_={},
-        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
     base.update(overrides)
     # Project.metadata_ maps to DB column "metadata" — schema reads that via
@@ -135,8 +136,10 @@ def _project_row(**overrides: Any):
 
 async def test_list_projects_returns_per_project_counters(client, fake_db):
     project = _project_row()
-    count_q = MagicMock(); count_q.scalar_one.return_value = 1
-    rows_q = MagicMock(); rows_q.scalars.return_value.all.return_value = [project]
+    count_q = MagicMock()
+    count_q.scalar_one.return_value = 1
+    rows_q = MagicMock()
+    rows_q.scalars.return_value.all.return_value = [project]
     # Three aggregate queries: open tasks, open COs, document counts.
     tasks_q = MagicMock()
     tasks_q.all.return_value = [SimpleNamespace(project_id=project.id, open_tasks=7)]
@@ -162,8 +165,10 @@ async def test_list_projects_returns_per_project_counters(client, fake_db):
 
 async def test_list_projects_empty_result_skips_aggregate_queries(client, fake_db):
     """No projects → don't fire 3 aggregate queries for an empty id list."""
-    count_q = MagicMock(); count_q.scalar_one.return_value = 0
-    rows_q = MagicMock(); rows_q.scalars.return_value.all.return_value = []
+    count_q = MagicMock()
+    count_q.scalar_one.return_value = 0
+    rows_q = MagicMock()
+    rows_q.scalars.return_value.all.return_value = []
     fake_db.push_execute(count_q)
     fake_db.push_execute(rows_q)
 
@@ -176,17 +181,17 @@ async def test_list_projects_empty_result_skips_aggregate_queries(client, fake_d
 
 
 async def test_list_projects_scopes_to_caller_org(client, fake_db):
-    count_q = MagicMock(); count_q.scalar_one.return_value = 0
-    rows_q = MagicMock(); rows_q.scalars.return_value.all.return_value = []
+    count_q = MagicMock()
+    count_q.scalar_one.return_value = 0
+    rows_q = MagicMock()
+    rows_q.scalars.return_value.all.return_value = []
     fake_db.push_execute(count_q)
     fake_db.push_execute(rows_q)
 
     await client.get("/api/v1/projects")
 
     # The list stmt (second executed) should compile with caller's org hex.
-    compiled = str(
-        fake_db.executed_stmts[1].compile(compile_kwargs={"literal_binds": True})
-    )
+    compiled = str(fake_db.executed_stmts[1].compile(compile_kwargs={"literal_binds": True}))
     assert ORG_ID.hex in compiled
     assert OTHER_ORG_ID.hex not in compiled
 
@@ -195,7 +200,8 @@ async def test_list_projects_scopes_to_caller_org(client, fake_db):
 
 
 async def test_get_project_detail_404_when_missing(client, fake_db):
-    not_found = MagicMock(); not_found.scalar_one_or_none.return_value = None
+    not_found = MagicMock()
+    not_found.scalar_one_or_none.return_value = None
     fake_db.push_execute(not_found)
 
     res = await client.get(f"/api/v1/projects/{uuid4()}")
@@ -210,7 +216,7 @@ async def test_get_project_detail_rolls_up_all_modules(client, fake_db):
         project_id=project.id,
         status="won",
         total_fee_vnd=Decimal("550000000"),
-        created_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
+        created_at=datetime(2026, 3, 1, tzinfo=UTC),
     )
 
     # Query order mirrors routers/projects.py:
@@ -254,25 +260,27 @@ async def test_get_project_detail_rolls_up_all_modules(client, fake_db):
         return m
 
     for r in [
-        _scalar_or_none(project),                       # 1 project
-        _scalar_or_none(proposal),                      # 2 winwork proposal
-        _one(total=3, approved=2),                      # 3 estimate counts
-        _one_or_none(SimpleNamespace(                   # 4 latest estimate
-            id=latest_est_id, total_vnd=1_200_000_000
-        )),
-        _one(todo=5, in_progress=3, done=12),           # 5 task counts
-        _scalar(4),                                     # 6 open change orders
-        _scalar(2),                                     # 7 upcoming milestones
-        _scalar(45),                                    # 8 documents
-        _scalar(1),                                     # 9 open rfis
-        _scalar(0),                                     # 10 unresolved conflicts
-        _scalar(1),                                     # 11 handover packages
-        _scalar(6),                                     # 12 open defects
-        _one(active=8, expiring=2),                     # 13 warranty counts
-        _scalar(14),                                    # 14 site visits
-        _scalar(1),                                     # 15 open safety incidents
-        _scalar(3),                                     # 16 compliance checks
-        _scalar(2),                                     # 17 permit checklists
+        _scalar_or_none(project),  # 1 project
+        _scalar_or_none(proposal),  # 2 winwork proposal
+        _one(total=3, approved=2),  # 3 estimate counts
+        _one_or_none(
+            SimpleNamespace(  # 4 latest estimate
+                id=latest_est_id, total_vnd=1_200_000_000
+            )
+        ),
+        _one(todo=5, in_progress=3, done=12),  # 5 task counts
+        _scalar(4),  # 6 open change orders
+        _scalar(2),  # 7 upcoming milestones
+        _scalar(45),  # 8 documents
+        _scalar(1),  # 9 open rfis
+        _scalar(0),  # 10 unresolved conflicts
+        _scalar(1),  # 11 handover packages
+        _scalar(6),  # 12 open defects
+        _one(active=8, expiring=2),  # 13 warranty counts
+        _scalar(14),  # 14 site visits
+        _scalar(1),  # 15 open safety incidents
+        _scalar(3),  # 16 compliance checks
+        _scalar(2),  # 17 permit checklists
     ]:
         fake_db.push_execute(r)
 
@@ -319,28 +327,43 @@ async def test_get_project_detail_handles_empty_modules(client, fake_db):
     project = _project_row()
 
     def _scalar_or_none(v):
-        m = MagicMock(); m.scalar_one_or_none.return_value = v; return m
+        m = MagicMock()
+        m.scalar_one_or_none.return_value = v
+        return m
 
     def _scalar(v):
-        m = MagicMock(); m.scalar_one.return_value = v; return m
+        m = MagicMock()
+        m.scalar_one.return_value = v
+        return m
 
     def _one(**attrs):
-        m = MagicMock(); m.one.return_value = SimpleNamespace(**attrs); return m
+        m = MagicMock()
+        m.one.return_value = SimpleNamespace(**attrs)
+        return m
 
     def _one_or_none(ns):
-        m = MagicMock(); m.one_or_none.return_value = ns; return m
+        m = MagicMock()
+        m.one_or_none.return_value = ns
+        return m
 
     for r in [
         _scalar_or_none(project),
-        _scalar_or_none(None),                           # no winwork proposal
+        _scalar_or_none(None),  # no winwork proposal
         _one(total=0, approved=0),
-        _one_or_none(None),                              # no latest estimate
+        _one_or_none(None),  # no latest estimate
         _one(todo=0, in_progress=0, done=0),
-        _scalar(0), _scalar(0),
-        _scalar(0), _scalar(0), _scalar(0),
-        _scalar(0), _scalar(0), _one(active=0, expiring=0),
-        _scalar(0), _scalar(0),
-        _scalar(0), _scalar(0),
+        _scalar(0),
+        _scalar(0),
+        _scalar(0),
+        _scalar(0),
+        _scalar(0),
+        _scalar(0),
+        _scalar(0),
+        _one(active=0, expiring=0),
+        _scalar(0),
+        _scalar(0),
+        _scalar(0),
+        _scalar(0),
     ]:
         fake_db.push_execute(r)
 

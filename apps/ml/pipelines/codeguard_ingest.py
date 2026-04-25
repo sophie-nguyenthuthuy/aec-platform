@@ -13,6 +13,7 @@ CLI usage (from repo root):
         --category fire_safety --effective 2022-10-25 \\
         --language vi
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,10 +22,10 @@ import logging
 import os
 import re
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Iterable
 from uuid import UUID, uuid4
 
 from langchain_openai import OpenAIEmbeddings
@@ -50,6 +51,7 @@ _HEADING_RE = re.compile(
 
 # ---------- Data classes ----------
 
+
 @dataclass
 class Section:
     section_ref: str
@@ -71,6 +73,7 @@ class IngestResult:
 
 # ---------- Parsing ----------
 
+
 def _load_source_text(source: Path) -> str:
     """Load source as plain text. Supports .pdf via pdfplumber, .txt / .md direct."""
     suffix = source.suffix.lower()
@@ -81,8 +84,7 @@ def _load_source_text(source: Path) -> str:
             import pdfplumber  # type: ignore[import-not-found]
         except ImportError as exc:
             raise RuntimeError(
-                "pdfplumber is required for PDF ingestion. "
-                "Install with: pip install pdfplumber"
+                "pdfplumber is required for PDF ingestion. Install with: pip install pdfplumber"
             ) from exc
         pages: list[str] = []
         with pdfplumber.open(str(source)) as pdf:
@@ -182,6 +184,7 @@ def chunk_section(section: Section) -> list[str]:
 
 # ---------- Embedding ----------
 
+
 async def _embed_batched(texts: list[str]) -> list[list[float]]:
     embedder = OpenAIEmbeddings(model=_EMBED_MODEL)
     out: list[list[float]] = []
@@ -193,6 +196,7 @@ async def _embed_batched(texts: list[str]) -> list[list[float]]:
 
 
 # ---------- Persistence ----------
+
 
 async def _upsert_regulation(
     db: AsyncSession,
@@ -226,9 +230,14 @@ async def _upsert_regulation(
                 """
             ),
             {
-                "cc": country_code, "j": jurisdiction, "cat": category,
-                "eff": effective_date, "url": source_url, "raw": raw_text,
-                "lang": language, "id": str(reg_id),
+                "cc": country_code,
+                "j": jurisdiction,
+                "cat": category,
+                "eff": effective_date,
+                "url": source_url,
+                "raw": raw_text,
+                "lang": language,
+                "id": str(reg_id),
             },
         )
         await db.execute(
@@ -248,9 +257,15 @@ async def _upsert_regulation(
             """
         ),
         {
-            "id": str(reg_id), "cc": country_code, "j": jurisdiction,
-            "code": code_name, "cat": category, "eff": effective_date,
-            "url": source_url, "raw": raw_text, "lang": language,
+            "id": str(reg_id),
+            "cc": country_code,
+            "j": jurisdiction,
+            "code": code_name,
+            "cat": category,
+            "eff": effective_date,
+            "url": source_url,
+            "raw": raw_text,
+            "lang": language,
         },
     )
     return reg_id
@@ -283,6 +298,7 @@ async def _insert_chunks(
 
 
 # ---------- Elasticsearch mirror ----------
+
 
 async def _index_to_elasticsearch(
     regulation_id: UUID,
@@ -324,6 +340,7 @@ async def _index_to_elasticsearch(
 
 
 # ---------- Public entry point ----------
+
 
 async def ingest_regulation(
     db: AsyncSession,
@@ -382,7 +399,10 @@ async def ingest_regulation(
 
     logger.info(
         "Ingested %s: %d sections, %d chunks, %d ES docs",
-        code_name, len(sections), chunks_written, es_indexed,
+        code_name,
+        len(sections),
+        chunks_written,
+        es_indexed,
     )
     return IngestResult(
         regulation_id=regulation_id,
@@ -394,10 +414,13 @@ async def ingest_regulation(
 
 # ---------- CLI ----------
 
+
 def _parse_args(argv: Iterable[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Ingest a regulation into CODEGUARD.")
     p.add_argument("--source", type=Path, required=True, help="Path to PDF / TXT / MD")
-    p.add_argument("--code", dest="code_name", required=True, help="Canonical code name, e.g. QCVN 06:2022/BXD")
+    p.add_argument(
+        "--code", dest="code_name", required=True, help="Canonical code name, e.g. QCVN 06:2022/BXD"
+    )
     p.add_argument("--country", dest="country_code", default="VN")
     p.add_argument("--jurisdiction", default=None)
     p.add_argument(
@@ -455,8 +478,7 @@ async def _cli_main(args: argparse.Namespace) -> None:
     from db.session import SessionFactory  # type: ignore[import-not-found]
 
     effective = (
-        datetime.strptime(args.effective_date, "%Y-%m-%d").date()
-        if args.effective_date else None
+        datetime.strptime(args.effective_date, "%Y-%m-%d").date() if args.effective_date else None
     )
     async with SessionFactory() as session:
         result = await ingest_regulation(

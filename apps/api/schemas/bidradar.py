@@ -1,4 +1,5 @@
 """Pydantic schemas for BIDRADAR module."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -8,8 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-
 # ---------- Enums ----------
+
 
 class TenderSource(str, Enum):
     mua_sam_cong_vn = "mua-sam-cong.gov.vn"
@@ -35,6 +36,7 @@ class CompetitionLevel(str, Enum):
 
 
 # ---------- Tender ----------
+
 
 class TenderSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -74,6 +76,7 @@ class TenderListFilters(BaseModel):
 
 # ---------- Firm profile ----------
 
+
 class FirmProfileInput(BaseModel):
     disciplines: list[str] = Field(default_factory=list)
     project_types: list[str] = Field(default_factory=list)
@@ -95,6 +98,7 @@ class FirmProfile(FirmProfileInput):
 
 # ---------- AI recommendation ----------
 
+
 class AIRecommendation(BaseModel):
     match_score: float = Field(ge=0, le=100)
     estimated_value_vnd: int | None = None
@@ -108,6 +112,7 @@ class AIRecommendation(BaseModel):
 
 
 # ---------- Tender match ----------
+
 
 class TenderMatch(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -144,6 +149,7 @@ class UpdateMatchStatusRequest(BaseModel):
 
 # ---------- Scrape + score ----------
 
+
 class ScrapeRequest(BaseModel):
     source: TenderSource
     max_pages: int = Field(default=5, ge=1, le=50)
@@ -170,6 +176,7 @@ class ScoreMatchesResult(BaseModel):
 
 # ---------- Proposal creation ----------
 
+
 class CreateProposalRequest(BaseModel):
     match_id: UUID
 
@@ -181,6 +188,7 @@ class CreateProposalResponse(BaseModel):
 
 
 # ---------- Weekly digest ----------
+
 
 class WeeklyDigest(BaseModel):
     model_config = ConfigDict(from_attributes=True)

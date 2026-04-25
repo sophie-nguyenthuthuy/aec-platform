@@ -1,4 +1,5 @@
 """Pydantic schemas for PROJECTPULSE module."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -8,8 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------- Enums ----------
+
 
 class TaskStatus(str, Enum):
     todo = "todo"
@@ -65,6 +66,7 @@ class RAG(str, Enum):
 
 
 # ---------- Tasks ----------
+
 
 class TaskBase(BaseModel):
     title: str = Field(min_length=1, max_length=500)
@@ -134,6 +136,7 @@ class TaskListFilters(BaseModel):
 
 # ---------- Milestones ----------
 
+
 class MilestoneBase(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     due_date: date
@@ -153,6 +156,7 @@ class Milestone(MilestoneBase):
 
 
 # ---------- Change orders ----------
+
 
 class ChangeOrderBase(BaseModel):
     number: str = Field(min_length=1, max_length=50)
@@ -213,6 +217,7 @@ class ChangeOrderListFilters(BaseModel):
 
 # ---------- Meeting notes ----------
 
+
 class ActionItem(BaseModel):
     title: str
     owner: str | None = None
@@ -258,6 +263,7 @@ class MeetingStructureRequest(BaseModel):
 
 # ---------- Client reports ----------
 
+
 class ReportGenerateRequest(BaseModel):
     project_id: UUID
     period: str = Field(description="e.g. 2026-W16, 2026-04, custom")
@@ -299,6 +305,7 @@ class ReportSendRequest(BaseModel):
 
 
 # ---------- Dashboard ----------
+
 
 class TaskCountsByStatus(BaseModel):
     todo: int = 0

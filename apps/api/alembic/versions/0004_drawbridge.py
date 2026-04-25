@@ -4,11 +4,13 @@ Revision ID: 0004_drawbridge
 Revises: 0003_siteeye
 Create Date: 2026-04-22
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "0004_drawbridge"
 down_revision = "0003_siteeye"
@@ -23,7 +25,12 @@ def upgrade() -> None:
     op.create_table(
         "document_sets",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("project_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE")),
         sa.Column("name", sa.Text(), nullable=False),
         sa.Column("discipline", sa.Text()),
@@ -37,9 +44,16 @@ def upgrade() -> None:
     op.create_table(
         "documents",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("project_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE")),
-        sa.Column("document_set_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("document_sets.id", ondelete="SET NULL")),
+        sa.Column(
+            "document_set_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("document_sets.id", ondelete="SET NULL")
+        ),
         sa.Column("file_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("files.id", ondelete="SET NULL")),
         sa.Column("doc_type", sa.Text()),
         sa.Column("drawing_number", sa.Text()),
@@ -85,16 +99,25 @@ def upgrade() -> None:
     op.create_table(
         "conflicts",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("project_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE")),
         sa.Column("status", sa.Text(), server_default="open"),
         sa.Column("severity", sa.Text()),
         sa.Column("conflict_type", sa.Text()),
         sa.Column("description", sa.Text()),
         sa.Column("document_a_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("documents.id", ondelete="SET NULL")),
-        sa.Column("chunk_a_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("document_chunks.id", ondelete="SET NULL")),
+        sa.Column(
+            "chunk_a_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("document_chunks.id", ondelete="SET NULL")
+        ),
         sa.Column("document_b_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("documents.id", ondelete="SET NULL")),
-        sa.Column("chunk_b_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("document_chunks.id", ondelete="SET NULL")),
+        sa.Column(
+            "chunk_b_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("document_chunks.id", ondelete="SET NULL")
+        ),
         sa.Column("ai_explanation", sa.Text()),
         sa.Column("resolution_notes", sa.Text()),
         sa.Column("detected_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("NOW()")),
@@ -109,7 +132,12 @@ def upgrade() -> None:
     op.create_table(
         "rfis",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "organization_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("project_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE")),
         sa.Column("number", sa.Text()),
         sa.Column("subject", sa.Text(), nullable=False),

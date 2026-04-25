@@ -17,6 +17,7 @@ catches it before the cron silently does nothing in prod.
 Skipped unless COSTPULSE_RLS_DB_URL + COSTPULSE_RLS_ADMIN_URL are set
 to asyncpg URLs for a live DB at migration head.
 """
+
 from __future__ import annotations
 
 import os
@@ -66,44 +67,50 @@ async def two_price_alerts(engines):
     alert_b = uuid4()
 
     async with admin_factory() as s:
-        await s.execute(text(
-            "INSERT INTO organizations (id, name, slug) VALUES "
-            "(:a, 'A (admin-test)', :sa), (:b, 'B (admin-test)', :sb)"
-        ), {"a": str(org_a), "b": str(org_b),
-            "sa": f"admin-a-{org_a}", "sb": f"admin-b-{org_b}"})
-        await s.execute(text(
-            "INSERT INTO users (id, email) VALUES (:a, :ea), (:b, :eb)"
-        ), {"a": str(user_a), "b": str(user_b),
-            "ea": f"admin-a-{user_a}@test.local",
-            "eb": f"admin-b-{user_b}@test.local"})
-        await s.execute(text(
-            "INSERT INTO price_alerts "
-            "(id, organization_id, user_id, material_code, threshold_pct) "
-            "VALUES (:ia, :oa, :ua, 'CONC_C30', 5), "
-            "       (:ib, :ob, :ub, 'CONC_C30', 5)"
-        ), {
-            "ia": str(alert_a), "oa": str(org_a), "ua": str(user_a),
-            "ib": str(alert_b), "ob": str(org_b), "ub": str(user_b),
-        })
+        await s.execute(
+            text(
+                "INSERT INTO organizations (id, name, slug) VALUES "
+                "(:a, 'A (admin-test)', :sa), (:b, 'B (admin-test)', :sb)"
+            ),
+            {"a": str(org_a), "b": str(org_b), "sa": f"admin-a-{org_a}", "sb": f"admin-b-{org_b}"},
+        )
+        await s.execute(
+            text("INSERT INTO users (id, email) VALUES (:a, :ea), (:b, :eb)"),
+            {
+                "a": str(user_a),
+                "b": str(user_b),
+                "ea": f"admin-a-{user_a}@test.local",
+                "eb": f"admin-b-{user_b}@test.local",
+            },
+        )
+        await s.execute(
+            text(
+                "INSERT INTO price_alerts "
+                "(id, organization_id, user_id, material_code, threshold_pct) "
+                "VALUES (:ia, :oa, :ua, 'CONC_C30', 5), "
+                "       (:ib, :ob, :ub, 'CONC_C30', 5)"
+            ),
+            {
+                "ia": str(alert_a),
+                "oa": str(org_a),
+                "ua": str(user_a),
+                "ib": str(alert_b),
+                "ob": str(org_b),
+                "ub": str(user_b),
+            },
+        )
         await s.commit()
 
-    yield {"alert_a": alert_a, "alert_b": alert_b,
-           "org_a": org_a, "org_b": org_b,
-           "user_a": user_a, "user_b": user_b}
+    yield {"alert_a": alert_a, "alert_b": alert_b, "org_a": org_a, "org_b": org_b, "user_a": user_a, "user_b": user_b}
 
     async with admin_factory() as s:
-        await s.execute(text("DELETE FROM price_alerts WHERE id IN (:a, :b)"),
-                        {"a": str(alert_a), "b": str(alert_b)})
-        await s.execute(text("DELETE FROM users WHERE id IN (:a, :b)"),
-                        {"a": str(user_a), "b": str(user_b)})
-        await s.execute(text("DELETE FROM organizations WHERE id IN (:a, :b)"),
-                        {"a": str(org_a), "b": str(org_b)})
+        await s.execute(text("DELETE FROM price_alerts WHERE id IN (:a, :b)"), {"a": str(alert_a), "b": str(alert_b)})
+        await s.execute(text("DELETE FROM users WHERE id IN (:a, :b)"), {"a": str(user_a), "b": str(user_b)})
+        await s.execute(text("DELETE FROM organizations WHERE id IN (:a, :b)"), {"a": str(org_a), "b": str(org_b)})
         await s.commit()
 
 
-async def test_admin_factory_sees_both_orgs_app_factory_sees_zero(
-    engines, two_price_alerts
-):
+async def test_admin_factory_sees_both_orgs_app_factory_sees_zero(engines, two_price_alerts):
     """Without app.current_org_id, aec_app sees 0 alerts, aec sees all.
 
     This is the whole load-bearing contract. If it ever flips, one of:
@@ -121,10 +128,12 @@ async def test_admin_factory_sees_both_orgs_app_factory_sees_zero(
 
     # aec_app, no `SET app.current_org_id` — RLS blocks everything.
     async with app_factory() as s:
-        rows = (await s.execute(
-            text("SELECT id FROM price_alerts WHERE id = ANY(:ids)"),
-            {"ids": ids},
-        )).all()
+        rows = (
+            await s.execute(
+                text("SELECT id FROM price_alerts WHERE id = ANY(:ids)"),
+                {"ids": ids},
+            )
+        ).all()
         assert rows == [], (
             "aec_app saw cross-tenant rows without app.current_org_id — "
             "either price_alerts lost its RLS policy or the role has BYPASSRLS"
@@ -132,18 +141,18 @@ async def test_admin_factory_sees_both_orgs_app_factory_sees_zero(
 
     # aec superuser — BYPASSRLS should let us see both.
     async with admin_factory() as s:
-        rows = (await s.execute(
-            text("SELECT id FROM price_alerts WHERE id = ANY(:ids)"),
-            {"ids": ids},
-        )).all()
+        rows = (
+            await s.execute(
+                text("SELECT id FROM price_alerts WHERE id = ANY(:ids)"),
+                {"ids": ids},
+            )
+        ).all()
         got = {r[0] for r in rows}
         assert two_price_alerts["alert_a"] in got
         assert two_price_alerts["alert_b"] in got
 
 
-async def test_app_factory_with_org_scope_sees_only_that_org(
-    engines, two_price_alerts
-):
+async def test_app_factory_with_org_scope_sees_only_that_org(engines, two_price_alerts):
     """With app.current_org_id=A, aec_app sees A's alert but not B's."""
     app_engine, _ = engines
     app_factory = async_sessionmaker(app_engine, expire_on_commit=False)
@@ -154,12 +163,12 @@ async def test_app_factory_with_org_scope_sees_only_that_org(
             {"org": str(two_price_alerts["org_a"])},
         )
         ids = [str(two_price_alerts["alert_a"]), str(two_price_alerts["alert_b"])]
-        rows = (await s.execute(
-            text("SELECT id FROM price_alerts WHERE id = ANY(:ids)"),
-            {"ids": ids},
-        )).all()
+        rows = (
+            await s.execute(
+                text("SELECT id FROM price_alerts WHERE id = ANY(:ids)"),
+                {"ids": ids},
+            )
+        ).all()
         got = {r[0] for r in rows}
         assert two_price_alerts["alert_a"] in got
-        assert two_price_alerts["alert_b"] not in got, (
-            "RLS leak: aec_app scoped to org A saw org B's alert"
-        )
+        assert two_price_alerts["alert_b"] not in got, "RLS leak: aec_app scoped to org A saw org B's alert"

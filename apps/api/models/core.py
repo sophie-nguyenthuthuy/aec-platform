@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, CHAR, Date, DateTime, ForeignKey, Integer, Numeric, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy import CHAR, BigInteger, Date, DateTime, ForeignKey, Integer, Numeric, Text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
@@ -40,7 +41,9 @@ class User(Base):
 class OrgMember(Base):
     __tablename__ = "org_members"
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
-    organization_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"))
+    organization_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE")
+    )
     user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
     role: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(TZ)
@@ -49,7 +52,9 @@ class OrgMember(Base):
 class Project(Base):
     __tablename__ = "projects"
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
-    organization_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"))
+    organization_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE")
+    )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     type: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="active")
@@ -84,7 +89,5 @@ class File(Base):
     source_module: Mapped[str | None] = mapped_column(Text)
     processing_status: Mapped[str] = mapped_column(Text, default="pending")
     extracted_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ)

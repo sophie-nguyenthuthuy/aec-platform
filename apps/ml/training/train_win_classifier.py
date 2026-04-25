@@ -5,6 +5,7 @@ to MLflow so experiments are comparable. Run after a representative dataset exis
 
     python -m training.train_win_classifier --org-id <uuid> --out models/win_clf.pkl
 """
+
 from __future__ import annotations
 
 import argparse
@@ -61,7 +62,9 @@ def load_dataset(database_url: str, organization_id: str) -> list[TrainingRow]:
 
 
 def to_matrix(rows: list[TrainingRow]) -> tuple[np.ndarray, np.ndarray]:
-    x = np.array([[r.area_sqm, r.floors, r.total_fee_vnd, r.ai_confidence] for r in rows], dtype=float)
+    x = np.array(
+        [[r.area_sqm, r.floors, r.total_fee_vnd, r.ai_confidence] for r in rows], dtype=float
+    )
     y = np.array([r.won for r in rows], dtype=int)
     return x, y
 
@@ -78,7 +81,9 @@ def main() -> None:
         raise SystemExit(f"Not enough training data: {len(rows)} rows (need >= 20)")
 
     x, y = to_matrix(rows)
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42, stratify=y)
+    x_train, x_test, y_train, y_test = train_test_split(
+        x, y, test_size=0.2, random_state=42, stratify=y
+    )
 
     mlflow.set_experiment("winwork-win-probability")
     with mlflow.start_run():

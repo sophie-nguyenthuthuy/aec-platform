@@ -9,11 +9,12 @@ These are smoke tests — they verify HTTP wiring, auth, validation, envelope
 shape, and error paths — not SQL correctness (which needs an integration
 test against a real Postgres with RLS).
 """
+
 from __future__ import annotations
 
 import sys
 from collections.abc import AsyncIterator, Iterator
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from types import ModuleType
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -23,7 +24,6 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -32,6 +32,7 @@ PROJECT_ID = UUID("33333333-3333-3333-3333-333333333333")
 
 # ---------- Fakes ----------
 
+
 class _ProgrammableSession:
     """Async session stub that returns pre-programmed `execute()` results in order."""
 
@@ -39,7 +40,7 @@ class _ProgrammableSession:
         self._queue: list[Any] = []
         self.executes: list[tuple[str, dict]] = []
 
-    def queue(self, result: Any) -> "_ProgrammableSession":
+    def queue(self, result: Any) -> _ProgrammableSession:
         self._queue.append(result)
         return self
 
@@ -82,6 +83,7 @@ def _scalar(value: Any) -> MagicMock:
 
 # ---------- App fixture ----------
 
+
 @pytest.fixture
 def patch_session(monkeypatch):
     """Replace `routers.handover.TenantAwareSession` with a context manager that
@@ -93,8 +95,10 @@ def patch_session(monkeypatch):
     class _FakeTenantAwareSession:
         def __init__(self, org_id: Any) -> None:
             self._org_id = org_id
+
         async def __aenter__(self):
             return session
+
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
@@ -151,6 +155,7 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 
 # ---------- Row factories ----------
 
+
 def _package_row(**overrides) -> dict:
     base = dict(
         id=uuid4(),
@@ -162,7 +167,7 @@ def _package_row(**overrides) -> dict:
         export_file_id=None,
         delivered_at=None,
         created_by=UUID("11111111-1111-1111-1111-111111111111"),
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     base.update(overrides)
     return base
@@ -181,7 +186,7 @@ def _closeout_item_row(**overrides) -> dict:
         file_ids=[],
         notes=None,
         sort_order=0,
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(UTC),
     )
     base.update(overrides)
     return base
@@ -191,9 +196,8 @@ def _closeout_item_row(**overrides) -> dict:
 # Packages
 # ============================================================
 
-async def test_create_package_returns_envelope_and_triggers_seed(
-    client, patch_session, patch_handover_pipeline
-):
+
+async def test_create_package_returns_envelope_and_triggers_seed(client, patch_session, patch_handover_pipeline):
     pkg = _package_row()
     patch_session.queue(_row(**pkg))
 
@@ -213,9 +217,7 @@ async def test_create_package_returns_envelope_and_triggers_seed(
     patch_handover_pipeline.seed_closeout_items.assert_awaited_once()
 
 
-async def test_create_package_skips_seed_when_auto_populate_false(
-    client, patch_session, patch_handover_pipeline
-):
+async def test_create_package_skips_seed_when_auto_populate_false(client, patch_session, patch_handover_pipeline):
     patch_session.queue(_row(**_package_row()))
     r = await client.post(
         "/api/v1/handover/packages",
@@ -271,8 +273,8 @@ async def test_get_package_returns_404_when_missing(client, patch_session):
 async def test_get_package_returns_package_with_closeout_items(client, patch_session):
     pkg = _package_row()
     items = [_closeout_item_row(package_id=pkg["id"]) for _ in range(2)]
-    patch_session.queue(_row(**pkg))          # package row
-    patch_session.queue(_rows(items))          # closeout items
+    patch_session.queue(_row(**pkg))  # package row
+    patch_session.queue(_rows(items))  # closeout items
 
     r = await client.get(f"/api/v1/handover/packages/{pkg['id']}")
     assert r.status_code == 200, r.text
@@ -305,6 +307,7 @@ async def test_update_package_returns_404_when_missing(client, patch_session):
 # Closeout items
 # ============================================================
 
+
 async def test_add_closeout_item_404_when_package_missing(client, patch_session):
     # Package lookup returns None
     patch_session.queue(_scalar(None))
@@ -318,9 +321,9 @@ async def test_add_closeout_item_404_when_package_missing(client, patch_session)
 
 async def test_add_closeout_item_persists_row(client, patch_session):
     pkg_id = uuid4()
-    patch_session.queue(_scalar(str(pkg_id)))           # package check
+    patch_session.queue(_scalar(str(pkg_id)))  # package check
     row = _closeout_item_row(package_id=pkg_id, title="Manuals")
-    patch_session.queue(_row(**row))                     # INSERT RETURNING
+    patch_session.queue(_row(**row))  # INSERT RETURNING
 
     r = await client.post(
         f"/api/v1/handover/packages/{pkg_id}/closeout-items",
@@ -346,6 +349,7 @@ async def test_update_closeout_item_404_when_missing(client, patch_session):
 # As-built drawings
 # ============================================================
 
+
 def _asbuilt_row(**overrides) -> dict:
     base = dict(
         id=uuid4(),
@@ -357,13 +361,15 @@ def _asbuilt_row(**overrides) -> dict:
         current_version=1,
         current_file_id=uuid4(),
         superseded_file_ids=[],
-        changelog=[{
-            "version": 1,
-            "file_id": str(uuid4()),
-            "change_note": None,
-            "recorded_at": datetime.now(timezone.utc).isoformat(),
-        }],
-        last_updated_at=datetime.now(timezone.utc),
+        changelog=[
+            {
+                "version": 1,
+                "file_id": str(uuid4()),
+                "change_note": None,
+                "recorded_at": datetime.now(UTC).isoformat(),
+            }
+        ],
+        last_updated_at=datetime.now(UTC),
     )
     base.update(overrides)
     return base
@@ -398,7 +404,7 @@ async def test_register_as_built_bumps_version_when_existing(client, patch_sessi
         "superseded_file_ids": [uuid4()],
         "changelog": [],
     }
-    patch_session.queue(_row(**existing))          # existing lookup
+    patch_session.queue(_row(**existing))  # existing lookup
     patch_session.queue(_row(**_asbuilt_row(current_version=3)))  # UPDATE RETURNING
 
     new_file = uuid4()
@@ -436,9 +442,8 @@ async def test_list_as_builts_filters_by_discipline(client, patch_session):
 # O&M manual generation
 # ============================================================
 
-async def test_generate_om_manual_writes_job_and_rows_on_success(
-    client, patch_session, patch_handover_pipeline
-):
+
+async def test_generate_om_manual_writes_job_and_rows_on_success(client, patch_session, patch_handover_pipeline):
     from schemas.handover import EquipmentSpec, MaintenanceTask
 
     eq = EquipmentSpec(tag="AHU-01", name="Air handler", discipline="mep")
@@ -450,21 +455,23 @@ async def test_generate_om_manual_writes_job_and_rows_on_success(
     patch_session.queue(MagicMock())  # ai_jobs insert
     patch_session.queue(MagicMock())  # om_manuals insert
     # After pipeline: UPDATE om_manuals RETURNING *
-    patch_session.queue(_row(
-        id=uuid4(),
-        project_id=PROJECT_ID,
-        package_id=None,
-        title="O&M Manual — mep",
-        discipline="mep",
-        status="ready",
-        equipment=[eq.model_dump(mode="json")],
-        maintenance_schedule=[task.model_dump(mode="json")],
-        source_file_ids=[],
-        pdf_file_id=None,
-        ai_job_id=uuid4(),
-        generated_at=datetime.now(timezone.utc),
-        created_by=UUID("11111111-1111-1111-1111-111111111111"),
-    ))
+    patch_session.queue(
+        _row(
+            id=uuid4(),
+            project_id=PROJECT_ID,
+            package_id=None,
+            title="O&M Manual — mep",
+            discipline="mep",
+            status="ready",
+            equipment=[eq.model_dump(mode="json")],
+            maintenance_schedule=[task.model_dump(mode="json")],
+            source_file_ids=[],
+            pdf_file_id=None,
+            ai_job_id=uuid4(),
+            generated_at=datetime.now(UTC),
+            created_by=UUID("11111111-1111-1111-1111-111111111111"),
+        )
+    )
     patch_session.queue(MagicMock())  # ai_jobs UPDATE
 
     r = await client.post(
@@ -482,12 +489,8 @@ async def test_generate_om_manual_writes_job_and_rows_on_success(
     patch_handover_pipeline.generate_om_manual.assert_awaited_once()
 
 
-async def test_generate_om_manual_marks_failed_on_pipeline_error(
-    client, patch_session, patch_handover_pipeline
-):
-    patch_handover_pipeline.generate_om_manual = AsyncMock(
-        side_effect=RuntimeError("llm timeout")
-    )
+async def test_generate_om_manual_marks_failed_on_pipeline_error(client, patch_session, patch_handover_pipeline):
+    patch_handover_pipeline.generate_om_manual = AsyncMock(side_effect=RuntimeError("llm timeout"))
     patch_session.queue(MagicMock())  # ai_jobs insert
     patch_session.queue(MagicMock())  # om_manuals insert
     patch_session.queue(MagicMock())  # failure UPDATE(s)
@@ -520,6 +523,7 @@ async def test_generate_om_manual_requires_source_files(client):
 # Warranties
 # ============================================================
 
+
 def _warranty_row(**overrides) -> dict:
     base = dict(
         id=uuid4(),
@@ -536,18 +540,14 @@ def _warranty_row(**overrides) -> dict:
         claim_contact={"email": "support@daikin.vn"},
         status="active",
         notes=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     base.update(overrides)
     return base
 
 
-async def test_extract_warranty_surfaces_pipeline_error_as_502(
-    client, patch_session, patch_handover_pipeline
-):
-    patch_handover_pipeline.extract_warranty_items = AsyncMock(
-        side_effect=RuntimeError("contract OCR failed")
-    )
+async def test_extract_warranty_surfaces_pipeline_error_as_502(client, patch_session, patch_handover_pipeline):
+    patch_handover_pipeline.extract_warranty_items = AsyncMock(side_effect=RuntimeError("contract OCR failed"))
     r = await client.post(
         "/api/v1/handover/warranties/extract",
         json={
@@ -586,9 +586,7 @@ async def test_list_warranties_paginates(client, patch_session):
     assert body["meta"]["total"] == 2
 
 
-async def test_list_warranties_expiring_within_30_days_builds_cutoff(
-    client, patch_session
-):
+async def test_list_warranties_expiring_within_30_days_builds_cutoff(client, patch_session):
     patch_session.queue(_rows([]))
     patch_session.queue(_scalar(0))
     r = await client.get(
@@ -602,9 +600,7 @@ async def test_list_warranties_expiring_within_30_days_builds_cutoff(
     assert params["cutoff"] == expected
 
 
-async def test_update_warranty_requires_field_and_404_on_missing(
-    client, patch_session
-):
+async def test_update_warranty_requires_field_and_404_on_missing(client, patch_session):
     # No fields
     r = await client.patch(
         f"/api/v1/handover/warranties/{uuid4()}",
@@ -627,6 +623,7 @@ async def test_update_warranty_requires_field_and_404_on_missing(
 # Defects
 # ============================================================
 
+
 def _defect_row(**overrides) -> dict:
     base = dict(
         id=uuid4(),
@@ -640,7 +637,7 @@ def _defect_row(**overrides) -> dict:
         priority="medium",
         assignee_id=None,
         reported_by=UUID("11111111-1111-1111-1111-111111111111"),
-        reported_at=datetime.now(timezone.utc),
+        reported_at=datetime.now(UTC),
         resolved_at=None,
         resolution_notes=None,
     )
@@ -696,6 +693,7 @@ async def test_update_defect_empty_payload_returns_400(client):
 # Auth boundary
 # ============================================================
 
+
 async def test_no_org_scoped_query_escapes_auth(client, patch_session, fake_auth):
     """Every handler must thread `auth.organization_id` into params."""
     patch_session.queue(_rows([]))
@@ -709,6 +707,7 @@ async def test_no_org_scoped_query_escapes_auth(client, patch_session, fake_auth
 # ============================================================
 # DRAWBRIDGE → HANDOVER promote-drawings handoff
 # ============================================================
+
 
 async def test_promote_drawings_creates_and_versions(client, patch_session):
     """The sweep creates an as-built for a new drawing_number and versions
@@ -729,35 +728,39 @@ async def test_promote_drawings_creates_and_versions(client, patch_session):
     # 2. SELECT candidate drawbridge documents
     #    A-101 has two revs (A and B); we should take B (first in ORDER BY).
     #    E-101 has one rev, pointing at a DIFFERENT file than the existing as-built.
-    patch_session.queue(_rows([
-        {
-            "id": uuid4(),
-            "drawing_number": "A-101",
-            "title": "Ground floor plan",
-            "revision": "B",
-            "discipline": "architecture",
-            "file_id": new_file_id,
-            "created_at": datetime.now(timezone.utc),
-        },
-        {
-            "id": uuid4(),
-            "drawing_number": "A-101",
-            "title": "Ground floor plan",
-            "revision": "A",
-            "discipline": "architecture",
-            "file_id": old_file_id,
-            "created_at": datetime.now(timezone.utc),
-        },
-        {
-            "id": uuid4(),
-            "drawing_number": "E-101",
-            "title": "Lighting layout",
-            "revision": "1",
-            "discipline": "mep",
-            "file_id": new_file_id,
-            "created_at": datetime.now(timezone.utc),
-        },
-    ]))
+    patch_session.queue(
+        _rows(
+            [
+                {
+                    "id": uuid4(),
+                    "drawing_number": "A-101",
+                    "title": "Ground floor plan",
+                    "revision": "B",
+                    "discipline": "architecture",
+                    "file_id": new_file_id,
+                    "created_at": datetime.now(UTC),
+                },
+                {
+                    "id": uuid4(),
+                    "drawing_number": "A-101",
+                    "title": "Ground floor plan",
+                    "revision": "A",
+                    "discipline": "architecture",
+                    "file_id": old_file_id,
+                    "created_at": datetime.now(UTC),
+                },
+                {
+                    "id": uuid4(),
+                    "drawing_number": "E-101",
+                    "title": "Lighting layout",
+                    "revision": "1",
+                    "discipline": "mep",
+                    "file_id": new_file_id,
+                    "created_at": datetime.now(UTC),
+                },
+            ]
+        )
+    )
 
     # 3. SELECT existing as_built for A-101 → none, so it'll be created
     patch_session.queue(_row())  # first() returns empty dict which is falsy-ish
@@ -774,13 +777,15 @@ async def test_promote_drawings_creates_and_versions(client, patch_session):
 
     # 5. SELECT existing as_built for E-101 → returns an existing one with a
     #    DIFFERENT file_id, so we should version it.
-    patch_session.queue(_row(
-        id=uuid4(),
-        current_version=1,
-        current_file_id=e101_current_in_asbuilts,
-        superseded_file_ids=[],
-        changelog=[],
-    ))
+    patch_session.queue(
+        _row(
+            id=uuid4(),
+            current_version=1,
+            current_file_id=e101_current_in_asbuilts,
+            superseded_file_ids=[],
+            changelog=[],
+        )
+    )
 
     # 6. UPDATE as_built for E-101
     patch_session.queue(_row())
@@ -809,25 +814,31 @@ async def test_promote_drawings_is_idempotent_for_same_file(client, patch_sessio
     same_file_id = uuid4()
 
     patch_session.queue(_row(id=pkg_id, project_id=project_id))
-    patch_session.queue(_rows([
-        {
-            "id": uuid4(),
-            "drawing_number": "S-201",
-            "title": "Roof framing",
-            "revision": "C",
-            "discipline": "structural",
-            "file_id": same_file_id,
-            "created_at": datetime.now(timezone.utc),
-        },
-    ]))
+    patch_session.queue(
+        _rows(
+            [
+                {
+                    "id": uuid4(),
+                    "drawing_number": "S-201",
+                    "title": "Roof framing",
+                    "revision": "C",
+                    "discipline": "structural",
+                    "file_id": same_file_id,
+                    "created_at": datetime.now(UTC),
+                },
+            ]
+        )
+    )
     # Existing as-built with the SAME current_file_id
-    patch_session.queue(_row(
-        id=uuid4(),
-        current_version=3,
-        current_file_id=same_file_id,
-        superseded_file_ids=[],
-        changelog=[],
-    ))
+    patch_session.queue(
+        _row(
+            id=uuid4(),
+            current_version=3,
+            current_file_id=same_file_id,
+            superseded_file_ids=[],
+            changelog=[],
+        )
+    )
 
     r = await client.post(
         f"/api/v1/handover/packages/{pkg_id}/promote-drawings",

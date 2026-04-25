@@ -14,6 +14,7 @@ de-duplicates on `(material_code, province, effective_date)`.
 Rules that fail to match are surfaced via `unmatched` so ops can add new
 patterns after each scrape run.
 """
+
 from __future__ import annotations
 
 import logging
@@ -43,44 +44,80 @@ def _r(pat: str) -> re.Pattern[str]:
 _RULES: list[_Rule] = [
     # Concrete by grade. Vietnamese practice uses both M-series (old, by
     # cube strength) and C-series (new, by cylinder — matches our codes).
-    _Rule(_r(r"bê\s*tông.*(c[\s-]?40|m[\s-]?400|40\s*mpa)"),
-          "CONC_C40", "concrete", "Concrete C40", ("m3",)),
-    _Rule(_r(r"bê\s*tông.*(c[\s-]?30|m[\s-]?300|30\s*mpa)"),
-          "CONC_C30", "concrete", "Concrete C30", ("m3",)),
-    _Rule(_r(r"bê\s*tông.*(c[\s-]?25|m[\s-]?250|25\s*mpa)"),
-          "CONC_C25", "concrete", "Concrete C25", ("m3",)),
+    _Rule(_r(r"bê\s*tông.*(c[\s-]?40|m[\s-]?400|40\s*mpa)"), "CONC_C40", "concrete", "Concrete C40", ("m3",)),
+    _Rule(_r(r"bê\s*tông.*(c[\s-]?30|m[\s-]?300|30\s*mpa)"), "CONC_C30", "concrete", "Concrete C30", ("m3",)),
+    _Rule(_r(r"bê\s*tông.*(c[\s-]?25|m[\s-]?250|25\s*mpa)"), "CONC_C25", "concrete", "Concrete C25", ("m3",)),
     # Rebar.
-    _Rule(_r(r"(thép|rebar).*(cb\s*500|sd\s*500|grade\s*500)"),
-          "REBAR_CB500", "steel", "Rebar CB500", ("kg", "tấn", "ton")),
-    _Rule(_r(r"(thép|rebar).*(cb\s*300|sd\s*295|grade\s*300)"),
-          "REBAR_CB300", "steel", "Rebar CB300", ("kg", "tấn", "ton")),
+    _Rule(
+        _r(r"(thép|rebar).*(cb\s*500|sd\s*500|grade\s*500)"),
+        "REBAR_CB500",
+        "steel",
+        "Rebar CB500",
+        ("kg", "tấn", "ton"),
+    ),
+    _Rule(
+        _r(r"(thép|rebar).*(cb\s*300|sd\s*295|grade\s*300)"),
+        "REBAR_CB300",
+        "steel",
+        "Rebar CB300",
+        ("kg", "tấn", "ton"),
+    ),
     # Structural steel profiles.
-    _Rule(_r(r"(thép\s*hình|thép\s*tấm|structural\s*steel|h[\s-]?beam|i[\s-]?beam)"),
-          "STEEL_STRUCT", "steel", "Structural steel", ("kg", "tấn", "ton")),
+    _Rule(
+        _r(r"(thép\s*hình|thép\s*tấm|structural\s*steel|h[\s-]?beam|i[\s-]?beam)"),
+        "STEEL_STRUCT",
+        "steel",
+        "Structural steel",
+        ("kg", "tấn", "ton"),
+    ),
     # Masonry — red clay brick vs AAC block.
-    _Rule(_r(r"(gạch\s*AAC|aac|khí\s*chưng\s*áp|bê\s*tông\s*nhẹ)"),
-          "BRICK_AAC", "masonry", "AAC block", ("m3", "viên")),
-    _Rule(_r(r"(gạch\s*đỏ|gạch\s*tuynel|clay\s*brick|red\s*brick|gạch\s*đất\s*nung)"),
-          "BRICK_RED", "masonry", "Red clay brick", ("viên", "1000 viên")),
+    _Rule(
+        _r(r"(gạch\s*AAC|aac|khí\s*chưng\s*áp|bê\s*tông\s*nhẹ)"), "BRICK_AAC", "masonry", "AAC block", ("m3", "viên")
+    ),
+    _Rule(
+        _r(r"(gạch\s*đỏ|gạch\s*tuynel|clay\s*brick|red\s*brick|gạch\s*đất\s*nung)"),
+        "BRICK_RED",
+        "masonry",
+        "Red clay brick",
+        ("viên", "1000 viên"),
+    ),
     # Cement.
-    _Rule(_r(r"(xi\s*măng|cement).*(pcb[\s-]?40|pcb\s*40)"),
-          "CEMENT_PCB40", "other", "Cement PCB40", ("kg", "bao", "tấn")),
+    _Rule(
+        _r(r"(xi\s*măng|cement).*(pcb[\s-]?40|pcb\s*40)"), "CEMENT_PCB40", "other", "Cement PCB40", ("kg", "bao", "tấn")
+    ),
     # Aggregates.
-    _Rule(_r(r"(cát\s*mịn|fine\s*sand|cát\s*vàng)"),
-          "SAND_FINE", "other", "Fine sand", ("m3",)),
-    _Rule(_r(r"(đá\s*1\s*x\s*2|gravel\s*1x2|đá\s*dăm)"),
-          "GRAVEL_1x2", "other", "Gravel 1x2", ("m3",)),
+    _Rule(_r(r"(cát\s*mịn|fine\s*sand|cát\s*vàng)"), "SAND_FINE", "other", "Fine sand", ("m3",)),
+    _Rule(_r(r"(đá\s*1\s*x\s*2|gravel\s*1x2|đá\s*dăm)"), "GRAVEL_1x2", "other", "Gravel 1x2", ("m3",)),
     # Finishes.
-    _Rule(_r(r"(gạch\s*(lát|ốp)|ceramic\s*tile|gạch\s*men|gạch\s*granite)"),
-          "TILE_CERAMIC", "finishing", "Ceramic tile", ("m2",)),
-    _Rule(_r(r"(sơn\s*ngoại\s*thất|exterior\s*paint|sơn\s*chống\s*thấm)"),
-          "PAINT_EXTERIOR", "finishing", "Exterior paint", ("kg", "lit", "lít")),
-    _Rule(_r(r"(sơn\s*nội\s*thất|sơn\s*nhũ\s*tương|interior\s*paint|emulsion)"),
-          "PAINT_EMULSION", "finishing", "Emulsion paint", ("kg", "lit", "lít")),
-    _Rule(_r(r"(vữa\s*trát|plaster|vữa\s*xây)"),
-          "PLASTER", "finishing", "Plaster mortar", ("m3",)),
-    _Rule(_r(r"(chống\s*thấm|waterproof(ing)?|màng\s*bitum)"),
-          "WATERPROOF_MEMBRANE", "finishing", "Waterproof membrane", ("m2", "kg")),
+    _Rule(
+        _r(r"(gạch\s*(lát|ốp)|ceramic\s*tile|gạch\s*men|gạch\s*granite)"),
+        "TILE_CERAMIC",
+        "finishing",
+        "Ceramic tile",
+        ("m2",),
+    ),
+    _Rule(
+        _r(r"(sơn\s*ngoại\s*thất|exterior\s*paint|sơn\s*chống\s*thấm)"),
+        "PAINT_EXTERIOR",
+        "finishing",
+        "Exterior paint",
+        ("kg", "lit", "lít"),
+    ),
+    _Rule(
+        _r(r"(sơn\s*nội\s*thất|sơn\s*nhũ\s*tương|interior\s*paint|emulsion)"),
+        "PAINT_EMULSION",
+        "finishing",
+        "Emulsion paint",
+        ("kg", "lit", "lít"),
+    ),
+    _Rule(_r(r"(vữa\s*trát|plaster|vữa\s*xây)"), "PLASTER", "finishing", "Plaster mortar", ("m3",)),
+    _Rule(
+        _r(r"(chống\s*thấm|waterproof(ing)?|màng\s*bitum)"),
+        "WATERPROOF_MEMBRANE",
+        "finishing",
+        "Waterproof membrane",
+        ("m2", "kg"),
+    ),
 ]
 
 
@@ -120,7 +157,9 @@ def normalise(rows: list[ScrapedPrice]) -> tuple[list[NormalisedPrice], list[Scr
         if rule.preferred_units and row.raw_unit.lower() not in rule.preferred_units:
             logger.info(
                 "scraper.normalise: unit mismatch for %s — got %r, expected one of %r",
-                rule.code, row.raw_unit, rule.preferred_units,
+                rule.code,
+                row.raw_unit,
+                rule.preferred_units,
             )
 
         normalised.append(
@@ -139,7 +178,8 @@ def normalise(rows: list[ScrapedPrice]) -> tuple[list[NormalisedPrice], list[Scr
     if unmatched:
         logger.warning(
             "scraper.normalise: %d of %d rows did not match any rule",
-            len(unmatched), len(rows),
+            len(unmatched),
+            len(rows),
         )
 
     return normalised, unmatched

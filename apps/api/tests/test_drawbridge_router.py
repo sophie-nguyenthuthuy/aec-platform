@@ -4,6 +4,7 @@ The ML/RAG pipelines are mocked at their public entry points so these
 tests verify HTTP wiring, persistence intent (rows added to the fake
 session), and auth/tenant boundaries — not the LLM output.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
@@ -14,7 +15,6 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -127,9 +127,8 @@ def _make_conflict(
 # Q&A
 # ============================================================
 
-async def test_query_returns_answer_with_source_documents(
-    client, fake_db, fake_auth, monkeypatch
-):
+
+async def test_query_returns_answer_with_source_documents(client, fake_db, fake_auth, monkeypatch):
     from schemas.drawbridge import QueryResponse, SourceDocument
 
     response = QueryResponse(
@@ -203,9 +202,8 @@ async def test_query_surfaces_pipeline_failure_as_502(client, monkeypatch):
 # Conflict scan
 # ============================================================
 
-async def test_conflict_scan_delegates_to_pipeline(
-    client, fake_db, fake_auth, monkeypatch
-):
+
+async def test_conflict_scan_delegates_to_pipeline(client, fake_db, fake_auth, monkeypatch):
     from schemas.drawbridge import ConflictScanResponse
 
     pipeline_result = ConflictScanResponse(
@@ -251,6 +249,7 @@ async def test_conflict_scan_pipeline_error_returns_502(client, monkeypatch):
 # Conflict update
 # ============================================================
 
+
 async def test_update_conflict_sets_resolved_fields(client, fake_db, fake_auth):
     conflict = _make_conflict(organization_id=fake_auth.organization_id)
     from models.drawbridge import Conflict as ConflictModel
@@ -286,9 +285,8 @@ async def test_update_conflict_cross_tenant_is_404(client, fake_db, fake_auth):
 # Document file shortcut
 # ============================================================
 
-async def test_document_file_redirect_points_at_files_download(
-    client, fake_db, fake_auth
-):
+
+async def test_document_file_redirect_points_at_files_download(client, fake_db, fake_auth):
     doc = _make_document(organization_id=fake_auth.organization_id)
     from models.drawbridge import Document as DocumentModel
 
@@ -302,9 +300,7 @@ async def test_document_file_redirect_points_at_files_download(
     assert res.headers["location"] == f"/api/v1/files/{doc.file_id}/download"
 
 
-async def test_document_file_missing_file_id_returns_404(
-    client, fake_db, fake_auth
-):
+async def test_document_file_missing_file_id_returns_404(client, fake_db, fake_auth):
     doc = _make_document(organization_id=fake_auth.organization_id, file_id=None)
     from models.drawbridge import Document as DocumentModel
 
@@ -335,9 +331,8 @@ async def test_document_file_cross_tenant_is_404(client, fake_db, fake_auth):
 # Extraction
 # ============================================================
 
-async def test_extract_delegates_to_pipeline(
-    client, fake_db, fake_auth, monkeypatch
-):
+
+async def test_extract_delegates_to_pipeline(client, fake_db, fake_auth, monkeypatch):
     from schemas.drawbridge import ExtractedSchedule, ExtractResponse
 
     doc = _make_document(organization_id=fake_auth.organization_id)
@@ -376,12 +371,11 @@ async def test_extract_delegates_to_pipeline(
 # RFI generation from conflict
 # ============================================================
 
-async def test_generate_rfi_creates_rfi_row_from_draft(
-    client, fake_db, fake_auth, monkeypatch
-):
-    from schemas.drawbridge import RfiDraft
+
+async def test_generate_rfi_creates_rfi_row_from_draft(client, fake_db, fake_auth, monkeypatch):
     from models.drawbridge import Conflict as ConflictModel
     from models.drawbridge import Rfi as RfiModel
+    from schemas.drawbridge import RfiDraft
 
     conflict = _make_conflict(organization_id=fake_auth.organization_id)
     fake_db.set_get(ConflictModel, conflict.id, conflict)

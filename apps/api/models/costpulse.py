@@ -5,7 +5,8 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Text
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
@@ -62,12 +63,8 @@ class Estimate(Base):
     total_vnd: Mapped[int | None] = mapped_column(BigInteger)
     confidence: Mapped[str | None] = mapped_column(Text)
     method: Mapped[str | None] = mapped_column(Text)
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
-    approved_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    approved_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ)
 
 
@@ -77,9 +74,7 @@ class BoqItem(Base):
     estimate_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("estimates.id", ondelete="CASCADE"), nullable=False
     )
-    parent_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("boq_items.id", ondelete="CASCADE")
-    )
+    parent_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("boq_items.id", ondelete="CASCADE"))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     code: Mapped[str | None] = mapped_column(Text)
     description: Mapped[str] = mapped_column(Text, nullable=False)

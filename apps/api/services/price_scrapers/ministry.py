@@ -11,6 +11,7 @@ latest monthly bulletin, and parses the embedded HTML table. When the
 bulletin is only available as a DOCX/PDF attachment we log + skip;
 provincial scrapers pick up the slack.
 """
+
 from __future__ import annotations
 
 import logging
@@ -47,9 +48,7 @@ class MinistryOfConstructionScraper(BaseScraper):
 
             bulletin = await client.get(bulletin_url, timeout=30.0)
             bulletin.raise_for_status()
-            return _parse_bulletin_html(
-                bulletin.text, source_url=bulletin_url
-            )
+            return _parse_bulletin_html(bulletin.text, source_url=bulletin_url)
         except Exception as exc:  # httpx.HTTPError, parse errors, etc.
             raise ScrapeError(f"MOC scrape failed: {exc}") from exc
 
@@ -70,9 +69,9 @@ _BULLETIN_LINK_RE = re.compile(
 _MONTH_YEAR_RE = re.compile(r"(\d{1,2})\s*[-/]\s*(\d{4})")
 _ROW_RE = re.compile(
     r"<tr[^>]*>\s*"
-    r"<td[^>]*>([^<]+)</td>\s*"   # raw_name
-    r"<td[^>]*>([^<]+)</td>\s*"   # unit
-    r"<td[^>]*>([^<]+)</td>\s*"   # price
+    r"<td[^>]*>([^<]+)</td>\s*"  # raw_name
+    r"<td[^>]*>([^<]+)</td>\s*"  # unit
+    r"<td[^>]*>([^<]+)</td>\s*"  # price
     r"</tr>",
     re.IGNORECASE | re.DOTALL,
 )

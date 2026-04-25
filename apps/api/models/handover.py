@@ -5,7 +5,8 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Text
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
@@ -31,9 +32,7 @@ class HandoverPackage(Base):
         PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL")
     )
     delivered_at: Mapped[datetime | None] = mapped_column(TZ)
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ)
 
 
@@ -52,9 +51,7 @@ class CloseoutItem(Base):
     description: Mapped[str | None] = mapped_column(Text)
     required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
-    assignee_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    assignee_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     file_ids: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID(as_uuid=True)), default=list)
     notes: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
@@ -107,16 +104,10 @@ class OmManual(Base):
     equipment: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
     maintenance_schedule: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
     source_file_ids: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID(as_uuid=True)), default=list)
-    pdf_file_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL")
-    )
-    ai_job_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("ai_jobs.id", ondelete="SET NULL")
-    )
+    pdf_file_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL"))
+    ai_job_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("ai_jobs.id", ondelete="SET NULL"))
     generated_at: Mapped[datetime] = mapped_column(TZ)
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ)
 
 
@@ -168,12 +159,8 @@ class Defect(Base):
     photo_file_ids: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID(as_uuid=True)), default=list)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="open")
     priority: Mapped[str] = mapped_column(Text, nullable=False, default="medium")
-    assignee_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
-    reported_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    assignee_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    reported_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     reported_at: Mapped[datetime] = mapped_column(TZ)
     resolved_at: Mapped[datetime | None] = mapped_column(TZ)
     resolution_notes: Mapped[str | None] = mapped_column(Text)

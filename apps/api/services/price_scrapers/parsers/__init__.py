@@ -15,6 +15,7 @@ work into:
 Adding a new format (XLSX, CSV, OpenOffice ODT, …) is one thin adapter
 module; the column-detection + row-mapping logic doesn't change.
 """
+
 from __future__ import annotations
 
 from .docx import parse_docx_bulletin

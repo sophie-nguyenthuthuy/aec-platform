@@ -1,4 +1,5 @@
 """FastAPI router for CostPulse endpoints."""
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -110,12 +111,10 @@ async def list_estimates(
 
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (
-        await db.execute(
-            stmt.order_by(Estimate.created_at.desc())
-            .limit(per_page)
-            .offset((page - 1) * per_page)
-        )
-    ).scalars().all()
+        (await db.execute(stmt.order_by(Estimate.created_at.desc()).limit(per_page).offset((page - 1) * per_page)))
+        .scalars()
+        .all()
+    )
 
     return paginated(
         [EstimateSummary.model_validate(r).model_dump(mode="json") for r in rows],
@@ -286,9 +285,7 @@ async def lookup_prices(
         stmt = stmt.where(MaterialPrice.province == province)
 
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
-    rows = (
-        await db.execute(stmt.order_by(MaterialPrice.name).limit(limit).offset(offset))
-    ).scalars().all()
+    rows = (await db.execute(stmt.order_by(MaterialPrice.name).limit(limit).offset(offset))).scalars().all()
 
     return paginated(
         [MaterialPriceOut.model_validate(r).model_dump(mode="json") for r in rows],
@@ -413,12 +410,16 @@ async def list_suppliers(
 
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (
-        await db.execute(
-            stmt.order_by(Supplier.verified.desc(), Supplier.rating.desc().nullslast(), Supplier.name)
-            .limit(per_page)
-            .offset((page - 1) * per_page)
+        (
+            await db.execute(
+                stmt.order_by(Supplier.verified.desc(), Supplier.rating.desc().nullslast(), Supplier.name)
+                .limit(per_page)
+                .offset((page - 1) * per_page)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     return paginated(
         [SupplierOut.model_validate(r).model_dump(mode="json") for r in rows],
@@ -703,16 +704,16 @@ def _persist_items(
 
 
 async def _load_estimate_detail(db: AsyncSession, estimate_id: UUID) -> EstimateDetail:
-    estimate = (
-        await db.execute(select(Estimate).where(Estimate.id == estimate_id))
-    ).scalar_one()
+    estimate = (await db.execute(select(Estimate).where(Estimate.id == estimate_id))).scalar_one()
     items = (
-        await db.execute(
-            select(BoqItem)
-            .where(BoqItem.estimate_id == estimate_id)
-            .order_by(BoqItem.sort_order, BoqItem.code)
+        (
+            await db.execute(
+                select(BoqItem).where(BoqItem.estimate_id == estimate_id).order_by(BoqItem.sort_order, BoqItem.code)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     return EstimateDetail(
         id=estimate.id,

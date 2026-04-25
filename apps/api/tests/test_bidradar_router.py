@@ -4,10 +4,11 @@ Builds a minimal FastAPI app with only the bidradar router mounted, then
 overrides `require_auth` and `get_db` the same way the shared conftest does.
 This avoids importing the full `main.py` (which pulls in unrelated modules).
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -47,7 +48,7 @@ class FakeAsyncSession:
 
     async def refresh(self, obj: Any) -> None:
         if not hasattr(obj, "created_at") or obj.created_at is None:
-            obj.created_at = datetime.now(timezone.utc)
+            obj.created_at = datetime.now(UTC)
 
     async def get(self, model: type, id_: Any) -> Any:
         return self._get_map.get((model, id_))
@@ -81,8 +82,9 @@ def app(fake_db) -> FastAPI:
         email="tester@example.com",
     )
 
-    from core.envelope import http_exception_handler, unhandled_exception_handler
     from fastapi import HTTPException
+
+    from core.envelope import http_exception_handler, unhandled_exception_handler
 
     app = FastAPI()
     app.add_exception_handler(HTTPException, http_exception_handler)
@@ -135,7 +137,7 @@ async def test_scrape_creates_tenders_and_matches(client, fake_db, monkeypatch):
         active_capacity_pct=50.0,
         past_wins=[],
         keywords=[],
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(UTC),
     )
 
     scraped_items = [
@@ -173,7 +175,7 @@ async def test_scrape_creates_tenders_and_matches(client, fake_db, monkeypatch):
 
     inserted_tender_id = uuid4()
     insert_result = MagicMock()
-    insert_result.first.return_value = (inserted_tender_id, datetime.now(timezone.utc))
+    insert_result.first.return_value = (inserted_tender_id, datetime.now(UTC))
     fake_db.push_execute(insert_result)
 
     profile_q = MagicMock()
@@ -273,7 +275,7 @@ async def test_create_proposal_returns_winwork_url(client, fake_db):
         id=tender_id,
         title="Cải tạo trụ sở UBND Quận 1",
         issuer="UBND Quận 1",
-        submission_deadline=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        submission_deadline=datetime(2026, 6, 1, tzinfo=UTC),
         raw_url="https://muasamcong.mpi.gov.vn/tender/001",
         description="HQ renovation scope.",
         budget_vnd=6_000_000_000,

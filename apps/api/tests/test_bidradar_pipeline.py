@@ -1,4 +1,5 @@
 """Unit tests for the BIDRADAR scoring pipeline (LLM mocked)."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace

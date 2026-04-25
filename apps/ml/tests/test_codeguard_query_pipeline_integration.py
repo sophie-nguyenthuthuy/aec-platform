@@ -25,6 +25,7 @@ A failure here probably means either (a) the DB schema drifted (halfvec column
 missing — run migration 0009) or (b) the pipeline's LLM/embedder factories
 were renamed and this test's monkeypatch targets are stale.
 """
+
 from __future__ import annotations
 
 import json
@@ -37,7 +38,6 @@ import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 
 # Same sys.path dance as the retrieval integration test — pipelines.codeguard
 # imports from schemas.codeguard (which lives under apps/api).
@@ -111,8 +111,7 @@ async def test_query_pipeline_end_to_end_with_stub_llm(session, monkeypatch):
         {"id": str(reg_id), "code": reg_code},
     )
     chunk_content = (
-        "Chiều rộng thông thủy của hành lang thoát nạn trong nhà chung cư "
-        "không được nhỏ hơn 1.4 m."
+        "Chiều rộng thông thủy của hành lang thoát nạn trong nhà chung cư không được nhỏ hơn 1.4 m."
     )
     await session.execute(
         text(

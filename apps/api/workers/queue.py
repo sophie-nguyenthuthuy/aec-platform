@@ -4,6 +4,7 @@
 Run the worker:
     arq workers.queue.WorkerSettings
 """
+
 from __future__ import annotations
 
 import logging
@@ -21,6 +22,7 @@ from core.config import get_settings
 # only imports drawbridge models — but Document.project_id FK references
 # core.Project, which would otherwise never be registered.
 from models import register_all as _register_all_models
+
 _register_all_models()
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,7 @@ def _redis_settings() -> RedisSettings:
 
 
 # ---------- Enqueue helpers ----------
+
 
 async def enqueue_photo_analysis(
     *,
@@ -114,9 +117,8 @@ async def enqueue_rfq_dispatch(
 
 # ---------- Job handlers ----------
 
-async def photo_analysis_job(
-    ctx: dict, organization_id: str, project_id: str, photo_ids: list[str]
-) -> dict:
+
+async def photo_analysis_job(ctx: dict, organization_id: str, project_id: str, photo_ids: list[str]) -> dict:
     import asyncio
 
     from ml.pipelines.siteeye import _aggregate_progress, run_photo_analysis
@@ -171,14 +173,10 @@ async def drawbridge_ingest_job(
     return {"document_id": document_id, "status": "ingested"}
 
 
-async def rfq_dispatch_job(
-    ctx: dict, organization_id: str, rfq_id: str
-) -> dict:
+async def rfq_dispatch_job(ctx: dict, organization_id: str, rfq_id: str) -> dict:
     from services.rfq_dispatch import dispatch_rfq
 
-    return await dispatch_rfq(
-        organization_id=UUID(organization_id), rfq_id=UUID(rfq_id)
-    )
+    return await dispatch_rfq(organization_id=UUID(organization_id), rfq_id=UUID(rfq_id))
 
 
 async def price_alerts_evaluate_job(ctx: dict) -> dict:
@@ -211,6 +209,7 @@ async def scrape_all_prices_job(ctx: dict) -> dict:
 
 
 # ---------- Cron ----------
+
 
 async def weekly_report_cron(ctx: dict) -> dict:
     """Generate weekly reports for every project that had activity this past week."""
@@ -257,6 +256,7 @@ async def weekly_report_cron(ctx: dict) -> dict:
 
 
 # ---------- Worker settings ----------
+
 
 class WorkerSettings:
     redis_settings = _redis_settings()

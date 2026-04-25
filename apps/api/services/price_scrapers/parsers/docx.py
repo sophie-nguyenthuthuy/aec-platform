@@ -10,6 +10,7 @@ inside the function rather than at module load. Modules that never
 call `parse_docx_bulletin` (e.g. unit tests for HTML-only scrapers)
 don't pay the cost.
 """
+
 from __future__ import annotations
 
 import io
@@ -43,9 +44,7 @@ def parse_docx_bulletin(
     try:
         import docx  # python-docx
     except ImportError as exc:  # pragma: no cover — deployed env always has it
-        raise ScrapeError(
-            "python-docx not installed; cannot parse .docx bulletins"
-        ) from exc
+        raise ScrapeError("python-docx not installed; cannot parse .docx bulletins") from exc
 
     try:
         document = docx.Document(io.BytesIO(content))
@@ -70,13 +69,17 @@ def parse_docx_bulletin(
         if scraped:
             logger.info(
                 "parser.docx[%s]: parsed %d rows from table %d/%d",
-                province, len(scraped), t_idx + 1, len(document.tables),
+                province,
+                len(scraped),
+                t_idx + 1,
+                len(document.tables),
             )
             return scraped
 
     logger.warning(
         "parser.docx[%s]: none of %d tables parsed to any rows",
-        province, len(document.tables),
+        province,
+        len(document.tables),
     )
     return []
 

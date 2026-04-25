@@ -3,6 +3,7 @@
 Keeps storage keys consistent across modules: `{org_id}/{module}/reports/{id}.pdf`.
 Uploads via the same aioboto3 session pattern used by `routers/files.py`.
 """
+
 from __future__ import annotations
 
 import logging
@@ -24,10 +25,7 @@ def report_public_url(settings: Settings, storage_key: str) -> str:
     If you later switch to signed URLs (e.g. for non-public buckets), this is
     the single place to change — the route calls it, tests stub it.
     """
-    return (
-        f"https://{settings.s3_bucket}.s3.{settings.aws_region}.amazonaws.com/"
-        f"{storage_key}"
-    )
+    return f"https://{settings.s3_bucket}.s3.{settings.aws_region}.amazonaws.com/{storage_key}"
 
 
 async def upload_report_pdf(

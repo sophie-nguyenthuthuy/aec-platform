@@ -1,4 +1,5 @@
 """Pydantic schemas for DRAWBRIDGE module."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -8,8 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------- Enums ----------
+
 
 class Discipline(str, Enum):
     architectural = "architectural"
@@ -76,6 +77,7 @@ class RfiPriority(str, Enum):
 
 # ---------- Document sets ----------
 
+
 class DocumentSetBase(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     discipline: Discipline | None = None
@@ -97,6 +99,7 @@ class DocumentSet(DocumentSetBase):
 
 # ---------- Documents ----------
 
+
 class DocumentBase(BaseModel):
     doc_type: DocType | None = None
     drawing_number: str | None = None
@@ -108,6 +111,7 @@ class DocumentBase(BaseModel):
 
 class DocumentUpload(BaseModel):
     """Metadata passed alongside a multipart file upload."""
+
     project_id: UUID
     document_set_id: UUID | None = None
     doc_type: DocType | None = None
@@ -144,6 +148,7 @@ class DocumentListFilters(BaseModel):
 
 # ---------- Document Q&A ----------
 
+
 class SourceDocument(BaseModel):
     document_id: UUID
     drawing_number: str | None = None
@@ -171,6 +176,7 @@ class QueryResponse(BaseModel):
 
 
 # ---------- Conflict detection ----------
+
 
 class ConflictScanRequest(BaseModel):
     project_id: UUID
@@ -242,6 +248,7 @@ class ConflictListFilters(BaseModel):
 
 # ---------- Schedule / data extraction ----------
 
+
 class ExtractRequest(BaseModel):
     document_id: UUID
     target: Literal["schedule", "dimensions", "materials", "title_block", "all"] = "schedule"
@@ -284,6 +291,7 @@ class ExtractResponse(BaseModel):
 
 
 # ---------- RFIs ----------
+
 
 class RfiBase(BaseModel):
     subject: str = Field(min_length=1, max_length=500)

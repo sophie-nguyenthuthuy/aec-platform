@@ -5,15 +5,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.envelope import Meta, ok, paginated
+from core.envelope import ok, paginated
 from db.deps import get_db
 from middleware.auth import AuthContext, require_auth
 from schemas.winwork import (
     BenchmarkFilters,
-    FeeBenchmark as FeeBenchmarkSchema,
     FeeEstimateRequest,
-    FeeEstimateResponse,
-    Proposal as ProposalSchema,
     ProposalCreate,
     ProposalGenerateRequest,
     ProposalGenerateResponse,
@@ -22,7 +19,12 @@ from schemas.winwork import (
     ProposalStatus,
     ProposalUpdate,
     SendProposalRequest,
-    WinRateAnalytics,
+)
+from schemas.winwork import (
+    FeeBenchmark as FeeBenchmarkSchema,
+)
+from schemas.winwork import (
+    Proposal as ProposalSchema,
 )
 from services import winwork as service
 
@@ -30,6 +32,7 @@ router = APIRouter(prefix="/api/v1/winwork", tags=["winwork"])
 
 
 # ---------- Fee tools ----------
+
 
 @router.get("/benchmarks")
 async def list_benchmarks(
@@ -62,6 +65,7 @@ async def fee_estimate(
 
 # ---------- Proposals ----------
 
+
 @router.get("/proposals")
 async def list_proposals_route(
     page: int = Query(1, ge=1),
@@ -72,9 +76,7 @@ async def list_proposals_route(
     session: AsyncSession = Depends(get_db),
     _ctx: AuthContext = Depends(require_auth),
 ) -> dict:
-    filters = ProposalListFilters(
-        page=page, per_page=per_page, status=status_filter, project_id=project_id, q=q
-    )
+    filters = ProposalListFilters(page=page, per_page=per_page, status=status_filter, project_id=project_id, q=q)
     rows, total = await service.list_proposals(session, filters)
     return paginated(
         [ProposalSchema.model_validate(r).model_dump(mode="json") for r in rows],
@@ -152,6 +154,7 @@ async def mark_outcome_route(
 
 # ---------- AI generation ----------
 
+
 @router.post("/proposals/generate")
 async def generate_proposal_route(
     payload: ProposalGenerateRequest,
@@ -163,9 +166,7 @@ async def generate_proposal_route(
     from pipelines.winwork import run_proposal_pipeline
 
     ai_output = await run_proposal_pipeline(session=session, org_id=ctx.organization_id, request=payload)
-    proposal = await service.persist_generated_proposal(
-        session, ctx.organization_id, ctx.user_id, payload, ai_output
-    )
+    proposal = await service.persist_generated_proposal(session, ctx.organization_id, ctx.user_id, payload, ai_output)
     return ok(
         ProposalGenerateResponse(
             proposal=ProposalSchema.model_validate(proposal),
@@ -175,6 +176,7 @@ async def generate_proposal_route(
 
 
 # ---------- Analytics ----------
+
 
 @router.get("/analytics/win-rate")
 async def win_rate_route(

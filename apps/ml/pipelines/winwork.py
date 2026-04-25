@@ -8,20 +8,21 @@ The pipeline reads from the shared pgvector index for precedent match (past prop
 with the same project type) and returns a structured payload the WINWORK service
 persists into the `proposals` table.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, TypedDict
 from uuid import UUID, uuid4
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ PIPELINE_DEV_STUB = os.getenv("AEC_PIPELINE_DEV_STUB") == "1"
 
 
 # ---------- Graph state ----------
+
 
 class PipelineState(TypedDict, total=False):
     # Inputs
@@ -68,21 +70,26 @@ class PipelineDeps:
 
 # ---------- Nodes ----------
 
+
 async def _node_benchmark_lookup(state: PipelineState, deps: PipelineDeps) -> PipelineState:
     """Pull the tightest matching fee benchmark band."""
     rows = (
-        await deps.session.execute(
-            text(
-                """
+        (
+            await deps.session.execute(
+                text(
+                    """
                 SELECT fee_percent_low, fee_percent_mid, fee_percent_high, source, province
                 FROM fee_benchmarks
                 WHERE discipline = :d AND project_type = :pt AND country_code = 'VN'
                 ORDER BY COALESCE(area_sqm_min, 0) ASC
                 """
-            ),
-            {"d": state["discipline"], "pt": state["project_type"]},
+                ),
+                {"d": state["discipline"], "pt": state["project_type"]},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     benchmark = None
     if rows:
@@ -100,9 +107,10 @@ async def _node_benchmark_lookup(state: PipelineState, deps: PipelineDeps) -> Pi
 async def _node_precedents(state: PipelineState, deps: PipelineDeps) -> PipelineState:
     """Find up to 3 prior won proposals matching the project type."""
     rows = (
-        await deps.session.execute(
-            text(
-                """
+        (
+            await deps.session.execute(
+                text(
+                    """
                 SELECT p.id, p.title, p.scope_of_work, p.fee_breakdown, p.total_fee_vnd
                 FROM proposals p
                 JOIN projects proj ON proj.id = p.project_id
@@ -112,10 +120,13 @@ async def _node_precedents(state: PipelineState, deps: PipelineDeps) -> Pipeline
                 ORDER BY p.created_at DESC
                 LIMIT 3
                 """
-            ),
-            {"org": state["org_id"], "pt": state["project_type"]},
+                ),
+                {"org": state["org_id"], "pt": state["project_type"]},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     precedents = [
         {
             "id": str(r["id"]),
@@ -143,7 +154,7 @@ class _StubLLM:
     DB writes — just not Claude's actual creative work.
     """
 
-    async def ainvoke(self, messages):  # noqa: ANN001 — matches ChatAnthropic shape
+    async def ainvoke(self, messages):
         system = next((m for m in messages if isinstance(m, SystemMessage)), None)
         system_text = (system.content if system else "") or ""
         if "scope of work" in system_text.lower():
@@ -170,7 +181,11 @@ class _StubLLM:
                         "phase": "Construction Documents",
                         "title": "Hồ sơ thi công",
                         "description": "Hồ sơ kỹ thuật đầy đủ để thi công.",
-                        "deliverables": ["Bản vẽ kỹ thuật", "Khối lượng BOQ", "Tiêu chuẩn vật liệu"],
+                        "deliverables": [
+                            "Bản vẽ kỹ thuật",
+                            "Khối lượng BOQ",
+                            "Tiêu chuẩn vật liệu",
+                        ],
                         "hours_estimate": 160,
                     },
                 ]
@@ -233,13 +248,23 @@ async def _node_scope_expansion(state: PipelineState, _deps: PipelineDeps) -> Pi
         scope = json.loads(_extract_json(resp.content))
     except Exception as exc:
         log.exception("Failed to parse scope JSON: %s", exc)
-        scope = {"items": [{"id": "fallback", "phase": "Concept", "title": item, "deliverables": []} for item in state["scope_items"]]}
+        scope = {
+            "items": [
+                {"id": "fallback", "phase": "Concept", "title": item, "deliverables": []}
+                for item in state["scope_items"]
+            ]
+        }
     return {**state, "scope_of_work": scope}
 
 
 async def _node_fee_calculation(state: PipelineState, _deps: PipelineDeps) -> PipelineState:
     """Distribute fee across phases using benchmark mid-point + phase weights."""
-    benchmark = state.get("benchmark") or {"low": 5.0, "mid": 7.5, "high": 10.0, "source": "default"}
+    benchmark = state.get("benchmark") or {
+        "low": 5.0,
+        "mid": 7.5,
+        "high": 10.0,
+        "source": "default",
+    }
     construction_cost_per_sqm = _construction_cost_per_sqm(state["project_type"])
     base_cost = int(state["area_sqm"] * construction_cost_per_sqm)
     total_fee = int(base_cost * benchmark["mid"] / 100)
@@ -293,7 +318,7 @@ async def _node_proposal_draft(state: PipelineState, _deps: PipelineDeps) -> Pip
     language = state.get("language", "vi")
     system = (
         "You are drafting the cover letter and executive summary for a design proposal. "
-        "Return JSON {\"title\": str, \"notes\": str}. Title is concise (<=80 chars). "
+        'Return JSON {"title": str, "notes": str}. Title is concise (<=80 chars). '
         "Notes is a 2-3 paragraph executive summary in "
         + ("Vietnamese." if language == "vi" else "English.")
     )
@@ -337,7 +362,9 @@ async def _node_confidence(state: PipelineState, _deps: PipelineDeps) -> Pipelin
 def _extract_json(content: str | list) -> str:
     """Anthropic may return a list of content blocks; collapse to text and strip fences."""
     if isinstance(content, list):
-        content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
+        content = "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block) for block in content
+        )
     text = content.strip()
     if text.startswith("```"):
         text = text.strip("`")
@@ -351,6 +378,7 @@ def _extract_json(content: str | list) -> str:
 
 
 # ---------- Graph assembly ----------
+
 
 def _build_graph(deps: PipelineDeps):
     graph = StateGraph(PipelineState)
@@ -402,6 +430,7 @@ def _build_graph(deps: PipelineDeps):
 
 # ---------- Entry point called by the router ----------
 
+
 async def run_proposal_pipeline(
     *,
     session: AsyncSession,
@@ -443,7 +472,9 @@ async def run_proposal_pipeline(
     return output
 
 
-async def _record_job_start(session: AsyncSession, org_id: UUID, job_id: UUID, request: Any) -> None:
+async def _record_job_start(
+    session: AsyncSession, org_id: UUID, job_id: UUID, request: Any
+) -> None:
     await session.execute(
         text(
             """
@@ -455,7 +486,7 @@ async def _record_job_start(session: AsyncSession, org_id: UUID, job_id: UUID, r
             "id": str(job_id),
             "org": str(org_id),
             "input": json.dumps(request.model_dump(mode="json"), ensure_ascii=False),
-            "now": datetime.now(timezone.utc),
+            "now": datetime.now(UTC),
         },
     )
 
@@ -468,12 +499,22 @@ async def _record_job_success(session: AsyncSession, job_id: UUID, output: dict)
             WHERE id = :id
             """
         ),
-        {"id": str(job_id), "out": json.dumps({k: v for k, v in output.items() if k != "ai_job_id"}, default=str, ensure_ascii=False), "now": datetime.now(timezone.utc)},
+        {
+            "id": str(job_id),
+            "out": json.dumps(
+                {k: v for k, v in output.items() if k != "ai_job_id"},
+                default=str,
+                ensure_ascii=False,
+            ),
+            "now": datetime.now(UTC),
+        },
     )
 
 
 async def _record_job_failure(session: AsyncSession, job_id: UUID, error: str) -> None:
     await session.execute(
-        text("UPDATE ai_jobs SET status = 'failed', error = :err, completed_at = :now WHERE id = :id"),
-        {"id": str(job_id), "err": error, "now": datetime.now(timezone.utc)},
+        text(
+            "UPDATE ai_jobs SET status = 'failed', error = :err, completed_at = :now WHERE id = :id"
+        ),
+        {"id": str(job_id), "err": error, "now": datetime.now(UTC)},
     )

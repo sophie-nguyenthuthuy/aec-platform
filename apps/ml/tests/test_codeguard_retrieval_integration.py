@@ -24,6 +24,7 @@ A failure here — especially a `column "embedding_half" does not exist` or
 `operator does not exist: halfvec <=> halfvec` — means the 0009 migration
 didn't apply or pgvector is too old (needs 0.7.0+).
 """
+
 from __future__ import annotations
 
 import os
@@ -34,7 +35,6 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 
 # Make both `pipelines.codeguard` (apps/ml) and `schemas.codeguard` (apps/api)
 # importable when pytest is invoked from the repo root without the full

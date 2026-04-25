@@ -5,10 +5,11 @@ that service module and assert HTTP wiring, auth, and envelope shape — not
 SQL correctness. The service-layer SQL is covered separately (or left for
 integration tests against a real Postgres).
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import AsyncMock
@@ -18,11 +19,11 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
 
-
 pytestmark = pytest.mark.asyncio
 
 
 # ---------- Local app fixture (overrides codeguard-only app from conftest) ----------
+
 
 @pytest.fixture
 def app(fake_auth, fake_db) -> Iterator[FastAPI]:
@@ -55,6 +56,7 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 
 # ---------- Helpers ----------
 
+
 def _make_proposal(**overrides: Any):
     """Produce a Proposal schema instance. Router calls `model_validate` on the
     service's ORM row; this short-circuits that by handing back a dict-like
@@ -79,7 +81,7 @@ def _make_proposal(**overrides: Any):
         sent_at=None,
         responded_at=None,
         created_by=uuid4(),
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     base.update(overrides)
     return Proposal.model_validate(base)
@@ -88,6 +90,7 @@ def _make_proposal(**overrides: Any):
 # ============================================================
 # Benchmarks + fee estimate
 # ============================================================
+
 
 async def test_list_benchmarks_returns_rows_from_service(client, monkeypatch):
     from schemas.winwork import FeeBenchmark
@@ -175,11 +178,10 @@ async def test_fee_estimate_rejects_zero_area(client):
 # Proposals CRUD
 # ============================================================
 
+
 async def test_list_proposals_paginates(client, monkeypatch):
     rows = [_make_proposal(title=f"Prop {i}") for i in range(3)]
-    monkeypatch.setattr(
-        "services.winwork.list_proposals", AsyncMock(return_value=(rows, 42))
-    )
+    monkeypatch.setattr("services.winwork.list_proposals", AsyncMock(return_value=(rows, 42)))
 
     r = await client.get("/api/v1/winwork/proposals", params={"page": 2, "per_page": 3})
 
@@ -193,18 +195,14 @@ async def test_list_proposals_paginates(client, monkeypatch):
 
 
 async def test_get_proposal_returns_404_when_missing(client, monkeypatch):
-    monkeypatch.setattr(
-        "services.winwork.get_proposal", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr("services.winwork.get_proposal", AsyncMock(return_value=None))
     r = await client.get(f"/api/v1/winwork/proposals/{uuid4()}")
     assert r.status_code == 404
 
 
 async def test_get_proposal_returns_envelope(client, monkeypatch):
     proposal = _make_proposal()
-    monkeypatch.setattr(
-        "services.winwork.get_proposal", AsyncMock(return_value=proposal)
-    )
+    monkeypatch.setattr("services.winwork.get_proposal", AsyncMock(return_value=proposal))
     r = await client.get(f"/api/v1/winwork/proposals/{proposal.id}")
     assert r.status_code == 200
     assert r.json()["data"]["id"] == str(proposal.id)
@@ -230,9 +228,7 @@ async def test_create_proposal_passes_org_and_user_context(client, monkeypatch, 
 
 
 async def test_update_proposal_404_when_missing(client, monkeypatch):
-    monkeypatch.setattr(
-        "services.winwork.update_proposal", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr("services.winwork.update_proposal", AsyncMock(return_value=None))
     r = await client.patch(
         f"/api/v1/winwork/proposals/{uuid4()}",
         json={"title": "rename"},
@@ -242,9 +238,7 @@ async def test_update_proposal_404_when_missing(client, monkeypatch):
 
 async def test_mark_outcome_returns_updated_proposal(client, monkeypatch):
     won = _make_proposal(status="won")
-    monkeypatch.setattr(
-        "services.winwork.mark_outcome", AsyncMock(return_value=won)
-    )
+    monkeypatch.setattr("services.winwork.mark_outcome", AsyncMock(return_value=won))
     r = await client.patch(
         f"/api/v1/winwork/proposals/{won.id}/outcome",
         json={"status": "won", "actual_fee_vnd": 500_000_000},
@@ -255,9 +249,7 @@ async def test_mark_outcome_returns_updated_proposal(client, monkeypatch):
 
 async def test_send_proposal_surfaces_value_error_as_400(client, monkeypatch):
     proposal = _make_proposal()
-    monkeypatch.setattr(
-        "services.winwork.get_proposal", AsyncMock(return_value=proposal)
-    )
+    monkeypatch.setattr("services.winwork.get_proposal", AsyncMock(return_value=proposal))
     monkeypatch.setattr(
         "services.winwork.send_proposal_email",
         AsyncMock(side_effect=ValueError("missing_client_email")),
@@ -272,9 +264,7 @@ async def test_send_proposal_surfaces_value_error_as_400(client, monkeypatch):
 
 
 async def test_send_proposal_404_when_missing(client, monkeypatch):
-    monkeypatch.setattr(
-        "services.winwork.get_proposal", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr("services.winwork.get_proposal", AsyncMock(return_value=None))
     r = await client.post(
         f"/api/v1/winwork/proposals/{uuid4()}/send",
         json={},
@@ -285,6 +275,7 @@ async def test_send_proposal_404_when_missing(client, monkeypatch):
 # ============================================================
 # AI generation
 # ============================================================
+
 
 async def test_generate_proposal_delegates_to_pipeline(client, monkeypatch, fake_auth):
     import sys
@@ -356,17 +347,21 @@ async def test_generate_proposal_rejects_short_brief(client):
 # Analytics
 # ============================================================
 
+
 async def test_win_rate_analytics_returns_envelope(client, monkeypatch):
     from schemas.winwork import WinRateAnalytics
 
     analytics = WinRateAnalytics(
-        total=10, won=6, lost=3, pending=1,
-        win_rate=0.6, avg_fee_vnd=300_000_000,
-        by_project_type=[], by_month=[],
+        total=10,
+        won=6,
+        lost=3,
+        pending=1,
+        win_rate=0.6,
+        avg_fee_vnd=300_000_000,
+        by_project_type=[],
+        by_month=[],
     )
-    monkeypatch.setattr(
-        "services.winwork.win_rate_analytics", AsyncMock(return_value=analytics)
-    )
+    monkeypatch.setattr("services.winwork.win_rate_analytics", AsyncMock(return_value=analytics))
     r = await client.get("/api/v1/winwork/analytics/win-rate")
     assert r.status_code == 200
     assert r.json()["data"]["win_rate"] == 0.6
@@ -376,6 +371,7 @@ async def test_win_rate_analytics_returns_envelope(client, monkeypatch):
 # ============================================================
 # Service-layer: mark_outcome('won') → project seeding
 # ============================================================
+
 
 async def test_mark_outcome_won_seeds_project_when_unattached(fake_db):
     """When a proposal flips to won with no project_id, the service seeds a
@@ -399,7 +395,7 @@ async def test_mark_outcome_won_seeds_project_when_unattached(fake_db):
         ai_generated=False,
         notes=None,
         created_by=uuid4(),
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     fake_db.set_get(Proposal, prop.id, prop)
 
@@ -448,7 +444,7 @@ async def test_mark_outcome_won_is_idempotent_when_already_linked(fake_db):
         total_fee_currency="VND",
         ai_generated=False,
         created_by=uuid4(),
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     fake_db.set_get(Proposal, prop.id, prop)
 
@@ -477,16 +473,12 @@ async def test_mark_outcome_lost_does_not_seed_project(fake_db):
         total_fee_currency="VND",
         ai_generated=False,
         created_by=uuid4(),
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     fake_db.set_get(Proposal, prop.id, prop)
 
-    await mark_outcome(
-        fake_db, prop.id, ProposalOutcomeUpdate(status="lost", reason="competitor underbid")
-    )
+    await mark_outcome(fake_db, prop.id, ProposalOutcomeUpdate(status="lost", reason="competitor underbid"))
 
     assert prop.status == "lost"
     assert prop.project_id is None
     assert [p for p in fake_db.added if isinstance(p, Project)] == []
-
-

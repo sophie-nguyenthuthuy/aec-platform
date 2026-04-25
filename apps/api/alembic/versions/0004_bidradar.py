@@ -4,11 +4,13 @@ Revision ID: 0004_bidradar
 Revises: 0003_siteeye
 Create Date: 2026-04-22
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "0004_bidradar"
 down_revision = "0003_siteeye"

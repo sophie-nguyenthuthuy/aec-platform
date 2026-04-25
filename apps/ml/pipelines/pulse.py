@@ -8,6 +8,7 @@ Three pipelines:
 Uses LangChain with Anthropic Claude. LangGraph is used for the report pipeline
 (multi-step: aggregate → narrate → render).
 """
+
 from __future__ import annotations
 
 import json
@@ -16,13 +17,12 @@ from datetime import date
 from typing import Any, Literal
 from uuid import UUID
 
+from core.config import get_settings
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import SystemMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, StateGraph
-
-from core.config import get_settings
 from schemas.pulse import (
     ActionItem,
     ChangeOrderAIAnalysis,
@@ -93,7 +93,9 @@ async def analyze_change_order(
         {
             "description": description or "(no description provided)",
             "cost_impact_vnd": cost_impact_vnd if cost_impact_vnd is not None else "unknown",
-            "schedule_impact_days": schedule_impact_days if schedule_impact_days is not None else "unknown",
+            "schedule_impact_days": schedule_impact_days
+            if schedule_impact_days is not None
+            else "unknown",
             "initiator": initiator or "unknown",
             "project_context": json.dumps(project_context, ensure_ascii=False, default=str),
         }
@@ -179,6 +181,7 @@ def _parse_date(value: Any) -> date | None:
 # ---------------------------------------------------------------------------
 # Client Report Generation (LangGraph multi-step pipeline)
 # ---------------------------------------------------------------------------
+
 
 class _ReportState(dict[str, Any]):
     """State passed between graph nodes."""
@@ -344,34 +347,34 @@ async def render_report_html(
     }[language]
 
     highlights = "".join(
-        f"<li>{_escape(h)}</li>"
-        for h in (content.progress_section or {}).get("highlights", [])
+        f"<li>{_escape(h)}</li>" for h in (content.progress_section or {}).get("highlights", [])
     )
     narrative = _escape((content.progress_section or {}).get("narrative", ""))
 
     photos_html = ""
     if content.photos_section:
-        photos_html = f"<h2>{labels['photos']}</h2><div class=\"photos\">"
+        photos_html = f'<h2>{labels["photos"]}</h2><div class="photos">'
         for p in content.photos_section:
             url = _escape(p.get("url", ""))
             caption = _escape(p.get("caption", ""))
             photos_html += (
-                f"<figure class=\"photo\"><img src=\"{url}\" style=\"width:100%\"/>"
+                f'<figure class="photo"><img src="{url}" style="width:100%"/>'
                 f"<figcaption>{caption}</figcaption></figure>"
             )
         photos_html += "</div>"
 
     financials_html = ""
     if content.financials:
-        financials_html = (
-            f"<h2>{labels['financials']}</h2><p>{_escape(content.financials.get('narrative', ''))}</p>"
-        )
+        financials_html = f"<h2>{labels['financials']}</h2><p>{_escape(content.financials.get('narrative', ''))}</p>"
 
-    issues_html = "".join(
-        f"<div class=\"issue\"><strong>{_escape(i.get('title', ''))}</strong> — "
-        f"{_escape(i.get('status', ''))}. {_escape(i.get('impact', ''))}</div>"
-        for i in content.issues
-    ) or "<p>—</p>"
+    issues_html = (
+        "".join(
+            f'<div class="issue"><strong>{_escape(i.get("title", ""))}</strong> — '
+            f"{_escape(i.get('status', ''))}. {_escape(i.get('impact', ''))}</div>"
+            for i in content.issues
+        )
+        or "<p>—</p>"
+    )
 
     next_steps_html = "".join(f"<li>{_escape(s)}</li>" for s in content.next_steps)
 

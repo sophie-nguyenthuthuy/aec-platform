@@ -3,19 +3,17 @@
 The LLM/RAG pipeline is mocked via the `mock_llm` fixture so these tests
 verify the HTTP + persistence wiring, not the model output.
 """
+
 from __future__ import annotations
 
 from uuid import UUID
 
 import pytest
 
-
 pytestmark = pytest.mark.asyncio
 
 
-async def test_query_returns_envelope_with_answer_and_citations(
-    client, fake_db, mock_llm, make_query_response
-):
+async def test_query_returns_envelope_with_answer_and_citations(client, fake_db, mock_llm, make_query_response):
     mock_llm.query(returns=make_query_response())
 
     res = await client.post(
@@ -35,9 +33,7 @@ async def test_query_returns_envelope_with_answer_and_citations(
     UUID(body["data"]["check_id"])
 
 
-async def test_query_persists_compliance_check(
-    client, fake_db, mock_llm, make_query_response, fake_auth
-):
+async def test_query_persists_compliance_check(client, fake_db, mock_llm, make_query_response, fake_auth):
     from models.codeguard import ComplianceCheck as ComplianceCheckModel
     from schemas.codeguard import CheckType
 
@@ -61,9 +57,7 @@ async def test_query_persists_compliance_check(
     assert len(check.regulations_referenced) == 1
 
 
-async def test_query_forwards_filters_to_pipeline(
-    client, mock_llm, make_query_response
-):
+async def test_query_forwards_filters_to_pipeline(client, mock_llm, make_query_response):
     mock = mock_llm.query(returns=make_query_response())
 
     await client.post(

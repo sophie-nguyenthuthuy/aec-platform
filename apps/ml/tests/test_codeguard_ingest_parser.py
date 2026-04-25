@@ -17,12 +17,12 @@ naive heading-regex implementation blew up on real Vietnamese code text:
 If either of these regresses, end-to-end Q&A quality collapses because
 half the corpus goes missing from the chunk store.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-
 from pipelines.codeguard_ingest import (
     _CHUNK_MIN_CHARS,
     _load_source_text,
@@ -31,12 +31,8 @@ from pipelines.codeguard_ingest import (
     split_into_sections,
 )
 
-
 FIXTURE = (
-    Path(__file__).resolve().parent.parent
-    / "fixtures"
-    / "codeguard"
-    / "qcvn_06_2022_excerpt.md"
+    Path(__file__).resolve().parent.parent / "fixtures" / "codeguard" / "qcvn_06_2022_excerpt.md"
 )
 
 
@@ -108,11 +104,19 @@ def test_fixture_captures_every_expected_section() -> None:
     sections = split_into_sections(raw)
     captured = {s.section_ref for s in sections}
     expected = {
-        "1.1", "1.2",
-        "2.1", "2.2",
-        "3.1", "3.2.1", "3.2.2", "3.3",
-        "4.1", "4.2", "4.3",
-        "5.1", "5.2",
+        "1.1",
+        "1.2",
+        "2.1",
+        "2.2",
+        "3.1",
+        "3.2.1",
+        "3.2.2",
+        "3.3",
+        "4.1",
+        "4.2",
+        "4.3",
+        "5.1",
+        "5.2",
     }
     missing = expected - captured
     assert not missing, f"missing sections: {sorted(missing)}"

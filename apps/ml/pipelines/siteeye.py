@@ -5,6 +5,7 @@ for the structured-LLM calls. Safety detections come from a Ray Serve
 deployment exposing a fine-tuned YOLOv8m model; vision reasoning calls
 use GPT-4o via the OpenAI SDK.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -12,21 +13,18 @@ import io
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
-from typing import Annotated, Any
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
+from core.config import get_settings
+from db.session import TenantAwareSession
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from PIL import ExifTags, Image
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from core.config import get_settings
-from db.session import TenantAwareSession
 from schemas.siteeye import (
     ConstructionPhase,
     IncidentSeverity,
@@ -39,6 +37,8 @@ from schemas.siteeye import (
     SafetyStatus,
     WeeklyReport,
 )
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 _settings = get_settings()
@@ -48,20 +48,31 @@ _settings = get_settings()
 MAX_EDGE_PX = 1024
 SAFETY_INCIDENT_CLASSES = {
     "no_hard_hat": (IncidentType.no_ppe, IncidentSeverity.high, "Worker without hard hat detected"),
-    "no_vest": (IncidentType.no_ppe, IncidentSeverity.medium, "Worker without safety vest detected"),
-    "scaffold_unsafe": (IncidentType.unsafe_scaffold, IncidentSeverity.high, "Unsafe scaffold condition"),
+    "no_vest": (
+        IncidentType.no_ppe,
+        IncidentSeverity.medium,
+        "Worker without safety vest detected",
+    ),
+    "scaffold_unsafe": (
+        IncidentType.unsafe_scaffold,
+        IncidentSeverity.high,
+        "Unsafe scaffold condition",
+    ),
     "open_trench": (IncidentType.open_trench, IncidentSeverity.high, "Unprotected open trench"),
     "fire_hazard": (IncidentType.fire_hazard, IncidentSeverity.critical, "Fire hazard detected"),
-    "electrical_hazard": (IncidentType.electrical_hazard, IncidentSeverity.high, "Exposed electrical hazard"),
+    "electrical_hazard": (
+        IncidentType.electrical_hazard,
+        IncidentSeverity.high,
+        "Exposed electrical hazard",
+    ),
 }
 PPE_POSITIVE_CLASSES = {"hard_hat", "safety_vest", "harness", "safety_boots"}
 
-PROGRESS_TAGS = [
-    "foundation", "slab", "walls", "roof", "mep", "finishes", "exterior", "site_prep"
-]
+PROGRESS_TAGS = ["foundation", "slab", "walls", "roof", "mep", "finishes", "exterior", "site_prep"]
 
 
 # ---------- State ----------
+
 
 @dataclass
 class PhotoState:
@@ -84,6 +95,7 @@ class PhotoState:
 
 # ---------- Public entry points ----------
 
+
 async def enqueue_photo_analysis(
     *,
     organization_id: UUID,
@@ -103,7 +115,9 @@ async def enqueue_photo_analysis(
             {
                 "id": str(job_id),
                 "org": str(organization_id),
-                "input": json.dumps({"photo_ids": [str(p) for p in photo_ids], "project_id": str(project_id)}),
+                "input": json.dumps(
+                    {"photo_ids": [str(p) for p in photo_ids], "project_id": str(project_id)}
+                ),
             },
         )
 
@@ -111,14 +125,16 @@ async def enqueue_photo_analysis(
         try:
             await asyncio.gather(
                 *(
-                    run_photo_analysis(organization_id=organization_id, project_id=project_id, photo_id=pid)
+                    run_photo_analysis(
+                        organization_id=organization_id, project_id=project_id, photo_id=pid
+                    )
                     for pid in photo_ids
                 ),
                 return_exceptions=True,
             )
             await _aggregate_progress(organization_id=organization_id, project_id=project_id)
             await _mark_job(job_id, organization_id, status_="completed")
-        except Exception as exc:  # noqa: BLE001 — top-level job boundary
+        except Exception as exc:
             logger.exception("photo analysis job failed")
             await _mark_job(job_id, organization_id, status_="failed", error=str(exc))
 
@@ -129,9 +145,7 @@ async def enqueue_photo_analysis(
 async def run_photo_analysis(
     *, organization_id: UUID, project_id: UUID, photo_id: UUID
 ) -> PhotoState:
-    state = PhotoState(
-        organization_id=organization_id, project_id=project_id, photo_id=photo_id
-    )
+    state = PhotoState(organization_id=organization_id, project_id=project_id, photo_id=photo_id)
     graph = _build_photo_graph()
     result: PhotoState = await graph.ainvoke(state)  # type: ignore[assignment]
     await _persist_photo_analysis(result)
@@ -139,6 +153,7 @@ async def run_photo_analysis(
 
 
 # ---------- LangGraph: photo analysis ----------
+
 
 def _build_photo_graph():
     g = StateGraph(PhotoState)
@@ -162,18 +177,22 @@ def _build_photo_graph():
 async def _node_preprocess(state: PhotoState) -> PhotoState:
     async with TenantAwareSession(state.organization_id) as session:
         row = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     SELECT p.file_id, f.storage_key
                     FROM site_photos p
                     LEFT JOIN files f ON f.id = p.file_id
                     WHERE p.id = :id AND p.organization_id = :org
                     """
-                ),
-                {"id": str(state.photo_id), "org": str(state.organization_id)},
+                    ),
+                    {"id": str(state.photo_id), "org": str(state.organization_id)},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
     if not row:
         raise LookupError(f"photo {state.photo_id} not found")
     state.file_id = row["file_id"]
@@ -201,12 +220,20 @@ async def _node_safety(state: PhotoState) -> PhotoState:
     detections = await _call_yolo_safety(state.image_bytes)
     state.safety_detections = detections
 
-    violations = [d for d in detections if d.label in SAFETY_INCIDENT_CLASSES and d.confidence >= 0.5]
+    violations = [
+        d for d in detections if d.label in SAFETY_INCIDENT_CLASSES and d.confidence >= 0.5
+    ]
     if violations:
-        worst = max(violations, key=lambda d: SAFETY_INCIDENT_CLASSES[d.label][1].value == "critical")
+        worst = max(
+            violations, key=lambda d: SAFETY_INCIDENT_CLASSES[d.label][1].value == "critical"
+        )
         state.safety_status = (
             SafetyStatus.critical
-            if any(SAFETY_INCIDENT_CLASSES[v.label][1] in (IncidentSeverity.critical, IncidentSeverity.high) for v in violations)
+            if any(
+                SAFETY_INCIDENT_CLASSES[v.label][1]
+                in (IncidentSeverity.critical, IncidentSeverity.high)
+                for v in violations
+            )
             else SafetyStatus.warning
         )
         await _create_safety_incidents(state, violations)
@@ -221,7 +248,7 @@ async def _node_progress(state: PhotoState) -> PhotoState:
         "You are a construction progress inspector. Analyze this site photo. "
         "Identify: what construction elements are visible, their completion state, "
         "and any quality or coordination issues. "
-        'Return ONLY valid JSON with this shape: '
+        "Return ONLY valid JSON with this shape: "
         '{"elements": [{"name": str, "state": "not_started|in_progress|complete", "confidence": 0..1}], '
         '"completion_indicators": [str], "quality_notes": [str], '
         '"phase": "site_prep|foundation|structure|envelope|mep|finishes|exterior|handover", '
@@ -237,7 +264,7 @@ async def _node_progress(state: PhotoState) -> PhotoState:
     resp = await llm.ainvoke([msg])
     try:
         parsed = parser.parse(resp.content if isinstance(resp.content, str) else str(resp.content))
-    except Exception:  # noqa: BLE001
+    except Exception:
         parsed = {}
     state.progress = parsed
     try:
@@ -285,10 +312,13 @@ async def _node_merge(state: PhotoState) -> PhotoState:
 
 # ---------- Persistence ----------
 
+
 async def _persist_photo_analysis(state: PhotoState) -> None:
     analysis = PhotoAIAnalysis(
         description=state.description,
-        detected_elements=[e.get("name") for e in (state.progress.get("elements") or []) if e.get("name")],
+        detected_elements=[
+            e.get("name") for e in (state.progress.get("elements") or []) if e.get("name")
+        ],
         safety_flags=state.safety_detections,
         progress_indicators={
             "completion_indicators": state.progress.get("completion_indicators", []),
@@ -324,7 +354,7 @@ async def _persist_photo_analysis(state: PhotoState) -> None:
 
 
 async def _create_safety_incidents(state: PhotoState, violations: list[PhotoDetection]) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with TenantAwareSession(state.organization_id) as session:
         for v in violations:
             incident_type, severity, description = SAFETY_INCIDENT_CLASSES[v.label]
@@ -346,7 +376,9 @@ async def _create_safety_incidents(state: PhotoState, violations: list[PhotoDete
                     "incident_type": incident_type.value,
                     "severity": severity.value,
                     "photo_id": str(state.photo_id),
-                    "box": json.dumps({"bbox": v.bbox, "confidence": v.confidence, "label": v.label}),
+                    "box": json.dumps(
+                        {"bbox": v.bbox, "confidence": v.confidence, "label": v.label}
+                    ),
                     "description": description,
                     "status": IncidentStatus.open.value,
                 },
@@ -355,15 +387,17 @@ async def _create_safety_incidents(state: PhotoState, violations: list[PhotoDete
 
 # ---------- Progress aggregator ----------
 
+
 async def _aggregate_progress(*, organization_id: UUID, project_id: UUID) -> None:
     """Roll up per-photo phase completion into a progress_snapshot for today."""
     today = date.today()
     week_start = today - timedelta(days=today.weekday())
     async with TenantAwareSession(organization_id) as session:
         rows = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     SELECT id, ai_analysis
                     FROM site_photos
                     WHERE organization_id = :org
@@ -371,14 +405,17 @@ async def _aggregate_progress(*, organization_id: UUID, project_id: UUID) -> Non
                       AND taken_at >= :week_start
                       AND ai_analysis IS NOT NULL
                     """
-                ),
-                {
-                    "org": str(organization_id),
-                    "project_id": str(project_id),
-                    "week_start": week_start,
-                },
+                    ),
+                    {
+                        "org": str(organization_id),
+                        "project_id": str(project_id),
+                        "week_start": week_start,
+                    },
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
 
         phase_totals: dict[str, list[float]] = {}
         photo_ids: list[str] = []
@@ -391,7 +428,11 @@ async def _aggregate_progress(*, organization_id: UUID, project_id: UUID) -> Non
             photo_ids.append(str(r["id"]))
 
         phase_progress = {k: round(100 * sum(v) / len(v), 1) for k, v in phase_totals.items()}
-        overall = round(sum(phase_progress.values()) / max(len(phase_progress), 1), 1) if phase_progress else 0.0
+        overall = (
+            round(sum(phase_progress.values()) / max(len(phase_progress), 1), 1)
+            if phase_progress
+            else 0.0
+        )
 
         await session.execute(
             text(
@@ -420,6 +461,7 @@ async def _aggregate_progress(*, organization_id: UUID, project_id: UUID) -> Non
 
 # ---------- Weekly report ----------
 
+
 async def generate_weekly_report(
     *,
     organization_id: UUID,
@@ -434,9 +476,10 @@ async def generate_weekly_report(
         pdf_url = await _render_pdf_and_upload(html, project_id, week_start)
 
         row = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     INSERT INTO weekly_reports
                       (organization_id, project_id, week_start, week_end,
                        content, rendered_html, pdf_url)
@@ -450,18 +493,21 @@ async def generate_weekly_report(
                       pdf_url = EXCLUDED.pdf_url
                     RETURNING *
                     """
-                ),
-                {
-                    "org": str(organization_id),
-                    "project_id": str(project_id),
-                    "week_start": week_start,
-                    "week_end": week_end,
-                    "content": content.model_dump_json(),
-                    "html": html,
-                    "pdf_url": pdf_url,
-                },
+                    ),
+                    {
+                        "org": str(organization_id),
+                        "project_id": str(project_id),
+                        "week_start": week_start,
+                        "week_end": week_end,
+                        "content": content.model_dump_json(),
+                        "html": html,
+                        "pdf_url": pdf_url,
+                    },
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
 
     report_dict = dict(row)
     if isinstance(report_dict.get("content"), dict):
@@ -477,53 +523,79 @@ async def _gather_report_data(
     week_end: date,
 ) -> dict[str, Any]:
     photos = (
-        await session.execute(
-            text(
-                """
+        (
+            await session.execute(
+                text(
+                    """
                 SELECT id, ai_analysis, safety_status, taken_at, thumbnail_url
                 FROM site_photos
                 WHERE organization_id = :org AND project_id = :project_id
                   AND taken_at >= :start AND taken_at < (CAST(:end AS date) + INTERVAL '1 day')
                 ORDER BY taken_at
                 """
-            ),
-            {"org": str(organization_id), "project_id": str(project_id), "start": week_start, "end": week_end},
+                ),
+                {
+                    "org": str(organization_id),
+                    "project_id": str(project_id),
+                    "start": week_start,
+                    "end": week_end,
+                },
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     incidents = (
-        await session.execute(
-            text(
-                """
+        (
+            await session.execute(
+                text(
+                    """
                 SELECT * FROM safety_incidents
                 WHERE organization_id = :org AND project_id = :project_id
                   AND detected_at >= :start AND detected_at < (CAST(:end AS date) + INTERVAL '1 day')
                 """
-            ),
-            {"org": str(organization_id), "project_id": str(project_id), "start": week_start, "end": week_end},
+                ),
+                {
+                    "org": str(organization_id),
+                    "project_id": str(project_id),
+                    "start": week_start,
+                    "end": week_end,
+                },
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     snapshots = (
-        await session.execute(
-            text(
-                """
+        (
+            await session.execute(
+                text(
+                    """
                 SELECT * FROM progress_snapshots
                 WHERE organization_id = :org AND project_id = :project_id
                 ORDER BY snapshot_date DESC
                 LIMIT 2
                 """
-            ),
-            {"org": str(organization_id), "project_id": str(project_id)},
+                ),
+                {"org": str(organization_id), "project_id": str(project_id)},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     project = (
-        await session.execute(
-            text(
-                "SELECT name, start_date, end_date FROM projects "
-                "WHERE id = :id AND organization_id = :org"
-            ),
-            {"id": str(project_id), "org": str(organization_id)},
+        (
+            await session.execute(
+                text(
+                    "SELECT name, start_date, end_date FROM projects "
+                    "WHERE id = :id AND organization_id = :org"
+                ),
+                {"id": str(project_id), "org": str(organization_id)},
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
 
     return {
         "project": dict(project) if project else {},
@@ -582,7 +654,7 @@ async def _assemble_report(data: dict[str, Any]) -> ReportContent:
     )
     try:
         parsed = parser.parse(resp.content if isinstance(resp.content, str) else str(resp.content))
-    except Exception:  # noqa: BLE001
+    except Exception:
         parsed = {
             "executive_summary": "",
             "progress_this_week": {"overall": f"{overall}%", "by_phase": {}},
@@ -602,7 +674,9 @@ async def _assemble_report(data: dict[str, Any]) -> ReportContent:
     return ReportContent(
         executive_summary=parsed.get("executive_summary", ""),
         progress_this_week=parsed.get("progress_this_week", {}),
-        safety_summary=parsed.get("safety_summary", {"incidents": len(data["incidents"]), "status": "unknown"}),
+        safety_summary=parsed.get(
+            "safety_summary", {"incidents": len(data["incidents"]), "status": "unknown"}
+        ),
         issues_and_risks=parsed.get("issues_and_risks", []),
         next_week_plan=parsed.get("next_week_plan", []),
         photos_highlighted=highlighted,
@@ -641,7 +715,7 @@ th,td{{border:1px solid #ddd;padding:.5em;text-align:left}}
 <h2>Tiến độ theo giai đoạn</h2>
 <table><tr><th>Hạng mục</th><th>Hoàn thành</th></tr>{phase_rows}</table>
 <h2>An toàn</h2>
-<p>Sự cố: {content.safety_summary.get('incidents', 0)} — {content.safety_summary.get('status', '')}</p>
+<p>Sự cố: {content.safety_summary.get("incidents", 0)} — {content.safety_summary.get("status", "")}</p>
 <h2>Vấn đề & Rủi ro</h2><ul>{risks}</ul>
 <h2>Kế hoạch tuần tới</h2><ul>{plans}</ul>
 </body></html>"""
@@ -668,13 +742,15 @@ async def email_weekly_report(
 
     async with TenantAwareSession(organization_id) as session:
         row = (
-            await session.execute(
-                text(
-                    "SELECT * FROM weekly_reports WHERE id = :id AND organization_id = :org"
-                ),
-                {"id": str(report_id), "org": str(organization_id)},
+            (
+                await session.execute(
+                    text("SELECT * FROM weekly_reports WHERE id = :id AND organization_id = :org"),
+                    {"id": str(report_id), "org": str(organization_id)},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if not row:
             return False
 
@@ -709,6 +785,7 @@ async def email_weekly_report(
 
 
 # ---------- External integrations ----------
+
 
 def _vision_llm(*, temperature: float = 0.0) -> ChatOpenAI:
     return ChatOpenAI(
@@ -748,7 +825,7 @@ async def _s3_get(key: str) -> bytes | None:
         try:
             obj = await client.get_object(Bucket=_settings.s3_bucket, Key=key)
             return await obj["Body"].read()
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
 
 
@@ -767,13 +844,14 @@ async def _s3_put(key: str, body: bytes, *, content_type: str) -> None:
 
 def _data_url(image_bytes: bytes) -> str:
     import base64
+
     return "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii")
 
 
 def _extract_exif(img: Image.Image) -> tuple[datetime | None, dict[str, float] | None]:
     try:
         raw_exif = img.getexif()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None, None
     if not raw_exif:
         return None, None
@@ -782,7 +860,7 @@ def _extract_exif(img: Image.Image) -> tuple[datetime | None, dict[str, float] |
     dt_str = tag_map.get("DateTimeOriginal") or tag_map.get("DateTime")
     if dt_str:
         try:
-            taken_at = datetime.strptime(str(dt_str), "%Y:%m:%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            taken_at = datetime.strptime(str(dt_str), "%Y:%m:%d %H:%M:%S").replace(tzinfo=UTC)
         except ValueError:
             taken_at = None
 
@@ -810,7 +888,9 @@ def _dms_to_deg(dms, ref) -> float | None:
     return val
 
 
-async def _mark_job(job_id: UUID, organization_id: UUID, *, status_: str, error: str | None = None) -> None:
+async def _mark_job(
+    job_id: UUID, organization_id: UUID, *, status_: str, error: str | None = None
+) -> None:
     async with TenantAwareSession(organization_id) as session:
         await session.execute(
             text(

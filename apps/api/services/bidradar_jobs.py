@@ -9,23 +9,24 @@ RLS `app.current_org_id` is set and tenant-scoped inserts/updates are
 allowed. Cross-tenant inserts into `tenders` use a dedicated system
 session which bypasses RLS because `tenders` has no organization_id.
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from db.session import AdminSessionFactory, SessionFactory, tenant_session
 from ml.pipelines.bidradar import (
     embed_tender,
     score_tender_for_firm,
     scrape_source,
     send_weekly_digest,
 )
+from sqlalchemy import and_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from db.session import AdminSessionFactory, SessionFactory, tenant_session
 from models.bidradar import FirmProfile, Tender, TenderDigest, TenderMatch
 from models.core import Organization
 
@@ -39,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 async def scrape_and_score_for_all_orgs(source: str, max_pages: int = 5) -> dict:
     """Scrape one source, upsert tenders, then score for every firm profile."""
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(UTC)
     scraped = await scrape_source(source=source, max_pages=max_pages)
 
     tender_ids = await _upsert_tenders(source=source, items=scraped, scraped_at=started_at)
@@ -56,9 +57,7 @@ async def scrape_and_score_for_all_orgs(source: str, max_pages: int = 5) -> dict
         async with tenant_session(profile.organization_id) as db:
             # Re-fetch the profile inside the tenant session so RLS sees it.
             tenant_profile = (
-                await db.execute(
-                    select(FirmProfile).where(FirmProfile.organization_id == profile.organization_id)
-                )
+                await db.execute(select(FirmProfile).where(FirmProfile.organization_id == profile.organization_id))
             ).scalar_one_or_none()
             if tenant_profile is None:
                 continue
@@ -83,13 +82,11 @@ async def scrape_and_score_for_all_orgs(source: str, max_pages: int = 5) -> dict
         "orgs_scored": scored_orgs,
         "matches_created": total_matches,
         "started_at": started_at.isoformat(),
-        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": datetime.now(UTC).isoformat(),
     }
 
 
-async def _upsert_tenders(
-    source: str, items: list[dict], scraped_at: datetime
-) -> list[UUID]:
+async def _upsert_tenders(source: str, items: list[dict], scraped_at: datetime) -> list[UUID]:
     """Insert tenders under a system session (cross-tenant). Returns ids."""
     if not items:
         return []
@@ -153,20 +150,22 @@ async def _score_and_persist(
         return 0
 
     existing_rows = (
-        await db.execute(
-            select(TenderMatch).where(
-                and_(
-                    TenderMatch.organization_id == organization_id,
-                    TenderMatch.tender_id.in_(tender_ids),
+        (
+            await db.execute(
+                select(TenderMatch).where(
+                    and_(
+                        TenderMatch.organization_id == organization_id,
+                        TenderMatch.tender_id.in_(tender_ids),
+                    )
                 )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     existing_by_tender = {m.tender_id: m for m in existing_rows}
 
-    tenders = (
-        await db.execute(select(Tender).where(Tender.id.in_(tender_ids)))
-    ).scalars().all()
+    tenders = (await db.execute(select(Tender).where(Tender.id.in_(tender_ids)))).scalars().all()
 
     created = 0
     for tender in tenders:
@@ -219,9 +218,7 @@ async def _embed_new_tenders(tender_ids: list[UUID]) -> None:
         return
     system_org = UUID("00000000-0000-0000-0000-000000000000")
     async with AdminSessionFactory() as session:
-        tenders = (
-            await session.execute(select(Tender).where(Tender.id.in_(tender_ids)))
-        ).scalars().all()
+        tenders = (await session.execute(select(Tender).where(Tender.id.in_(tender_ids)))).scalars().all()
         for t in tenders:
             try:
                 await embed_tender(
@@ -244,10 +241,10 @@ async def _embed_new_tenders(tender_ids: list[UUID]) -> None:
 async def send_weekly_digest_to_all_orgs(top_n: int = 5) -> dict:
     """For every org that has `settings.bidradar.digest_recipients` configured,
     pick the top N recommended matches from this week and email them."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     week_start = (now - timedelta(days=now.weekday())).date()
     week_end = week_start + timedelta(days=6)
-    week_start_dt = datetime.combine(week_start, datetime.min.time(), tzinfo=timezone.utc)
+    week_start_dt = datetime.combine(week_start, datetime.min.time(), tzinfo=UTC)
 
     async with SessionFactory() as session:
         orgs = (await session.execute(select(Organization))).scalars().all()

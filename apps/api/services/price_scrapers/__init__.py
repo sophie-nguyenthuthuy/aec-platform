@@ -12,6 +12,7 @@ Runtime contract:
     summary = await run_scraper(scraper)   # scrape + normalise + write
     # summary == {"scraped": 120, "matched": 95, "unmatched": 25, "written": 95}
 """
+
 from __future__ import annotations
 
 import logging
@@ -84,7 +85,10 @@ async def run_scraper(scraper: BaseScraper) -> dict:
             "slug": scraper.slug,
             "ok": False,
             "error": str(exc),
-            "scraped": 0, "matched": 0, "unmatched": 0, "written": 0,
+            "scraped": 0,
+            "matched": 0,
+            "unmatched": 0,
+            "written": 0,
         }
 
     matched, unmatched = normalise(raw)

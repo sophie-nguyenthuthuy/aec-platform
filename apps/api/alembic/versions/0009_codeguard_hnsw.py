@@ -15,10 +15,10 @@ Revision ID: 0009_codeguard_hnsw
 Revises: 0008_codeguard_rls
 Create Date: 2026-04-23
 """
+
 from __future__ import annotations
 
 from alembic import op
-
 
 revision = "0009_codeguard_hnsw"
 down_revision = "0008_codeguard_rls"

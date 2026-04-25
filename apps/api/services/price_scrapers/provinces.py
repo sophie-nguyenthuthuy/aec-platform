@@ -15,6 +15,7 @@ URL provenance:
 When a province's DOC redesigns its site, just update the config — no
 code change required unless the table format breaks.
 """
+
 from __future__ import annotations
 
 from .generic_province import PENDING_URL, ProvinceConfig
@@ -24,8 +25,7 @@ from .generic_province import PENDING_URL, ProvinceConfig
 ALL: list[ProvinceConfig] = [
     # ---------- Red River Delta ----------
     # Hanoi is covered by apps/api/services/price_scrapers/hanoi.py
-    ProvinceConfig("hai-phong", "Hai Phong",
-                   "https://soxaydung.haiphong.gov.vn/thong-bao-gia-vat-lieu"),
+    ProvinceConfig("hai-phong", "Hai Phong", "https://soxaydung.haiphong.gov.vn/thong-bao-gia-vat-lieu"),
     ProvinceConfig("bac-ninh", "Bac Ninh", PENDING_URL),
     ProvinceConfig("hai-duong", "Hai Duong", PENDING_URL),
     ProvinceConfig("hung-yen", "Hung Yen", PENDING_URL),
@@ -34,9 +34,7 @@ ALL: list[ProvinceConfig] = [
     ProvinceConfig("ha-nam", "Ha Nam", PENDING_URL),
     ProvinceConfig("nam-dinh", "Nam Dinh", PENDING_URL),
     ProvinceConfig("ninh-binh", "Ninh Binh", PENDING_URL),
-    ProvinceConfig("quang-ninh", "Quang Ninh",
-                   "https://sxd.quangninh.gov.vn/cong-bo-gia-vlxd"),
-
+    ProvinceConfig("quang-ninh", "Quang Ninh", "https://sxd.quangninh.gov.vn/cong-bo-gia-vlxd"),
     # ---------- Northern Midlands & Mountains ----------
     ProvinceConfig("ha-giang", "Ha Giang", PENDING_URL),
     ProvinceConfig("cao-bang", "Cao Bang", PENDING_URL),
@@ -52,20 +50,15 @@ ALL: list[ProvinceConfig] = [
     ProvinceConfig("lai-chau", "Lai Chau", PENDING_URL),
     ProvinceConfig("son-la", "Son La", PENDING_URL),
     ProvinceConfig("hoa-binh", "Hoa Binh", PENDING_URL),
-
     # ---------- North Central Coast ----------
     ProvinceConfig("thanh-hoa", "Thanh Hoa", PENDING_URL),
-    ProvinceConfig("nghe-an", "Nghe An",
-                   "https://sxd.nghean.gov.vn/thong-bao-gia-vat-lieu"),
+    ProvinceConfig("nghe-an", "Nghe An", "https://sxd.nghean.gov.vn/thong-bao-gia-vat-lieu"),
     ProvinceConfig("ha-tinh", "Ha Tinh", PENDING_URL),
     ProvinceConfig("quang-binh", "Quang Binh", PENDING_URL),
     ProvinceConfig("quang-tri", "Quang Tri", PENDING_URL),
-    ProvinceConfig("thua-thien-hue", "Thua Thien Hue",
-                   "https://sxd.thuathienhue.gov.vn/thong-bao-gia"),
-
+    ProvinceConfig("thua-thien-hue", "Thua Thien Hue", "https://sxd.thuathienhue.gov.vn/thong-bao-gia"),
     # ---------- South Central Coast ----------
-    ProvinceConfig("da-nang", "Da Nang",
-                   "https://soxaydung.danang.gov.vn/thong-bao-gia"),
+    ProvinceConfig("da-nang", "Da Nang", "https://soxaydung.danang.gov.vn/thong-bao-gia"),
     ProvinceConfig("quang-nam", "Quang Nam", PENDING_URL),
     ProvinceConfig("quang-ngai", "Quang Ngai", PENDING_URL),
     ProvinceConfig("binh-dinh", "Binh Dinh", PENDING_URL),
@@ -73,24 +66,19 @@ ALL: list[ProvinceConfig] = [
     ProvinceConfig("khanh-hoa", "Khanh Hoa", PENDING_URL),
     ProvinceConfig("ninh-thuan", "Ninh Thuan", PENDING_URL),
     ProvinceConfig("binh-thuan", "Binh Thuan", PENDING_URL),
-
     # ---------- Central Highlands ----------
     ProvinceConfig("kon-tum", "Kon Tum", PENDING_URL),
     ProvinceConfig("gia-lai", "Gia Lai", PENDING_URL),
     ProvinceConfig("dak-lak", "Dak Lak", PENDING_URL),
     ProvinceConfig("dak-nong", "Dak Nong", PENDING_URL),
     ProvinceConfig("lam-dong", "Lam Dong", PENDING_URL),
-
     # ---------- Southeast ----------
     # HCMC is covered by apps/api/services/price_scrapers/hcmc.py
     ProvinceConfig("binh-phuoc", "Binh Phuoc", PENDING_URL),
     ProvinceConfig("tay-ninh", "Tay Ninh", PENDING_URL),
-    ProvinceConfig("binh-duong", "Binh Duong",
-                   "https://sxd.binhduong.gov.vn/thong-bao-gia"),
-    ProvinceConfig("dong-nai", "Dong Nai",
-                   "https://sxd.dongnai.gov.vn/thong-bao-gia"),
+    ProvinceConfig("binh-duong", "Binh Duong", "https://sxd.binhduong.gov.vn/thong-bao-gia"),
+    ProvinceConfig("dong-nai", "Dong Nai", "https://sxd.dongnai.gov.vn/thong-bao-gia"),
     ProvinceConfig("ba-ria-vung-tau", "Ba Ria Vung Tau", PENDING_URL),
-
     # ---------- Mekong Delta ----------
     ProvinceConfig("long-an", "Long An", PENDING_URL),
     ProvinceConfig("tien-giang", "Tien Giang", PENDING_URL),
@@ -100,8 +88,7 @@ ALL: list[ProvinceConfig] = [
     ProvinceConfig("dong-thap", "Dong Thap", PENDING_URL),
     ProvinceConfig("an-giang", "An Giang", PENDING_URL),
     ProvinceConfig("kien-giang", "Kien Giang", PENDING_URL),
-    ProvinceConfig("can-tho", "Can Tho",
-                   "https://soxaydung.cantho.gov.vn/thong-bao-gia"),
+    ProvinceConfig("can-tho", "Can Tho", "https://soxaydung.cantho.gov.vn/thong-bao-gia"),
     ProvinceConfig("hau-giang", "Hau Giang", PENDING_URL),
     ProvinceConfig("soc-trang", "Soc Trang", PENDING_URL),
     ProvinceConfig("bac-lieu", "Bac Lieu", PENDING_URL),

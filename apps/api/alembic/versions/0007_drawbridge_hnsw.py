@@ -15,10 +15,10 @@ Revision ID: 0007_drawbridge_hnsw
 Revises: 0006_merge_heads
 Create Date: 2026-04-23
 """
+
 from __future__ import annotations
 
 from alembic import op
-
 
 revision = "0007_drawbridge_hnsw"
 down_revision = "0006_merge_heads"

@@ -14,6 +14,7 @@ Responses shape (per-supplier entry):
       "quote": null
     }
 """
+
 from __future__ import annotations
 
 import logging
@@ -33,9 +34,7 @@ _MAX_BOQ_LINES = 15
 async def dispatch_rfq(*, organization_id: UUID, rfq_id: UUID) -> dict:
     """Best-effort dispatch. Never raises: returns a summary for the worker to log."""
     async with TenantAwareSession(organization_id) as session:
-        rfq = (
-            await session.execute(select(Rfq).where(Rfq.id == rfq_id))
-        ).scalar_one_or_none()
+        rfq = (await session.execute(select(Rfq).where(Rfq.id == rfq_id))).scalar_one_or_none()
         if rfq is None:
             logger.warning("rfq_dispatch.missing rfq_id=%s", rfq_id)
             return {"rfq_id": str(rfq_id), "dispatched": 0, "skipped": 0, "reason": "not_found"}
@@ -48,69 +47,79 @@ async def dispatch_rfq(*, organization_id: UUID, rfq_id: UUID) -> dict:
             ).scalar_one_or_none()
             if estimate is not None:
                 lines = (
-                    (await session.execute(
-                        select(BoqItem)
-                        .where(BoqItem.estimate_id == estimate.id)
-                        .order_by(BoqItem.sort_order)
-                        .limit(_MAX_BOQ_LINES)
-                    )).scalars().all()
+                    (
+                        await session.execute(
+                            select(BoqItem)
+                            .where(BoqItem.estimate_id == estimate.id)
+                            .order_by(BoqItem.sort_order)
+                            .limit(_MAX_BOQ_LINES)
+                        )
+                    )
+                    .scalars()
+                    .all()
                 )
                 boq_digest = _format_boq_digest(lines)
 
         supplier_ids = list(rfq.sent_to or [])
         suppliers = (
-            (await session.execute(
-                select(Supplier).where(Supplier.id.in_(supplier_ids))
-            )).scalars().all()
-            if supplier_ids else []
+            (await session.execute(select(Supplier).where(Supplier.id.in_(supplier_ids)))).scalars().all()
+            if supplier_ids
+            else []
         )
         by_id: dict[UUID, Supplier] = {s.id: s for s in suppliers}
 
         existing: list[dict] = list(rfq.responses or [])
-        existing_by_supplier = {
-            str(e.get("supplier_id")): e for e in existing if isinstance(e, dict)
-        }
+        existing_by_supplier = {str(e.get("supplier_id")): e for e in existing if isinstance(e, dict)}
 
         dispatched = 0
         skipped = 0
         for sid in supplier_ids:
             supplier = by_id.get(sid)
-            entry = existing_by_supplier.get(str(sid), {
-                "supplier_id": str(sid), "quote": None,
-            })
+            entry = existing_by_supplier.get(
+                str(sid),
+                {
+                    "supplier_id": str(sid),
+                    "quote": None,
+                },
+            )
 
             if supplier is None:
-                entry.update({
-                    "status": "skipped",
-                    "delivery": {"delivered": False, "reason": "supplier_not_visible"},
-                })
+                entry.update(
+                    {
+                        "status": "skipped",
+                        "delivery": {"delivered": False, "reason": "supplier_not_visible"},
+                    }
+                )
                 existing_by_supplier[str(sid)] = entry
                 skipped += 1
                 continue
 
             email = (supplier.contact or {}).get("email")
             if not email:
-                entry.update({
-                    "status": "skipped",
-                    "delivery": {"delivered": False, "reason": "no_email_on_file"},
-                })
+                entry.update(
+                    {
+                        "status": "skipped",
+                        "delivery": {"delivered": False, "reason": "no_email_on_file"},
+                    }
+                )
                 existing_by_supplier[str(sid)] = entry
                 skipped += 1
                 continue
 
-            subject, body = _render(rfq=rfq, estimate=estimate, supplier=supplier,
-                                    boq_digest=boq_digest)
+            subject, body = _render(rfq=rfq, estimate=estimate, supplier=supplier, boq_digest=boq_digest)
             delivery = await send_mail(to=email, subject=subject, text_body=body)
-            entry.update({
-                "status": "dispatched" if delivery["delivered"] else "bounced",
-                "dispatched_at": delivery["dispatched_at"],
-                "delivery": {
-                    "to": delivery["to"],
-                    "subject": delivery["subject"],
-                    "delivered": delivery["delivered"],
-                    "reason": delivery["reason"],
-                },
-            })
+            entry.update(
+                {
+                    "status": "dispatched" if delivery["delivered"] else "bounced",
+                    "dispatched_at": delivery["dispatched_at"],
+                    "delivery": {
+                        "to": delivery["to"],
+                        "subject": delivery["subject"],
+                        "delivered": delivery["delivered"],
+                        "reason": delivery["reason"],
+                    },
+                }
+            )
             existing_by_supplier[str(sid)] = entry
             if delivery["delivered"]:
                 dispatched += 1
@@ -120,12 +129,15 @@ async def dispatch_rfq(*, organization_id: UUID, rfq_id: UUID) -> dict:
         rfq.responses = list(existing_by_supplier.values())
         # Flag SQLAlchemy that the mutable JSONB list changed.
         from sqlalchemy.orm.attributes import flag_modified
+
         flag_modified(rfq, "responses")
         rfq.status = "sent" if dispatched else (rfq.status or "draft")
 
     logger.info(
         "rfq_dispatch.done rfq_id=%s dispatched=%d skipped=%d",
-        rfq_id, dispatched, skipped,
+        rfq_id,
+        dispatched,
+        skipped,
     )
     return {
         "rfq_id": str(rfq_id),
@@ -146,8 +158,7 @@ def _format_boq_digest(items: list[BoqItem]) -> str:
     return "\n".join(lines)
 
 
-def _render(*, rfq: Rfq, estimate: Estimate | None, supplier: Supplier,
-            boq_digest: str) -> tuple[str, str]:
+def _render(*, rfq: Rfq, estimate: Estimate | None, supplier: Supplier, boq_digest: str) -> tuple[str, str]:
     deadline = rfq.deadline.isoformat() if rfq.deadline else "at your earliest convenience"
     estimate_name = estimate.name if estimate else "(no linked estimate)"
     subject = f"RFQ — {estimate_name} (deadline {deadline})"

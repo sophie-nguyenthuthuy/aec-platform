@@ -3,8 +3,8 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  azs          = slice(data.aws_availability_zones.available.names, 0, var.az_count)
-  public_cidrs = [for i in range(var.az_count) : cidrsubnet(var.vpc_cidr, 4, i)]
+  azs           = slice(data.aws_availability_zones.available.names, 0, var.az_count)
+  public_cidrs  = [for i in range(var.az_count) : cidrsubnet(var.vpc_cidr, 4, i)]
   private_cidrs = [for i in range(var.az_count) : cidrsubnet(var.vpc_cidr, 4, i + 8)]
 }
 
@@ -12,7 +12,7 @@ resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
   enable_dns_support   = true
-  tags = { Name = "aec-${var.environment}" }
+  tags                 = { Name = "aec-${var.environment}" }
 }
 
 resource "aws_internet_gateway" "main" {
@@ -26,7 +26,7 @@ resource "aws_subnet" "public" {
   cidr_block              = local.public_cidrs[count.index]
   availability_zone       = local.azs[count.index]
   map_public_ip_on_launch = true
-  tags = { Name = "aec-${var.environment}-public-${count.index}", Tier = "public" }
+  tags                    = { Name = "aec-${var.environment}-public-${count.index}", Tier = "public" }
 }
 
 resource "aws_subnet" "private" {
@@ -34,7 +34,7 @@ resource "aws_subnet" "private" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = local.private_cidrs[count.index]
   availability_zone = local.azs[count.index]
-  tags = { Name = "aec-${var.environment}-private-${count.index}", Tier = "private" }
+  tags              = { Name = "aec-${var.environment}-private-${count.index}", Tier = "private" }
 }
 
 resource "aws_eip" "nat" {

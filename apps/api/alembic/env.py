@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from alembic import context
 from db.base import Base  # noqa: F401 — ensure models register
 from models import register_all  # noqa: F401
 

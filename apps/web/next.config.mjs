@@ -15,7 +15,7 @@ const nextConfig = {
   ...(process.env.NEXT_OUTPUT === "standalone" ? { output: "standalone" } : {}),
   // Strict mode now enforced — fix any new violations as they appear.
   typescript: { ignoreBuildErrors: false },
-  eslint: { ignoreDuringBuilds: true },
+  eslint: { ignoreDuringBuilds: false },
 };
 
 export default withNextIntl(nextConfig);

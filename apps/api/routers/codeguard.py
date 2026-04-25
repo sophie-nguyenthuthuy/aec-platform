@@ -1,7 +1,8 @@
 """FastAPI router for CODEGUARD endpoints."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -9,20 +10,25 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.envelope import Envelope, Meta, ok, paginated
+from core.envelope import Envelope, ok, paginated
 from db.deps import get_db
 from middleware.auth import AuthContext, require_auth
 from models.codeguard import (
     ComplianceCheck as ComplianceCheckModel,
+)
+from models.codeguard import (
     PermitChecklist as PermitChecklistModel,
+)
+from models.codeguard import (
     Regulation as RegulationModel,
+)
+from models.codeguard import (
     RegulationChunk as RegulationChunkModel,
 )
 from schemas.codeguard import (
+    ChecklistItemStatus,
     CheckStatus,
     CheckType,
-    ChecklistItem,
-    ChecklistItemStatus,
     ComplianceCheck,
     MarkItemRequest,
     PermitChecklist,
@@ -37,11 +43,11 @@ from schemas.codeguard import (
     ScanResponse,
 )
 
-
 router = APIRouter(prefix="/api/v1/codeguard", tags=["codeguard"])
 
 
 # ---------- Q&A ----------
+
 
 @router.post("/query", response_model=Envelope[QueryResponse])
 async def codeguard_query(
@@ -73,7 +79,7 @@ async def codeguard_query(
         findings=result.model_dump(mode="json"),
         regulations_referenced=[c.regulation_id for c in result.citations],
         created_by=auth.user_id,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     db.add(check)
     await db.flush()
@@ -84,6 +90,7 @@ async def codeguard_query(
 
 
 # ---------- Auto-scan ----------
+
 
 @router.post("/scan", response_model=Envelope[ScanResponse])
 async def codeguard_scan(
@@ -101,7 +108,7 @@ async def codeguard_scan(
         status=CheckStatus.running.value,
         input=payload.model_dump(mode="json"),
         created_by=auth.user_id,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     db.add(check)
     await db.flush()
@@ -141,6 +148,7 @@ async def codeguard_scan(
 
 # ---------- Permit checklist ----------
 
+
 @router.post("/permit-checklist", response_model=Envelope[PermitChecklist])
 async def create_permit_checklist(
     payload: PermitChecklistRequest,
@@ -157,9 +165,7 @@ async def create_permit_checklist(
             parameters=payload.parameters,
         )
     except Exception as exc:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"Checklist generation failed: {exc}"
-        ) from exc
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Checklist generation failed: {exc}") from exc
 
     record = PermitChecklistModel(
         id=uuid4(),
@@ -168,7 +174,7 @@ async def create_permit_checklist(
         jurisdiction=payload.jurisdiction,
         project_type=payload.project_type,
         items=[i.model_dump(mode="json") for i in items],
-        generated_at=datetime.now(timezone.utc),
+        generated_at=datetime.now(UTC),
     )
     db.add(record)
     await db.flush()
@@ -189,7 +195,7 @@ async def mark_checklist_item(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Checklist not found")
 
     items = list(checklist.items or [])
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     updated = False
     for item in items:
         if item.get("id") == payload.item_id:
@@ -207,10 +213,9 @@ async def mark_checklist_item(
 
     checklist.items = items
     if all(
-        i.get("status") in (ChecklistItemStatus.done.value, ChecklistItemStatus.not_applicable.value)
-        for i in items
+        i.get("status") in (ChecklistItemStatus.done.value, ChecklistItemStatus.not_applicable.value) for i in items
     ):
-        checklist.completed_at = datetime.now(timezone.utc)
+        checklist.completed_at = datetime.now(UTC)
 
     await db.flush()
     await db.refresh(checklist)
@@ -218,6 +223,7 @@ async def mark_checklist_item(
 
 
 # ---------- Regulations ----------
+
 
 @router.get("/regulations", response_model=Envelope[list[RegulationSummary]])
 async def list_regulations(
@@ -239,13 +245,9 @@ async def list_regulations(
         stmt = stmt.where(RegulationModel.category == category.value)
     if q:
         like = f"%{q}%"
-        stmt = stmt.where(
-            or_(RegulationModel.code_name.ilike(like), RegulationModel.raw_text.ilike(like))
-        )
+        stmt = stmt.where(or_(RegulationModel.code_name.ilike(like), RegulationModel.raw_text.ilike(like)))
 
-    total = (
-        await db.execute(select(func.count()).select_from(stmt.subquery()))
-    ).scalar_one()
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     stmt = stmt.order_by(RegulationModel.code_name).limit(limit).offset(offset)
     rows = (await db.execute(stmt)).scalars().all()
 
@@ -273,10 +275,7 @@ async def get_regulation(
         .order_by(RegulationChunkModel.section_ref)
     )
     chunks = (await db.execute(chunks_stmt)).scalars().all()
-    sections = [
-        RegulationSection(section_ref=c.section_ref or "", content=c.content)
-        for c in chunks
-    ]
+    sections = [RegulationSection(section_ref=c.section_ref or "", content=c.content) for c in chunks]
 
     detail = RegulationDetail.model_validate(
         {
@@ -297,6 +296,7 @@ async def get_regulation(
 
 
 # ---------- Check history ----------
+
 
 @router.get("/checks/{project_id}", response_model=Envelope[list[ComplianceCheck]])
 async def list_project_checks(

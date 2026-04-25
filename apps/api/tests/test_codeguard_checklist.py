@@ -1,12 +1,12 @@
 """Integration tests for POST /api/v1/codeguard/permit-checklist
 and POST /api/v1/codeguard/checks/{id}/mark-item."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -26,9 +26,7 @@ def _make_item(**overrides):
     return ChecklistItem(**base)
 
 
-async def test_permit_checklist_persists_and_returns_items(
-    client, fake_db, mock_llm, fake_auth
-):
+async def test_permit_checklist_persists_and_returns_items(client, fake_db, mock_llm, fake_auth):
     from models.codeguard import PermitChecklist as PermitChecklistModel
 
     items = [_make_item(), _make_item(id="structural-calc", title="Bản tính kết cấu")]
@@ -72,9 +70,7 @@ async def test_permit_checklist_surfaces_pipeline_failure_as_502(client, mock_ll
     assert res.json()["errors"][0]["message"].startswith("Checklist generation failed")
 
 
-async def test_mark_item_updates_status_and_completed_at(
-    client, fake_db, fake_auth
-):
+async def test_mark_item_updates_status_and_completed_at(client, fake_db, fake_auth):
     from models.codeguard import PermitChecklist as PermitChecklistModel
 
     checklist_id = uuid4()
@@ -88,7 +84,7 @@ async def test_mark_item_updates_status_and_completed_at(
             {"id": "a", "title": "A", "required": True, "status": "pending"},
             {"id": "b", "title": "B", "required": True, "status": "done"},
         ],
-        generated_at=datetime.now(timezone.utc),
+        generated_at=datetime.now(UTC),
         completed_at=None,
     )
     fake_db.set_get(PermitChecklistModel, checklist_id, checklist)
@@ -107,9 +103,7 @@ async def test_mark_item_updates_status_and_completed_at(
     assert updated["completed_at"] is not None
 
 
-async def test_mark_item_returns_404_when_checklist_wrong_org(
-    client, fake_db
-):
+async def test_mark_item_returns_404_when_checklist_wrong_org(client, fake_db):
     from models.codeguard import PermitChecklist as PermitChecklistModel
 
     checklist_id = uuid4()
@@ -120,7 +114,7 @@ async def test_mark_item_returns_404_when_checklist_wrong_org(
         jurisdiction="Hà Nội",
         project_type="commercial",
         items=[{"id": "a", "title": "A", "required": True, "status": "pending"}],
-        generated_at=datetime.now(timezone.utc),
+        generated_at=datetime.now(UTC),
         completed_at=None,
     )
     fake_db.set_get(PermitChecklistModel, checklist_id, foreign)
@@ -132,9 +126,7 @@ async def test_mark_item_returns_404_when_checklist_wrong_org(
     assert res.status_code == 404
 
 
-async def test_mark_item_returns_404_for_unknown_item(
-    client, fake_db, fake_auth
-):
+async def test_mark_item_returns_404_for_unknown_item(client, fake_db, fake_auth):
     from models.codeguard import PermitChecklist as PermitChecklistModel
 
     checklist_id = uuid4()
@@ -145,7 +137,7 @@ async def test_mark_item_returns_404_for_unknown_item(
         jurisdiction="Hồ Chí Minh",
         project_type="residential",
         items=[{"id": "a", "title": "A", "required": True, "status": "pending"}],
-        generated_at=datetime.now(timezone.utc),
+        generated_at=datetime.now(UTC),
         completed_at=None,
     )
     fake_db.set_get(PermitChecklistModel, checklist_id, checklist)

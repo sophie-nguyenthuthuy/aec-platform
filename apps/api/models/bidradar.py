@@ -1,11 +1,13 @@
 """SQLAlchemy models for BIDRADAR module."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Boolean, CHAR, Date, DateTime, ForeignKey, Integer, Numeric, Text
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
+from sqlalchemy import CHAR, BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
@@ -71,9 +73,7 @@ class TenderMatch(Base):
     ai_recommendation: Mapped[dict | None] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(Text, default="new")
     proposal_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
-    reviewed_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    reviewed_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     reviewed_at: Mapped[datetime | None] = mapped_column(TZ)
     created_at: Mapped[datetime] = mapped_column(TZ)
 

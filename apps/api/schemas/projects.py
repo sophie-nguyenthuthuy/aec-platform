@@ -4,6 +4,7 @@ These schemas surface a compact, per-module status roll-up for a project so
 the dashboard UI can render a single "state of the project" view without
 fanning out to every module's endpoint.
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -11,7 +12,6 @@ from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-
 
 # ---------- Per-module roll-ups ----------
 

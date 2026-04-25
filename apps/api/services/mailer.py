@@ -4,13 +4,14 @@ Uses `smtplib` inside `asyncio.to_thread` so it is safe to call from async code.
 If SMTP isn't configured (dev/test), falls back to a logged "skipped" delivery
 and still returns a delivery record so callers can record intent uniformly.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import smtplib
 import ssl
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.message import EmailMessage
 from typing import TypedDict
 
@@ -27,19 +28,18 @@ class Delivery(TypedDict):
     dispatched_at: str
 
 
-async def send_mail(
-    *, to: str, subject: str, text_body: str, html_body: str | None = None
-) -> Delivery:
+async def send_mail(*, to: str, subject: str, text_body: str, html_body: str | None = None) -> Delivery:
     settings = get_settings()
-    ts = datetime.now(timezone.utc).isoformat()
+    ts = datetime.now(UTC).isoformat()
 
     if not settings.smtp_host or not settings.smtp_user:
-        logger.info(
-            "mailer.skipped smtp_unconfigured to=%s subject=%r", to, subject
-        )
+        logger.info("mailer.skipped smtp_unconfigured to=%s subject=%r", to, subject)
         return Delivery(
-            to=to, subject=subject, delivered=False,
-            reason="smtp_not_configured", dispatched_at=ts,
+            to=to,
+            subject=subject,
+            delivered=False,
+            reason="smtp_not_configured",
+            dispatched_at=ts,
         )
 
     msg = EmailMessage()
@@ -53,14 +53,15 @@ async def send_mail(
     try:
         await asyncio.to_thread(_send_sync, msg, settings)
         logger.info("mailer.sent to=%s subject=%r", to, subject)
-        return Delivery(
-            to=to, subject=subject, delivered=True, reason=None, dispatched_at=ts
-        )
+        return Delivery(to=to, subject=subject, delivered=True, reason=None, dispatched_at=ts)
     except Exception as exc:  # pragma: no cover — network path
         logger.exception("mailer.failed to=%s subject=%r", to, subject)
         return Delivery(
-            to=to, subject=subject, delivered=False,
-            reason=f"smtp_error:{type(exc).__name__}", dispatched_at=ts,
+            to=to,
+            subject=subject,
+            delivered=False,
+            reason=f"smtp_error:{type(exc).__name__}",
+            dispatched_at=ts,
         )
 
 

@@ -6,6 +6,7 @@ look up the most-recent price for (material_code, province) and compare to
 email the subscribed user and update `last_price_vnd` so they aren't paged
 again for the same movement.
 """
+
 from __future__ import annotations
 
 import logging
@@ -28,9 +29,11 @@ async def evaluate_price_alerts() -> dict:
     # `DATABASE_URL_ADMIN` (the superuser `aec` in compose), which has
     # BYPASSRLS and lets this batch pass see all tenants at once.
     async with AdminSessionFactory() as session:
-        rows = (await session.execute(
-            text(
-                """
+        rows = (
+            (
+                await session.execute(
+                    text(
+                        """
                 SELECT
                   pa.id               AS alert_id,
                   pa.organization_id  AS organization_id,
@@ -54,8 +57,12 @@ async def evaluate_price_alerts() -> dict:
                   LIMIT 1
                 ) mp ON true
                 """
+                    )
+                )
             )
-        )).mappings().all()
+            .mappings()
+            .all()
+        )
 
         evaluated = len(rows)
         triggered = 0
@@ -131,10 +138,7 @@ async def _notify(
 ) -> None:
     direction = "↑" if delta_pct > 0 else "↓"
     province_label = province or "nationwide"
-    subject = (
-        f"Price alert {direction} {abs(delta_pct):.1f}% — "
-        f"{material_name} ({province_label})"
-    )
+    subject = f"Price alert {direction} {abs(delta_pct):.1f}% — {material_name} ({province_label})"
     body = (
         f"Material: {material_name} [{material_code}]\n"
         f"Province: {province_label}\n"

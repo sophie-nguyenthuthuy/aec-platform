@@ -8,6 +8,7 @@ The DB-touching `write_prices` step is tested in
 `test_price_scrapers_writer.py` under the same `COSTPULSE_RLS_DB_URL`
 guard as the other integration tests.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -39,7 +40,6 @@ from services.price_scrapers.ministry import (
     _parse_vnd,
 )
 from services.price_scrapers.normalizer import normalise
-
 
 # ---------- _parse_vnd ----------
 
@@ -123,12 +123,14 @@ def test_find_latest_bulletin_url_rewrites_relative_links():
 
 
 def test_find_latest_hanoi_bulletin_url_handles_relative_and_bare_paths():
-    assert _find_latest_hanoi_bulletin_url(
-        '<a href="/thong-bao-gia/2026-03">Mar</a>'
-    ) == "https://soxaydung.hanoi.gov.vn/thong-bao-gia/2026-03"
-    assert _find_latest_hanoi_bulletin_url(
-        '<a href="thong-bao-gia-x">x</a>'
-    ) == "https://soxaydung.hanoi.gov.vn/thong-bao-gia-x"
+    assert (
+        _find_latest_hanoi_bulletin_url('<a href="/thong-bao-gia/2026-03">Mar</a>')
+        == "https://soxaydung.hanoi.gov.vn/thong-bao-gia/2026-03"
+    )
+    assert (
+        _find_latest_hanoi_bulletin_url('<a href="thong-bao-gia-x">x</a>')
+        == "https://soxaydung.hanoi.gov.vn/thong-bao-gia-x"
+    )
 
 
 # ---------- Normaliser ----------
@@ -136,14 +138,10 @@ def test_find_latest_hanoi_bulletin_url_handles_relative_and_bare_paths():
 
 def test_normalise_maps_vietnamese_descriptions_to_material_codes():
     rows = [
-        ScrapedPrice("Bê tông thương phẩm C30", "m3", Decimal("2000000"),
-                     date(2026, 3, 1), "Hanoi"),
-        ScrapedPrice("Thép CB500 phi 16", "kg", Decimal("20500"),
-                     date(2026, 3, 1), "Hanoi"),
-        ScrapedPrice("Gạch đỏ tuynel 2 lỗ", "viên", Decimal("1200"),
-                     date(2026, 3, 1), "Hanoi"),
-        ScrapedPrice("Sơn ngoại thất cao cấp", "lít", Decimal("180000"),
-                     date(2026, 3, 1), "Hanoi"),
+        ScrapedPrice("Bê tông thương phẩm C30", "m3", Decimal("2000000"), date(2026, 3, 1), "Hanoi"),
+        ScrapedPrice("Thép CB500 phi 16", "kg", Decimal("20500"), date(2026, 3, 1), "Hanoi"),
+        ScrapedPrice("Gạch đỏ tuynel 2 lỗ", "viên", Decimal("1200"), date(2026, 3, 1), "Hanoi"),
+        ScrapedPrice("Sơn ngoại thất cao cấp", "lít", Decimal("180000"), date(2026, 3, 1), "Hanoi"),
     ]
     matched, unmatched = normalise(rows)
     assert unmatched == []
@@ -159,10 +157,8 @@ def test_normalise_maps_vietnamese_descriptions_to_material_codes():
 
 def test_normalise_flags_unmatched_rows():
     rows = [
-        ScrapedPrice("Lao động phổ thông", "công", Decimal("350000"),
-                     date(2026, 3, 1), "Hanoi"),
-        ScrapedPrice("Gạch đỏ tuynel", "viên", Decimal("1200"),
-                     date(2026, 3, 1), "Hanoi"),
+        ScrapedPrice("Lao động phổ thông", "công", Decimal("350000"), date(2026, 3, 1), "Hanoi"),
+        ScrapedPrice("Gạch đỏ tuynel", "viên", Decimal("1200"), date(2026, 3, 1), "Hanoi"),
     ]
     matched, unmatched = normalise(rows)
     assert len(matched) == 1
@@ -213,9 +209,7 @@ def test_registry_has_all_63_provinces():
     """MOC + Hanoi + HCMC (bespoke) + 61 generic = 64 total, covering every province."""
     slugs = set(all_slugs())
     assert slugs >= {"moc", "hanoi", "hcmc"}, "bespoke scrapers must be registered"
-    assert len(GENERIC_SLUGS) == 61, (
-        f"expected 61 generic-province configs, got {len(GENERIC_SLUGS)}"
-    )
+    assert len(GENERIC_SLUGS) == 61, f"expected 61 generic-province configs, got {len(GENERIC_SLUGS)}"
     assert len(slugs) == 64
 
 
@@ -245,11 +239,12 @@ async def test_generic_province_scraper_follows_listing_then_bulletin():
       <tr><td>Bê tông C30</td><td>m3</td><td>2.050.000</td></tr>
     </table>
     """
-    client = _fake_client({
-        "https://soxaydung.danang.gov.vn/thong-bao-gia": _fake_response(listing_html),
-        "https://soxaydung.danang.gov.vn/thong-bao-gia/2026-thang-03":
-            _fake_response(bulletin_html),
-    })
+    client = _fake_client(
+        {
+            "https://soxaydung.danang.gov.vn/thong-bao-gia": _fake_response(listing_html),
+            "https://soxaydung.danang.gov.vn/thong-bao-gia/2026-thang-03": _fake_response(bulletin_html),
+        }
+    )
 
     rows = await GenericProvinceScraper(config, http_client=client).scrape()
     assert len(rows) == 1
@@ -266,9 +261,11 @@ async def test_generic_province_scraper_skips_unhandled_binary_bulletins():
         listing_url="https://sxd.binhduong.gov.vn/thong-bao-gia",
     )
     listing_html = '<a href="/files/thong-bao-gia-2026-03.xls">Mar</a>'
-    client = _fake_client({
-        "https://sxd.binhduong.gov.vn/thong-bao-gia": _fake_response(listing_html),
-    })
+    client = _fake_client(
+        {
+            "https://sxd.binhduong.gov.vn/thong-bao-gia": _fake_response(listing_html),
+        }
+    )
 
     rows = await GenericProvinceScraper(config, http_client=client).scrape()
     assert rows == []
@@ -287,8 +284,12 @@ async def test_generic_province_scraper_dispatches_docx_to_parser(monkeypatch):
         seen["province"] = province
         return [
             ScrapedPrice(
-                "Bê tông C30", "m3", Decimal("2050000"),
-                date(2026, 3, 1), province, source_url=source_url,
+                "Bê tông C30",
+                "m3",
+                Decimal("2050000"),
+                date(2026, 3, 1),
+                province,
+                source_url=source_url,
             )
         ]
 
@@ -306,10 +307,12 @@ async def test_generic_province_scraper_dispatches_docx_to_parser(monkeypatch):
     docx_response.content = b"FAKE_DOCX_BYTES"
     docx_response.raise_for_status = MagicMock()
 
-    client = _fake_client({
-        "https://sxd.binhduong.gov.vn/thong-bao-gia": _fake_response(listing_html),
-        bulletin_url: docx_response,
-    })
+    client = _fake_client(
+        {
+            "https://sxd.binhduong.gov.vn/thong-bao-gia": _fake_response(listing_html),
+            bulletin_url: docx_response,
+        }
+    )
 
     rows = await GenericProvinceScraper(config, http_client=client).scrape()
 
@@ -344,18 +347,18 @@ async def test_generic_province_scraper_dispatches_pdf_to_parser(monkeypatch):
     # Direct PDF link — most provinces serve attachments at /files/*.pdf.
     # PDFs behind /download.aspx?file=...&id=... query strings will need
     # Content-Type sniffing later (see B.1.1 follow-up).
-    listing_html = (
-        '<a href="/files/cong-bo-gia-q1-2026.pdf?download=1">Q1</a>'
-    )
+    listing_html = '<a href="/files/cong-bo-gia-q1-2026.pdf?download=1">Q1</a>'
     bulletin_url = "https://sxd.quangnam.gov.vn/files/cong-bo-gia-q1-2026.pdf?download=1"
     pdf_response = MagicMock()
     pdf_response.content = b"%PDF-1.4 ..."
     pdf_response.raise_for_status = MagicMock()
 
-    client = _fake_client({
-        "https://sxd.quangnam.gov.vn/thong-bao-gia": _fake_response(listing_html),
-        bulletin_url: pdf_response,
-    })
+    client = _fake_client(
+        {
+            "https://sxd.quangnam.gov.vn/thong-bao-gia": _fake_response(listing_html),
+            bulletin_url: pdf_response,
+        }
+    )
 
     await GenericProvinceScraper(config, http_client=client).scrape()
     assert called["n"] == 1
@@ -378,11 +381,14 @@ def test_find_first_matching_link_respects_per_province_regex():
 
 
 def test_find_first_matching_link_returns_none_when_nothing_matches():
-    assert _find_first_matching_link(
-        '<a href="/unrelated">x</a>',
-        link_re="thong-bao-gia",
-        base_url="https://x.gov.vn",
-    ) is None
+    assert (
+        _find_first_matching_link(
+            '<a href="/unrelated">x</a>',
+            link_re="thong-bao-gia",
+            base_url="https://x.gov.vn",
+        )
+        is None
+    )
 
 
 # ---------- End-to-end MOC scraper with mocked HTTP ----------
@@ -399,10 +405,8 @@ async def test_moc_scraper_follows_listing_then_bulletin(monkeypatch):
     </table>
     """
     responses = {
-        "https://moc.gov.vn/vn/thong-bao-gia-vat-lieu-xay-dung.html":
-            _fake_response(listing_html),
-        "https://moc.gov.vn/vn/thong-bao-gia-2026-03.html":
-            _fake_response(bulletin_html),
+        "https://moc.gov.vn/vn/thong-bao-gia-vat-lieu-xay-dung.html": _fake_response(listing_html),
+        "https://moc.gov.vn/vn/thong-bao-gia-2026-03.html": _fake_response(bulletin_html),
     }
 
     client = _fake_client(responses)
@@ -418,10 +422,13 @@ async def test_moc_scraper_follows_listing_then_bulletin(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_moc_scraper_returns_empty_when_no_bulletin_link(monkeypatch):
-    client = _fake_client({
-        "https://moc.gov.vn/vn/thong-bao-gia-vat-lieu-xay-dung.html":
-            _fake_response("<html><body>no links here</body></html>"),
-    })
+    client = _fake_client(
+        {
+            "https://moc.gov.vn/vn/thong-bao-gia-vat-lieu-xay-dung.html": _fake_response(
+                "<html><body>no links here</body></html>"
+            ),
+        }
+    )
     scraper = MinistryOfConstructionScraper(http_client=client)
     assert await scraper.scrape() == []
 
@@ -451,12 +458,12 @@ async def test_hanoi_scraper_sets_province_to_hanoi():
       <tr><td>Bê tông C30</td><td>m3</td><td>2.100.000</td></tr>
     </table>
     """
-    client = _fake_client({
-        "https://soxaydung.hanoi.gov.vn/thong-bao-gia-vat-lieu-xd":
-            _fake_response(listing_html),
-        "https://soxaydung.hanoi.gov.vn/thong-bao-gia-2026-03":
-            _fake_response(bulletin_html),
-    })
+    client = _fake_client(
+        {
+            "https://soxaydung.hanoi.gov.vn/thong-bao-gia-vat-lieu-xd": _fake_response(listing_html),
+            "https://soxaydung.hanoi.gov.vn/thong-bao-gia-2026-03": _fake_response(bulletin_html),
+        }
+    )
 
     rows = await HanoiScraper(http_client=client).scrape()
     assert len(rows) == 1
@@ -477,10 +484,8 @@ async def test_run_scraper_aggregates_summary_counts(monkeypatch):
 
         async def scrape(self):
             return [
-                ScrapedPrice("Bê tông C30", "m3", Decimal("2000000"),
-                             date(2026, 3, 1), "Fakeland"),
-                ScrapedPrice("Lao động không xác định", "công", Decimal("350000"),
-                             date(2026, 3, 1), "Fakeland"),
+                ScrapedPrice("Bê tông C30", "m3", Decimal("2000000"), date(2026, 3, 1), "Fakeland"),
+                ScrapedPrice("Lao động không xác định", "công", Decimal("350000"), date(2026, 3, 1), "Fakeland"),
             ]
 
     # Stub out the DB write so this test stays unit-level.
@@ -584,12 +589,14 @@ class TestDetectColumns:
 
     def test_extra_qualifying_text_in_header_cell(self):
         # Real bulletins often have parenthesised hints — must still match.
-        cols = detect_columns([
-            "STT",
-            "Tên vật liệu (chủng loại)",
-            "Đơn vị tính (ĐVT)",
-            "Đơn giá trước thuế (VND/đv)",
-        ])
+        cols = detect_columns(
+            [
+                "STT",
+                "Tên vật liệu (chủng loại)",
+                "Đơn vị tính (ĐVT)",
+                "Đơn giá trước thuế (VND/đv)",
+            ]
+        )
         assert cols == ColumnMap(name=1, unit=2, price=3)
 
     def test_returns_none_when_any_column_missing(self):
@@ -644,22 +651,26 @@ class TestExtractPricesFromTable:
             ["Thép CB500", "kg", "20000"],
         ]
         out = extract_prices_from_table(
-            rows, effective_date=date(2026, 3, 1),
-            source_url=None, province="Test",
+            rows,
+            effective_date=date(2026, 3, 1),
+            source_url=None,
+            province="Test",
         )
         assert [r.raw_name for r in out] == ["Thép CB500"]
 
     def test_skips_unparseable_or_zero_prices(self):
         rows = [
             ["Tên", "Đơn vị", "Đơn giá"],
-            ["Bê tông C30", "m3", "—"],          # no digits
-            ["Lao động", "công", "0"],            # zero — meaningless
-            ["Thép CB500", "kg", "20.000"],       # ok
-            ["Gạch", "viên", ""],                  # empty cell
+            ["Bê tông C30", "m3", "—"],  # no digits
+            ["Lao động", "công", "0"],  # zero — meaningless
+            ["Thép CB500", "kg", "20.000"],  # ok
+            ["Gạch", "viên", ""],  # empty cell
         ]
         out = extract_prices_from_table(
-            rows, effective_date=date(2026, 3, 1),
-            source_url=None, province="Test",
+            rows,
+            effective_date=date(2026, 3, 1),
+            source_url=None,
+            province="Test",
         )
         assert [r.raw_name for r in out] == ["Thép CB500"]
 
@@ -667,12 +678,14 @@ class TestExtractPricesFromTable:
         # Merged-cell rows can be truncated by the upstream extractor.
         rows = [
             ["Tên", "Đơn vị", "Đơn giá"],
-            ["Bê tông C30", "m3"],                 # missing price cell
+            ["Bê tông C30", "m3"],  # missing price cell
             ["Thép CB500", "kg", "20000"],
         ]
         out = extract_prices_from_table(
-            rows, effective_date=date(2026, 3, 1),
-            source_url=None, province="Test",
+            rows,
+            effective_date=date(2026, 3, 1),
+            source_url=None,
+            province="Test",
         )
         assert [r.raw_name for r in out] == ["Thép CB500"]
 
@@ -683,8 +696,10 @@ class TestExtractPricesFromTable:
             ["Thép CB500", "kg", "20000"],
         ]
         out = extract_prices_from_table(
-            rows, effective_date=date(2026, 3, 1),
-            source_url=None, province="Test",
+            rows,
+            effective_date=date(2026, 3, 1),
+            source_url=None,
+            province="Test",
         )
         assert out == []
 
@@ -700,8 +715,10 @@ class TestExtractPricesFromTable:
             ["Thép CB500", "kg", "20000"],
         ]
         out = extract_prices_from_table(
-            rows, effective_date=date(2026, 3, 1),
-            source_url=None, province="Test",
+            rows,
+            effective_date=date(2026, 3, 1),
+            source_url=None,
+            province="Test",
         )
         assert [r.raw_name for r in out] == ["Bê tông C30", "Thép CB500"]
 
@@ -710,9 +727,7 @@ class TestExtractEffectiveDate:
     """Effective-date extraction from bulletin free text."""
 
     def test_thang_mm_yyyy_form(self):
-        assert extract_effective_date(
-            "Thông báo giá vật liệu xây dựng tháng 03/2026"
-        ) == date(2026, 3, 1)
+        assert extract_effective_date("Thông báo giá vật liệu xây dựng tháng 03/2026") == date(2026, 3, 1)
 
     def test_no_diacritics_form(self):
         assert extract_effective_date("thang 12-2025") == date(2025, 12, 1)

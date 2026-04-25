@@ -16,6 +16,7 @@ split a single material category across pages (e.g. "Thép cuộn" spans
 pages 2-3 before "Xi măng" starts on page 4) — keeping rows in page
 order preserves the original layout.
 """
+
 from __future__ import annotations
 
 import io
@@ -38,9 +39,7 @@ def parse_pdf_bulletin(
     try:
         import pdfplumber
     except ImportError as exc:  # pragma: no cover — deployed env always has it
-        raise ScrapeError(
-            "pdfplumber not installed; cannot parse .pdf bulletins"
-        ) from exc
+        raise ScrapeError("pdfplumber not installed; cannot parse .pdf bulletins") from exc
 
     rows: list[list[str]] = []
     all_text_parts: list[str] = []
@@ -53,10 +52,7 @@ def parse_pdf_bulletin(
                     all_text_parts.append(text)
                 for table in page.extract_tables() or []:
                     # pdfplumber returns cells as str | None; normalise.
-                    rows.extend(
-                        [(c or "").strip() for c in row]
-                        for row in table
-                    )
+                    rows.extend([(c or "").strip() for c in row] for row in table)
     except Exception as exc:
         raise ScrapeError(f"could not open .pdf content: {exc}") from exc
 
@@ -78,6 +74,8 @@ def parse_pdf_bulletin(
     )
     logger.info(
         "parser.pdf[%s]: parsed %d rows from %d total table rows across all pages",
-        province, len(scraped), len(rows),
+        province,
+        len(scraped),
+        len(rows),
     )
     return scraped

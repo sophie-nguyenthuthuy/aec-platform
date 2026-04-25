@@ -1,16 +1,15 @@
 """SiteEye FastAPI router — construction site intelligence endpoints."""
+
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.envelope import ok, paginated, Meta
+from core.envelope import ok, paginated
 from db.session import TenantAwareSession
 from middleware.auth import AuthContext, require_auth
 from schemas.siteeye import (
@@ -42,11 +41,13 @@ router = APIRouter(prefix="/api/v1/siteeye", tags=["siteeye"])
 
 # ---------- Session helper ----------
 
+
 async def _session(auth: AuthContext) -> AsyncSession:
     return await TenantAwareSession(auth.organization_id).__aenter__()
 
 
 # ---------- Visits ----------
+
 
 @router.post("/visits", status_code=status.HTTP_201_CREATED)
 async def create_visit(
@@ -80,11 +81,10 @@ async def list_visits(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    filters = VisitListFilters(
-        project_id=project_id, date_from=date_from, date_to=date_to, limit=limit, offset=offset
-    )
+    filters = VisitListFilters(project_id=project_id, date_from=date_from, date_to=date_to, limit=limit, offset=offset)
     async with TenantAwareSession(auth.organization_id) as session:
         from sqlalchemy import text
+
         where, params = _visit_where(filters, auth.organization_id)
         base_sql = f"""
             SELECT v.*, COALESCE(p.cnt, 0) AS photo_count
@@ -106,6 +106,7 @@ async def list_visits(
 
 # ---------- Photos ----------
 
+
 @router.post("/photos/upload", status_code=status.HTTP_202_ACCEPTED)
 async def upload_photos(
     payload: PhotoBatchUploadRequest,
@@ -116,6 +117,7 @@ async def upload_photos(
     photo_ids: list[UUID] = []
     async with TenantAwareSession(auth.organization_id) as session:
         from sqlalchemy import text
+
         for item in payload.photos:
             new_id = uuid4()
             photo_ids.append(new_id)
@@ -177,6 +179,7 @@ async def list_photos(
     )
     async with TenantAwareSession(auth.organization_id) as session:
         from sqlalchemy import text
+
         where, params = _photo_where(filters, auth.organization_id)
         list_sql = f"""
             SELECT * FROM site_photos
@@ -193,6 +196,7 @@ async def list_photos(
 
 # ---------- Progress ----------
 
+
 @router.get("/progress")
 async def progress_timeline(
     auth: Annotated[AuthContext, Depends(require_auth)],
@@ -202,6 +206,7 @@ async def progress_timeline(
 ):
     async with TenantAwareSession(auth.organization_id) as session:
         from sqlalchemy import text
+
         params: dict = {"org": str(auth.organization_id), "project_id": str(project_id)}
         date_filter = ""
         if date_from:
@@ -211,17 +216,21 @@ async def progress_timeline(
             date_filter += " AND snapshot_date <= :date_to"
             params["date_to"] = date_to
         rows = (
-            await session.execute(
-                text(
-                    f"""
+            (
+                await session.execute(
+                    text(
+                        f"""
                     SELECT * FROM progress_snapshots
                     WHERE organization_id = :org AND project_id = :project_id {date_filter}
                     ORDER BY snapshot_date ASC
                     """
-                ),
-                params,
+                    ),
+                    params,
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
 
     snapshots = [ProgressSnapshot.model_validate(dict(r)) for r in rows]
     timeline = ProgressTimeline(
@@ -233,6 +242,7 @@ async def progress_timeline(
 
 
 # ---------- Safety ----------
+
 
 @router.get("/safety-incidents")
 async def list_safety_incidents(
@@ -258,20 +268,25 @@ async def list_safety_incidents(
     )
     async with TenantAwareSession(auth.organization_id) as session:
         from sqlalchemy import text
+
         where, params = _incident_where(filters, auth.organization_id)
         rows = (
-            await session.execute(
-                text(
-                    f"""
+            (
+                await session.execute(
+                    text(
+                        f"""
                     SELECT * FROM safety_incidents
                     WHERE {where}
                     ORDER BY detected_at DESC
                     LIMIT :limit OFFSET :offset
                     """
-                ),
-                {**params, "limit": limit, "offset": offset},
+                    ),
+                    {**params, "limit": limit, "offset": offset},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         total = (
             await session.execute(text(f"SELECT COUNT(*) FROM safety_incidents WHERE {where}"), params)
         ).scalar_one()
@@ -286,14 +301,16 @@ async def acknowledge_incident(
     payload: AcknowledgeIncidentRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
 ):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     new_status = IncidentStatus.resolved if payload.resolve else IncidentStatus.acknowledged
     async with TenantAwareSession(auth.organization_id) as session:
         from sqlalchemy import text
+
         row = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     UPDATE safety_incidents
                     SET status = :status,
                         acknowledged_by = :user_id,
@@ -301,23 +318,27 @@ async def acknowledge_incident(
                     WHERE id = :id AND organization_id = :org
                     RETURNING *
                     """
-                ),
-                {
-                    "status": new_status.value,
-                    "user_id": str(auth.user_id),
-                    "resolve": payload.resolve,
-                    "now": now,
-                    "id": str(incident_id),
-                    "org": str(auth.organization_id),
-                },
+                    ),
+                    {
+                        "status": new_status.value,
+                        "user_id": str(auth.user_id),
+                        "resolve": payload.resolve,
+                        "now": now,
+                        "id": str(incident_id),
+                        "org": str(auth.organization_id),
+                    },
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
     if not row:
         raise HTTPException(status_code=404, detail="incident_not_found")
     return ok(SafetyIncident.model_validate(dict(row)).model_dump(mode="json"))
 
 
 # ---------- Reports ----------
+
 
 @router.post("/reports/generate", status_code=status.HTTP_202_ACCEPTED)
 async def generate_report(
@@ -348,27 +369,30 @@ async def list_reports(
     filters = WeeklyReportListFilters(project_id=project_id, limit=limit, offset=offset)
     async with TenantAwareSession(auth.organization_id) as session:
         from sqlalchemy import text
+
         where = "organization_id = :org"
         params: dict = {"org": str(auth.organization_id)}
         if filters.project_id:
             where += " AND project_id = :project_id"
             params["project_id"] = str(filters.project_id)
         rows = (
-            await session.execute(
-                text(
-                    f"""
+            (
+                await session.execute(
+                    text(
+                        f"""
                     SELECT * FROM weekly_reports
                     WHERE {where}
                     ORDER BY week_start DESC
                     LIMIT :limit OFFSET :offset
                     """
-                ),
-                {**params, "limit": limit, "offset": offset},
+                    ),
+                    {**params, "limit": limit, "offset": offset},
+                )
             )
-        ).mappings().all()
-        total = (
-            await session.execute(text(f"SELECT COUNT(*) FROM weekly_reports WHERE {where}"), params)
-        ).scalar_one()
+            .mappings()
+            .all()
+        )
+        total = (await session.execute(text(f"SELECT COUNT(*) FROM weekly_reports WHERE {where}"), params)).scalar_one()
     items = [WeeklyReport.model_validate(dict(r)).model_dump(mode="json") for r in rows]
     return paginated(items, page=offset // limit + 1, per_page=limit, total=total)
 
@@ -390,10 +414,11 @@ async def send_report(
     )
     if not sent:
         raise HTTPException(status_code=404, detail="report_not_found")
-    return ok({"report_id": str(report_id), "sent_to": payload.recipients, "sent_at": datetime.now(timezone.utc).isoformat()})
+    return ok({"report_id": str(report_id), "sent_to": payload.recipients, "sent_at": datetime.now(UTC).isoformat()})
 
 
 # ---------- Helpers ----------
+
 
 def _visit_where(f: VisitListFilters, org_id: UUID) -> tuple[str, dict]:
     clauses = ["v.organization_id = :org"]
@@ -469,6 +494,7 @@ def _row_to_photo(row: dict) -> SitePhoto:
 
 def pg_insert_site_visit(**values):
     from sqlalchemy import text
+
     return text(
         """
         INSERT INTO site_visits
@@ -480,10 +506,7 @@ def pg_insert_site_visit(**values):
         RETURNING *
         """
     ).bindparams(
-        **{
-            k: (v if k != "location" else (__import__("json").dumps(v) if v else None))
-            for k, v in values.items()
-        }
+        **{k: (v if k != "location" else (__import__("json").dumps(v) if v else None)) for k, v in values.items()}
     )
 
 

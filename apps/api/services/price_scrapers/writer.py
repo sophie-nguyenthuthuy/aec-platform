@@ -8,6 +8,7 @@ The writer operates outside any tenant scope (`app.current_org_id` is
 not set). `material_prices` is a platform-wide catalogue without
 `organization_id` — no RLS applies.
 """
+
 from __future__ import annotations
 
 import logging

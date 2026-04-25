@@ -27,6 +27,7 @@ Pipeline overview:
   RFI generation
     From conflict → structured RFI draft (subject + description + related docs).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,13 +40,12 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,6 @@ from schemas.drawbridge import (
     ScheduleRow,
     SourceDocument,
 )
-
 
 # ============================================================
 # Clients
@@ -95,6 +94,7 @@ def _vec_literal(vec: list[float]) -> str:
 # ============================================================
 # Ingestion
 # ============================================================
+
 
 @dataclass
 class PageBlock:
@@ -188,8 +188,8 @@ async def _vision_title_block(pdf_bytes: bytes) -> dict[str, Any]:
     try:
         import base64
 
-        from openai import AsyncOpenAI
         import pdfplumber
+        from openai import AsyncOpenAI
         from PIL import Image
 
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
@@ -368,7 +368,7 @@ async def _ingest_document(
 
         # Embed + insert chunks.
         embeddings = await _embed_batch([b.content for b in blocks])
-        for b, vec in zip(blocks, embeddings):
+        for b, vec in zip(blocks, embeddings, strict=False):
             await session.execute(
                 text(
                     """
@@ -541,7 +541,9 @@ async def _sparse_search_chunks(
         await es.close()
 
 
-def _rrf(dense: list[dict[str, Any]], sparse: list[dict[str, Any]], k: int = _RRF_K) -> list[dict[str, Any]]:
+def _rrf(
+    dense: list[dict[str, Any]], sparse: list[dict[str, Any]], k: int = _RRF_K
+) -> list[dict[str, Any]]:
     scores: dict[str, float] = {}
     payloads: dict[str, dict[str, Any]] = {}
     for rank, it in enumerate(dense):
@@ -555,7 +557,9 @@ def _rrf(dense: list[dict[str, Any]], sparse: list[dict[str, Any]], k: int = _RR
     return sorted(payloads.values(), key=lambda p: scores[str(p["chunk_id"])], reverse=True)
 
 
-async def _rerank(question: str, candidates: list[dict[str, Any]], top_k: int) -> list[dict[str, Any]]:
+async def _rerank(
+    question: str, candidates: list[dict[str, Any]], top_k: int
+) -> list[dict[str, Any]]:
     if not _RERANKER_ENDPOINT or not candidates:
         return candidates[:top_k]
     try:
@@ -603,7 +607,9 @@ async def answer_document_query(
         dense = await _dense_search_chunks(
             db, state.project_id, vec, state.disciplines, state.document_ids, state.top_k
         )
-        sparse = await _sparse_search_chunks(state.project_id, state.question, state.disciplines, state.top_k)
+        sparse = await _sparse_search_chunks(
+            state.project_id, state.question, state.disciplines, state.top_k
+        )
         fused = _rrf(dense, sparse)
         state.candidates = await _rerank(state.question, fused, state.top_k)
         return state
@@ -756,17 +762,21 @@ async def run_conflict_scan(
             """
         )
         neighbors = (
-            await db.execute(
-                neighbor_sql,
-                {
-                    "emb": t["emb"],
-                    "org": str(organization_id),
-                    "project": str(project_id),
-                    "own_discipline": t["discipline"] or "",
-                    "own_doc": str(t["document_id"]),
-                },
+            (
+                await db.execute(
+                    neighbor_sql,
+                    {
+                        "emb": t["emb"],
+                        "org": str(organization_id),
+                        "project": str(project_id),
+                        "own_discipline": t["discipline"] or "",
+                        "own_doc": str(t["document_id"]),
+                    },
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
 
         for n in neighbors:
             pair = tuple(sorted([t["discipline"] or "", n["discipline"] or ""]))
@@ -889,13 +899,16 @@ async def extract_document_data(
         rows = [r for r in rows if r["page_number"] in pages]
 
     doc = await db.get(DocumentModel, document_id)
-    header = f"Document {doc.drawing_number or document_id} ({doc.discipline or '?'})" if doc else ""
+    header = (
+        f"Document {doc.drawing_number or document_id} ({doc.discipline or '?'})" if doc else ""
+    )
 
-    body = "\n\n".join(
-        f"[p{r['page_number']}, {r['chunk_type']}] {r['content']}"
-        for r in rows
-        if r["content"]
-    ) or "(no content)"
+    body = (
+        "\n\n".join(
+            f"[p{r['page_number']}, {r['chunk_type']}] {r['content']}" for r in rows if r["content"]
+        )
+        or "(no content)"
+    )
 
     prompt = ChatPromptTemplate.from_messages(
         [("system", _EXTRACT_SYSTEM), ("human", f"{header}\nTarget: {target}\n\n{body}")]
@@ -963,7 +976,11 @@ Return strict JSON: {"subject": str, "description": str}
 async def draft_rfi_from_conflict(db: AsyncSession, conflict_id: UUID) -> RfiDraft:
     from models.drawbridge import (
         Conflict as ConflictModel,
+    )
+    from models.drawbridge import (
         Document as DocumentModel,
+    )
+    from models.drawbridge import (
         DocumentChunk as DocumentChunkModel,
     )
 
@@ -994,7 +1011,9 @@ async def draft_rfi_from_conflict(db: AsyncSession, conflict_id: UUID) -> RfiDra
     except Exception:
         raw = {
             "subject": f"Clarification needed: {conflict.conflict_type or 'conflict'} between drawings",
-            "description": conflict.ai_explanation or conflict.description or "Please review and advise.",
+            "description": conflict.ai_explanation
+            or conflict.description
+            or "Please review and advise.",
         }
 
     related: list[UUID] = []

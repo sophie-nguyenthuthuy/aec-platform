@@ -13,6 +13,7 @@ ProposalStatus = Literal["draft", "sent", "won", "lost", "expired"]
 
 # ---------- Nested JSON shapes ----------
 
+
 class ScopeItem(BaseModel):
     id: str
     phase: str
@@ -43,6 +44,7 @@ class FeeBreakdown(BaseModel):
 
 
 # ---------- Proposal ----------
+
 
 class ProposalBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -95,6 +97,7 @@ class ProposalListFilters(BaseModel):
 
 # ---------- AI generation ----------
 
+
 class ProposalGenerateRequest(BaseModel):
     project_type: str = Field(min_length=1)
     area_sqm: float = Field(gt=0)
@@ -113,6 +116,7 @@ class ProposalGenerateResponse(BaseModel):
 
 
 # ---------- Fee estimation ----------
+
 
 class FeeEstimateRequest(BaseModel):
     discipline: Discipline
@@ -135,6 +139,7 @@ class FeeEstimateResponse(BaseModel):
 
 # ---------- Outcome + send ----------
 
+
 class ProposalOutcomeUpdate(BaseModel):
     status: Literal["won", "lost"]
     reason: str | None = None
@@ -148,6 +153,7 @@ class SendProposalRequest(BaseModel):
 
 
 # ---------- Analytics ----------
+
 
 class ProjectTypeWinRate(BaseModel):
     project_type: str
@@ -176,6 +182,7 @@ class WinRateAnalytics(BaseModel):
 
 # ---------- Benchmarks ----------
 
+
 class FeeBenchmark(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -201,6 +208,7 @@ class BenchmarkFilters(BaseModel):
 
 
 # ---------- Templates ----------
+
 
 class ProposalTemplate(BaseModel):
     model_config = ConfigDict(from_attributes=True)

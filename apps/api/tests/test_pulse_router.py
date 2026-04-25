@@ -7,12 +7,13 @@ tests never reach a real LLM provider.
 Uses the `FakeAsyncSession` from the shared conftest to record model writes
 without needing Postgres.
 """
+
 from __future__ import annotations
 
 import sys
 from collections.abc import AsyncIterator, Iterator
-from datetime import date, datetime, timezone
-from types import ModuleType, SimpleNamespace
+from datetime import UTC, date, datetime
+from types import ModuleType
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
@@ -73,12 +74,16 @@ def _install_langchain_stubs() -> None:
         class _FakeStateGraph:
             def __init__(self, *a, **k):
                 pass
+
             def add_node(self, *a, **k):
                 return self
+
             def add_edge(self, *a, **k):
                 return self
+
             def set_entry_point(self, *a, **k):
                 return self
+
             def compile(self, *a, **k):
                 return MagicMock()
 
@@ -101,6 +106,7 @@ pytestmark = pytest.mark.asyncio
 
 
 # ---------- Local app fixture (overrides codeguard-only app from conftest) ----------
+
 
 @pytest.fixture
 def app(fake_auth, fake_db) -> Iterator[FastAPI]:
@@ -132,6 +138,7 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 
 
 # ---------- Helpers ----------
+
 
 def _execute_result(
     *,
@@ -175,7 +182,7 @@ def _task_factory(**overrides):
         position=None,
         tags=[],
         created_by=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     base.update(overrides)
     t = TaskModel(**base)
@@ -184,9 +191,10 @@ def _task_factory(**overrides):
 
 # ---------- Dashboard ----------
 
+
 async def test_dashboard_empty_project_returns_green_rag(client, fake_db):
     # counts + overdue + milestones + COs + last_report all empty
-    fake_db.set_execute_result(_execute_result(rows=[]))   # counts
+    fake_db.set_execute_result(_execute_result(rows=[]))  # counts
     fake_db.set_execute_result(_execute_result(scalar_one=0))  # overdue count
     fake_db.set_execute_result(_execute_result(scalars_all=[]))  # milestones
     fake_db.set_execute_result(_execute_result(one=(0, 0)))  # open CO: (count, sum)
@@ -207,9 +215,15 @@ async def test_dashboard_empty_project_returns_green_rag(client, fake_db):
 
 async def test_dashboard_aggregates_counts_and_flags_overdue_red(client, fake_db):
     # 10 done, 2 in_progress, 3 todo, 5 overdue (≥5 overdue → red)
-    fake_db.set_execute_result(_execute_result(rows=[
-        ("done", 10), ("in_progress", 2), ("todo", 3),
-    ]))
+    fake_db.set_execute_result(
+        _execute_result(
+            rows=[
+                ("done", 10),
+                ("in_progress", 2),
+                ("todo", 3),
+            ]
+        )
+    )
     fake_db.set_execute_result(_execute_result(scalar_one=5))  # overdue
     fake_db.set_execute_result(_execute_result(scalars_all=[]))  # milestones
     fake_db.set_execute_result(_execute_result(one=(0, 0)))  # open CO
@@ -226,6 +240,7 @@ async def test_dashboard_aggregates_counts_and_flags_overdue_red(client, fake_db
 
 
 # ---------- Tasks CRUD ----------
+
 
 async def test_create_task_persists_with_auth_context(client, fake_db, fake_auth):
     from models.pulse import Task as TaskModel
@@ -270,9 +285,7 @@ async def test_update_task_sets_completed_at_when_done(client, fake_db):
     existing = _task_factory(id=tid, status="in_progress", completed_at=None)
     fake_db.set_get(TaskModel, tid, existing)
 
-    res = await client.patch(
-        f"/api/v1/pulse/tasks/{tid}", json={"status": "done"}
-    )
+    res = await client.patch(f"/api/v1/pulse/tasks/{tid}", json={"status": "done"})
     assert res.status_code == 200, res.text
     data = res.json()["data"]
     assert data["status"] == "done"
@@ -284,28 +297,20 @@ async def test_update_task_clears_completed_at_when_reopened(client, fake_db):
     from models.pulse import Task as TaskModel
 
     tid = uuid4()
-    existing = _task_factory(
-        id=tid, status="done", completed_at=datetime.now(timezone.utc)
-    )
+    existing = _task_factory(id=tid, status="done", completed_at=datetime.now(UTC))
     fake_db.set_get(TaskModel, tid, existing)
 
-    res = await client.patch(
-        f"/api/v1/pulse/tasks/{tid}", json={"status": "in_progress"}
-    )
+    res = await client.patch(f"/api/v1/pulse/tasks/{tid}", json={"status": "in_progress"})
     assert res.status_code == 200
     assert res.json()["data"]["completed_at"] is None
 
 
 async def test_update_task_returns_404_for_missing(client, fake_db):
-    res = await client.patch(
-        f"/api/v1/pulse/tasks/{uuid4()}", json={"status": "done"}
-    )
+    res = await client.patch(f"/api/v1/pulse/tasks/{uuid4()}", json={"status": "done"})
     assert res.status_code == 404
 
 
 async def test_bulk_update_tasks_applies_partial_patch(client, fake_db):
-    from models.pulse import Task as TaskModel
-
     t1 = _task_factory(id=uuid4(), status="todo", phase="design")
     t2 = _task_factory(id=uuid4(), status="todo", phase="design")
     # Router does: SELECT tasks WHERE id IN (...)  -> scalars().all()
@@ -343,6 +348,7 @@ async def test_bulk_update_skips_unknown_ids(client, fake_db):
 
 
 # ---------- Change orders ----------
+
 
 async def test_create_change_order_sets_draft_status(client, fake_db, fake_auth):
     from models.pulse import ChangeOrder as ChangeOrderModel
@@ -383,10 +389,10 @@ async def test_approve_change_order_marks_approved(client, fake_db, fake_auth):
         cost_impact_vnd=150_000_000,
         schedule_impact_days=7,
         ai_analysis=None,
-        submitted_at=datetime.now(timezone.utc),
+        submitted_at=datetime.now(UTC),
         approved_at=None,
         approved_by=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     fake_db.set_get(ChangeOrderModel, co_id, existing)
 
@@ -417,10 +423,10 @@ async def test_approve_change_order_supports_reject(client, fake_db, fake_auth):
         cost_impact_vnd=None,
         schedule_impact_days=None,
         ai_analysis=None,
-        submitted_at=datetime.now(timezone.utc),
+        submitted_at=datetime.now(UTC),
         approved_at=None,
         approved_by=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     fake_db.set_get(ChangeOrderModel, co_id, existing)
 
@@ -440,9 +446,7 @@ async def test_approve_rejects_invalid_decision(client):
     assert res.status_code == 422
 
 
-async def test_analyze_change_order_persists_ai_output(
-    client, fake_db, monkeypatch, fake_auth
-):
+async def test_analyze_change_order_persists_ai_output(client, fake_db, monkeypatch, fake_auth):
     from models.pulse import ChangeOrder as ChangeOrderModel
     from schemas.pulse import ChangeOrderAIAnalysis
 
@@ -462,7 +466,7 @@ async def test_analyze_change_order_persists_ai_output(
         submitted_at=None,
         approved_at=None,
         approved_by=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     fake_db.set_get(ChangeOrderModel, co_id, existing)
 
@@ -489,18 +493,15 @@ async def test_analyze_change_order_persists_ai_output(
 
 # ---------- Meeting notes ----------
 
-async def test_structure_meeting_notes_persists_when_requested(
-    client, fake_db, monkeypatch, fake_auth
-):
+
+async def test_structure_meeting_notes_persists_when_requested(client, fake_db, monkeypatch, fake_auth):
     from models.pulse import MeetingNote as MeetingNoteModel
-    from schemas.pulse import MeetingStructured, ActionItem
+    from schemas.pulse import ActionItem, MeetingStructured
 
     structured = MeetingStructured(
         summary="Discussed HVAC change",
         decisions=["Switch to VRF"],
-        action_items=[
-            ActionItem(title="Confirm VRF unit model", owner=None, deadline=None)
-        ],
+        action_items=[ActionItem(title="Confirm VRF unit model", owner=None, deadline=None)],
         risks=[],
         next_meeting=None,
     )
@@ -527,15 +528,19 @@ async def test_structure_meeting_notes_persists_when_requested(
     ai_mock.assert_awaited_once()
 
 
-async def test_structure_meeting_notes_does_not_persist_without_project(
-    client, fake_db, monkeypatch
-):
+async def test_structure_meeting_notes_does_not_persist_without_project(client, fake_db, monkeypatch):
     from models.pulse import MeetingNote as MeetingNoteModel
     from schemas.pulse import MeetingStructured
 
-    ai_mock = AsyncMock(return_value=MeetingStructured(
-        summary="hello", decisions=[], action_items=[], risks=[], next_meeting=None,
-    ))
+    ai_mock = AsyncMock(
+        return_value=MeetingStructured(
+            summary="hello",
+            decisions=[],
+            action_items=[],
+            risks=[],
+            next_meeting=None,
+        )
+    )
     monkeypatch.setattr("ml.pipelines.pulse.structure_meeting_notes", ai_mock)
 
     res = await client.post(
@@ -549,9 +554,8 @@ async def test_structure_meeting_notes_does_not_persist_without_project(
 
 # ---------- Client reports ----------
 
-async def test_generate_report_persists_and_renders_html(
-    client, fake_db, monkeypatch, fake_auth
-):
+
+async def test_generate_report_persists_and_renders_html(client, fake_db, monkeypatch, fake_auth):
     """WeasyPrint isn't installed → route should fall back to HTML-only."""
     from models.pulse import ClientReport as ClientReportModel
     from schemas.pulse import ClientReportContent
@@ -602,9 +606,7 @@ async def test_generate_report_persists_and_renders_html(
     render_mock.assert_called_once()
 
 
-async def test_generate_report_stores_pdf_when_weasyprint_available(
-    client, fake_db, monkeypatch, fake_auth
-):
+async def test_generate_report_stores_pdf_when_weasyprint_available(client, fake_db, monkeypatch, fake_auth):
     """Happy path: PDF renders and uploads, pdf_url is populated."""
     from models.pulse import ClientReport as ClientReportModel
     from schemas.pulse import ClientReportContent
@@ -633,9 +635,7 @@ async def test_generate_report_stores_pdf_when_weasyprint_available(
     upload_calls: list[dict] = []
 
     async def _fake_upload(settings, *, organization_id, report_id, pdf_bytes):
-        upload_calls.append(
-            dict(org=organization_id, report=report_id, size=len(pdf_bytes))
-        )
+        upload_calls.append(dict(org=organization_id, report=report_id, size=len(pdf_bytes)))
         return f"https://cdn.test/{organization_id}/pulse/reports/{report_id}.pdf"
 
     monkeypatch.setattr("services.pdf_storage.upload_report_pdf", _fake_upload)
@@ -659,16 +659,17 @@ async def test_generate_report_stores_pdf_when_weasyprint_available(
     assert row.pdf_url == data["pdf_url"]
 
 
-async def test_generate_report_tolerates_pdf_upload_failure(
-    client, fake_db, monkeypatch, fake_auth
-):
+async def test_generate_report_tolerates_pdf_upload_failure(client, fake_db, monkeypatch, fake_auth):
     """S3 failure after a successful PDF render should still persist the report."""
     from schemas.pulse import ClientReportContent
 
     content = ClientReportContent(
         header_summary="x",
         progress_section={"overall_pct": 0.0},
-        photos_section=[], financials=None, issues=[], next_steps=[],
+        photos_section=[],
+        financials=None,
+        issues=[],
+        next_steps=[],
     )
     monkeypatch.setattr(
         "ml.pipelines.pulse.generate_client_report",
@@ -713,7 +714,7 @@ async def test_send_report_updates_status_and_recipients(client, fake_db, fake_a
         status="draft",
         sent_at=None,
         sent_to=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     fake_db.set_get(ClientReportModel, rid, existing)
 
@@ -744,21 +745,18 @@ async def test_send_report_rejects_empty_recipients(client, fake_db, fake_auth):
         status="draft",
         sent_at=None,
         sent_to=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     fake_db.set_get(ClientReportModel, rid, existing)
 
-    res = await client.post(
-        f"/api/v1/pulse/client-reports/{rid}/send", json={"recipients": []}
-    )
+    res = await client.post(f"/api/v1/pulse/client-reports/{rid}/send", json={"recipients": []})
     assert res.status_code == 422
 
 
 # ---------- Cross-module report aggregation (SiteEye + CostPulse) ----------
 
-async def test_aggregate_report_inputs_with_siteeye_and_costpulse(
-    fake_db, fake_auth
-):
+
+async def test_aggregate_report_inputs_with_siteeye_and_costpulse(fake_db, fake_auth):
     """Aggregator should pull progress + photos from SiteEye and budget from
     CostPulse, and derive projected-final cost from approved change orders.
 
@@ -771,14 +769,18 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(
       5. recent site photos
       6. latest approved estimate
     """
-    from routers.pulse import _aggregate_report_inputs
+    from models.costpulse import Estimate
     from models.pulse import (
         ChangeOrder as ChangeOrderModel,
+    )
+    from models.pulse import (
         Milestone as MilestoneModel,
+    )
+    from models.pulse import (
         Task as TaskModel,
     )
     from models.siteeye import ProgressSnapshot, SitePhoto
-    from models.costpulse import Estimate
+    from routers.pulse import _aggregate_report_inputs
 
     project_id = uuid4()
     org_id = fake_auth.organization_id
@@ -793,8 +795,8 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(
         priority="normal",
         phase="construction",
         tags=[],
-        completed_at=datetime(2026, 4, 10, tzinfo=timezone.utc),
-        created_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
+        completed_at=datetime(2026, 4, 10, tzinfo=UTC),
+        created_at=datetime(2026, 4, 1, tzinfo=UTC),
     )
     fake_db.set_execute_result(_execute_result(scalars_all=[task]))
 
@@ -819,7 +821,7 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(
         status="approved",
         cost_impact_vnd=300_000_000,
         schedule_impact_days=3,
-        created_at=datetime(2026, 4, 5, tzinfo=timezone.utc),
+        created_at=datetime(2026, 4, 5, tzinfo=UTC),
     )
     co_submitted = ChangeOrderModel(
         id=uuid4(),
@@ -830,11 +832,9 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(
         status="submitted",
         cost_impact_vnd=150_000_000,
         schedule_impact_days=0,
-        created_at=datetime(2026, 4, 12, tzinfo=timezone.utc),
+        created_at=datetime(2026, 4, 12, tzinfo=UTC),
     )
-    fake_db.set_execute_result(
-        _execute_result(scalars_all=[co_approved, co_submitted])
-    )
+    fake_db.set_execute_result(_execute_result(scalars_all=[co_approved, co_submitted]))
 
     # 4) progress snapshot (SiteEye)
     snap = ProgressSnapshot(
@@ -845,7 +845,7 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(
         overall_progress_pct=42.5,
         phase_progress={"foundation": 85, "superstructure": 10},
         ai_notes="Slab curing; framing next week.",
-        created_at=datetime(2026, 4, 20, tzinfo=timezone.utc),
+        created_at=datetime(2026, 4, 20, tzinfo=UTC),
     )
     fake_db.set_execute_result(_execute_result(scalar_one_or_none=snap))
 
@@ -855,10 +855,10 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(
         organization_id=org_id,
         project_id=project_id,
         thumbnail_url="https://cdn.test/thumbs/slab.jpg",
-        taken_at=datetime(2026, 4, 18, 9, 0, tzinfo=timezone.utc),
+        taken_at=datetime(2026, 4, 18, 9, 0, tzinfo=UTC),
         tags=["slab", "concrete"],
         ai_analysis={"caption": "Slab on grade — day after pour"},
-        created_at=datetime(2026, 4, 18, 10, 0, tzinfo=timezone.utc),
+        created_at=datetime(2026, 4, 18, 10, 0, tzinfo=UTC),
     )
     fake_db.set_execute_result(_execute_result(scalars_all=[photo]))
 
@@ -871,7 +871,7 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(
         version=2,
         status="approved",
         total_vnd=10_000_000_000,
-        created_at=datetime(2026, 3, 15, tzinfo=timezone.utc),
+        created_at=datetime(2026, 3, 15, tzinfo=UTC),
     )
     fake_db.set_execute_result(_execute_result(scalar_one_or_none=est))
 
@@ -917,9 +917,7 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(
     assert budget["variance_pct"] == pytest.approx(3.0, abs=0.01)
 
 
-async def test_aggregate_report_inputs_without_sibling_data_returns_nulls(
-    fake_db, fake_auth
-):
+async def test_aggregate_report_inputs_without_sibling_data_returns_nulls(fake_db, fake_auth):
     """Empty DB should yield empty sections, not 5xx or exceptions.
 
     Uses FakeAsyncSession's default empty MagicMock result for every execute

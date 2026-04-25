@@ -6,6 +6,7 @@ and WINWORK into one response. The list endpoint returns only the cheap
 counters that a card grid needs; the detail endpoint fans out to every
 module for the selected project.
 """
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -39,7 +40,6 @@ from schemas.projects import (
     WinworkStatus,
 )
 
-
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
 
@@ -70,16 +70,12 @@ async def list_projects(
     if q:
         stmt = stmt.where(Project.name.ilike(f"%{q}%"))
 
-    total = (
-        await db.execute(select(func.count()).select_from(stmt.subquery()))
-    ).scalar_one()
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     projects = (
-        await db.execute(
-            stmt.order_by(Project.created_at.desc())
-            .limit(per_page)
-            .offset((page - 1) * per_page)
-        )
-    ).scalars().all()
+        (await db.execute(stmt.order_by(Project.created_at.desc()).limit(per_page).offset((page - 1) * per_page)))
+        .scalars()
+        .all()
+    )
 
     if not projects:
         return paginated([], page=page, per_page=per_page, total=total)
@@ -92,9 +88,7 @@ async def list_projects(
         await db.execute(
             select(
                 Task.project_id,
-                func.count().filter(Task.status.in_(["todo", "in_progress"])).label(
-                    "open_tasks"
-                ),
+                func.count().filter(Task.status.in_(["todo", "in_progress"])).label("open_tasks"),
             )
             .where(Task.project_id.in_(project_ids))
             .group_by(Task.project_id)
@@ -178,10 +172,7 @@ async def _winwork_status(db: AsyncSession, project_id: UUID) -> WinworkStatus:
     """If this project was seeded from a won proposal, surface the link."""
     row = (
         await db.execute(
-            select(Proposal)
-            .where(Proposal.project_id == project_id)
-            .order_by(Proposal.created_at.desc())
-            .limit(1)
+            select(Proposal).where(Proposal.project_id == project_id).order_by(Proposal.created_at.desc()).limit(1)
         )
     ).scalar_one_or_none()
     if row is None:
@@ -198,9 +189,7 @@ async def _costpulse_status(db: AsyncSession, project_id: UUID) -> CostpulseStat
         await db.execute(
             select(
                 func.count().label("total"),
-                func.count()
-                .filter(Estimate.status == "approved")
-                .label("approved"),
+                func.count().filter(Estimate.status == "approved").label("approved"),
             ).where(Estimate.project_id == project_id)
         )
     ).one()
@@ -263,11 +252,7 @@ async def _pulse_status(db: AsyncSession, project_id: UUID) -> PulseStatus:
 
 
 async def _drawbridge_status(db: AsyncSession, project_id: UUID) -> DrawbridgeStatus:
-    docs = (
-        await db.execute(
-            select(func.count()).where(Document.project_id == project_id)
-        )
-    ).scalar_one()
+    docs = (await db.execute(select(func.count()).where(Document.project_id == project_id))).scalar_one()
     open_rfis = (
         await db.execute(
             select(func.count()).where(
@@ -292,11 +277,7 @@ async def _drawbridge_status(db: AsyncSession, project_id: UUID) -> DrawbridgeSt
 
 
 async def _handover_status(db: AsyncSession, project_id: UUID) -> HandoverStatus:
-    packages = (
-        await db.execute(
-            select(func.count()).where(HandoverPackage.project_id == project_id)
-        )
-    ).scalar_one()
+    packages = (await db.execute(select(func.count()).where(HandoverPackage.project_id == project_id))).scalar_one()
     open_defects = (
         await db.execute(
             select(func.count()).where(
@@ -322,11 +303,7 @@ async def _handover_status(db: AsyncSession, project_id: UUID) -> HandoverStatus
 
 
 async def _siteeye_status(db: AsyncSession, project_id: UUID) -> SiteeyeStatus:
-    visits = (
-        await db.execute(
-            select(func.count()).where(SiteVisit.project_id == project_id)
-        )
-    ).scalar_one()
+    visits = (await db.execute(select(func.count()).where(SiteVisit.project_id == project_id))).scalar_one()
     open_incidents = (
         await db.execute(
             select(func.count()).where(
@@ -342,16 +319,8 @@ async def _siteeye_status(db: AsyncSession, project_id: UUID) -> SiteeyeStatus:
 
 
 async def _codeguard_status(db: AsyncSession, project_id: UUID) -> CodeguardStatus:
-    checks = (
-        await db.execute(
-            select(func.count()).where(ComplianceCheck.project_id == project_id)
-        )
-    ).scalar_one()
-    permits = (
-        await db.execute(
-            select(func.count()).where(PermitChecklist.project_id == project_id)
-        )
-    ).scalar_one()
+    checks = (await db.execute(select(func.count()).where(ComplianceCheck.project_id == project_id))).scalar_one()
+    permits = (await db.execute(select(func.count()).where(PermitChecklist.project_id == project_id))).scalar_one()
     return CodeguardStatus(
         compliance_check_count=int(checks or 0),
         permit_checklist_count=int(permits or 0),
