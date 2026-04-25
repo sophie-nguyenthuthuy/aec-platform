@@ -2,20 +2,30 @@
 
 Source: soxaydung.hochiminhcity.gov.vn. HCMC publishes quarterly
 (slightly slower cadence than Hanoi) and sometimes gates the full price
-list behind a DOCX attachment. This scraper handles the HTML-table path;
-DOCX-only bulletins are logged and skipped (operator picks them up
-manually or we add a docx parser later).
+list behind a DOCX attachment. This scraper dispatches to the DOCX/PDF
+parsers when the bulletin link is a binary attachment, and falls back
+to the HTML-table path otherwise. Legacy .doc / .xls bulletins are
+still logged and skipped — no parser for those yet.
 """
 from __future__ import annotations
 
 import logging
 import re
-from datetime import date
+from urllib.parse import urlparse
 
 from .base import BaseScraper, ScrapedPrice, ScrapeError
 from .ministry import _parse_bulletin_html
+from .parsers import parse_docx_bulletin, parse_pdf_bulletin
 
 logger = logging.getLogger(__name__)
+
+
+# Mirrors generic_province._BINARY_PARSERS — kept duplicated rather than
+# imported to avoid a circular dep and to keep this file self-contained.
+_BINARY_PARSERS = {
+    ".docx": (parse_docx_bulletin, "docx"),
+    ".pdf": (parse_pdf_bulletin, "pdf"),
+}
 
 
 _HCMC_LISTING_URL = "https://soxaydung.hochiminhcity.gov.vn/thong-bao-gia-vat-lieu"
@@ -38,11 +48,21 @@ class HCMCScraper(BaseScraper):
                 logger.warning("HCMC scraper: no bulletin link found")
                 return []
 
-            # Detect DOCX-only bulletins: their URL ends in .doc/.docx/.pdf.
-            if bulletin_url.lower().endswith((".doc", ".docx", ".pdf")):
+            ext = _ext_of(bulletin_url)
+            if ext in _BINARY_PARSERS:
+                parser, fmt = _BINARY_PARSERS[ext]
+                bulletin = await client.get(bulletin_url, timeout=60.0)
+                bulletin.raise_for_status()
+                logger.info("HCMC scraper: parsing %s bulletin (%s)", fmt, bulletin_url)
+                return parser(
+                    bulletin.content,
+                    source_url=bulletin_url,
+                    province="HCMC",
+                )
+            if ext == ".doc":
                 logger.warning(
-                    "HCMC scraper: latest bulletin is a binary attachment (%s); "
-                    "skipping — add a DOCX parser to pick this up",
+                    "HCMC scraper: legacy .doc bulletin (%s); skipping — "
+                    "no parser for binary Word format yet",
                     bulletin_url,
                 )
                 return []
@@ -71,6 +91,18 @@ class HCMCScraper(BaseScraper):
         import httpx
 
         return httpx.AsyncClient(follow_redirects=True)
+
+
+def _ext_of(url: str) -> str:
+    """Return the lower-cased extension of the URL's path (incl. dot), or ''.
+
+    Strips query and fragment so '/foo.pdf?download=1' → '.pdf'.
+    """
+    path = urlparse(url).path
+    dot = path.rfind(".")
+    if dot == -1:
+        return ""
+    return path[dot:].lower()
 
 
 _HCMC_BULLETIN_RE = re.compile(

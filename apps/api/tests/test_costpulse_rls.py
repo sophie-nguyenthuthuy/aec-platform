@@ -34,6 +34,10 @@ _APP_ROLE = "aec_app"
 
 pytestmark = [
     pytest.mark.asyncio,
+    # `integration` is gated by `--integration` (see apps/api/tests/conftest.py).
+    # The skipif below is a runtime backstop for the case where someone runs
+    # with `--integration` but forgot the env var.
+    pytest.mark.integration,
     pytest.mark.skipif(
         _DB_URL is None,
         reason="COSTPULSE_RLS_DB_URL not set — integration test requires a live DB",

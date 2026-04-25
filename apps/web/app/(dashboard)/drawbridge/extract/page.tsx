@@ -303,8 +303,9 @@ function parsePages(input: string): number[] {
     if (!part) continue;
     const range = part.match(/^(\d+)\s*-\s*(\d+)$/);
     if (range) {
-      const start = parseInt(range[1], 10);
-      const end = parseInt(range[2], 10);
+      // The regex above guarantees both groups are present.
+      const start = parseInt(range[1]!, 10);
+      const end = parseInt(range[2]!, 10);
       if (Number.isFinite(start) && Number.isFinite(end)) {
         for (let i = Math.min(start, end); i <= Math.max(start, end); i++) out.add(i);
       }

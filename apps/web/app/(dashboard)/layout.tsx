@@ -1,7 +1,8 @@
 import Link from "next/link";
+import type { Route } from "next";
 import type { ReactNode } from "react";
 
-const NAV: Array<{ href: string; label: string; section?: string }> = [
+const NAV: Array<{ href: Route; label: string; section?: string }> = [
   { section: "Giai đoạn thiết kế", href: "/codeguard", label: "CodeGuard" },
   { href: "/drawbridge", label: "Drawbridge" },
   { section: "Giai đoạn đấu thầu", href: "/bidradar", label: "BidRadar" },

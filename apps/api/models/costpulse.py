@@ -4,11 +4,14 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Boolean, Date, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
+
+# Postgres columns are `timestamp with time zone`; mirror at the ORM layer.
+TZ = DateTime(timezone=True)
 
 
 class Supplier(Base):
@@ -23,7 +26,7 @@ class Supplier(Base):
     contact: Mapped[dict] = mapped_column(JSONB, default=dict)
     verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     rating: Mapped[Decimal | None] = mapped_column(Numeric)
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class MaterialPrice(Base):
@@ -65,7 +68,7 @@ class Estimate(Base):
     approved_by: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class BoqItem(Base):
@@ -105,7 +108,7 @@ class Rfq(Base):
     sent_to: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID(as_uuid=True)), default=list)
     responses: Mapped[list] = mapped_column(JSONB, default=list)
     deadline: Mapped[date | None] = mapped_column(Date)
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class PriceAlert(Base):
@@ -121,4 +124,4 @@ class PriceAlert(Base):
     province: Mapped[str | None] = mapped_column(Text)
     threshold_pct: Mapped[Decimal] = mapped_column(Numeric, default=Decimal("5"))
     last_price_vnd: Mapped[Decimal | None] = mapped_column(Numeric)
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TZ)

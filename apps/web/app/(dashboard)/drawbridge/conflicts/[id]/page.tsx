@@ -207,10 +207,12 @@ function DocumentPane({
       {
         id: `${side}-bbox`,
         page: excerpt.page ?? excerpt.bbox.page ?? 1,
-        x: excerpt.bbox.x,
-        y: excerpt.bbox.y,
-        width: excerpt.bbox.width,
-        height: excerpt.bbox.height,
+        bbox: {
+          x: excerpt.bbox.x,
+          y: excerpt.bbox.y,
+          width: excerpt.bbox.width,
+          height: excerpt.bbox.height,
+        },
         tone: "danger",
       },
     ];

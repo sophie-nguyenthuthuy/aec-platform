@@ -14,6 +14,7 @@ from core.envelope import ok, paginated
 from db.deps import get_db
 from middleware.auth import AuthContext, require_auth
 from models.costpulse import BoqItem, Estimate, MaterialPrice, PriceAlert, Rfq, Supplier
+from models.pulse import ChangeOrder
 from schemas.costpulse import (
     AiEstimateResult,
     BoqItemIn,
@@ -52,7 +53,7 @@ async def estimate_from_brief(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """AI estimate from high-level project parameters (rough_order / preliminary)."""
-    from apps.ml.pipelines.costpulse import estimate_from_brief as pipeline_brief
+    from ml.pipelines.costpulse import estimate_from_brief as pipeline_brief
 
     try:
         result: AiEstimateResult = await pipeline_brief(
@@ -74,7 +75,7 @@ async def estimate_from_drawings(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """AI BOQ extraction from uploaded drawings (detailed)."""
-    from apps.ml.pipelines.costpulse import estimate_from_drawings as pipeline_drawings
+    from ml.pipelines.costpulse import estimate_from_drawings as pipeline_drawings
 
     try:
         result: AiEstimateResult = await pipeline_drawings(
@@ -221,8 +222,16 @@ async def approve_estimate(
     if estimate is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Estimate not found")
 
+    was_already_approved = estimate.status == EstimateStatus.approved.value
     estimate.status = EstimateStatus.approved.value
     estimate.approved_by = auth.user_id
+
+    # COSTPULSE → PULSE handoff: when a revised estimate is approved for a
+    # project that already had an approved baseline, emit a draft ChangeOrder
+    # so the budget delta surfaces in the project's pulse feed.
+    if not was_already_approved:
+        await _emit_variance_change_order(db, estimate, auth.organization_id)
+
     await db.commit()
     await db.refresh(estimate)
     return ok(EstimateSummary.model_validate(estimate).model_dump(mode="json"))
@@ -559,6 +568,92 @@ async def create_price_alert(
 
 
 # ---------- Helpers ----------
+
+
+VARIANCE_THRESHOLD_PCT = Decimal("2")
+
+
+async def _emit_variance_change_order(
+    db: AsyncSession,
+    estimate: Estimate,
+    organization_id: UUID,
+) -> ChangeOrder | None:
+    """Insert a draft ChangeOrder when an approved estimate deviates from the
+    project's prior approved baseline by more than `VARIANCE_THRESHOLD_PCT`.
+
+    Idempotent via the (project_id, number) unique constraint — we derive a
+    deterministic number from the estimate id and short-circuit if that row
+    already exists.
+    """
+    if estimate.project_id is None or estimate.total_vnd is None:
+        return None
+
+    prior = (
+        await db.execute(
+            select(Estimate)
+            .where(
+                Estimate.project_id == estimate.project_id,
+                Estimate.id != estimate.id,
+                Estimate.status == EstimateStatus.approved.value,
+                Estimate.total_vnd.is_not(None),
+            )
+            .order_by(Estimate.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if prior is None:
+        return None  # first approved estimate — no baseline to compare against
+
+    prior_total = Decimal(prior.total_vnd)
+    new_total = Decimal(estimate.total_vnd)
+    delta = new_total - prior_total
+    if prior_total == 0:
+        return None
+    pct = (delta / prior_total) * Decimal(100)
+    if abs(pct) < VARIANCE_THRESHOLD_PCT:
+        return None
+
+    number = f"COST-{estimate.id.hex[:8].upper()}"
+    existing = (
+        await db.execute(
+            select(ChangeOrder).where(
+                ChangeOrder.project_id == estimate.project_id,
+                ChangeOrder.number == number,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    direction = "increase" if delta > 0 else "decrease"
+    co = ChangeOrder(
+        id=uuid4(),
+        organization_id=organization_id,
+        project_id=estimate.project_id,
+        number=number,
+        title=f"Budget {direction}: {estimate.name} (v{estimate.version})",
+        description=(
+            f"Approved estimate '{estimate.name}' (v{estimate.version}) shifts the "
+            f"project budget by {pct:+.2f}% vs. the prior approved baseline "
+            f"(prior total {int(prior_total):,} VND → new total {int(new_total):,} VND)."
+        ),
+        status="draft",
+        initiator="costpulse",
+        cost_impact_vnd=int(delta),
+        schedule_impact_days=None,
+        ai_analysis={
+            "source": "costpulse.estimate_approved",
+            "new_estimate_id": str(estimate.id),
+            "prior_estimate_id": str(prior.id),
+            "prior_total_vnd": int(prior_total),
+            "new_total_vnd": int(new_total),
+            "delta_vnd": int(delta),
+            "variance_pct": float(pct),
+        },
+    )
+    db.add(co)
+    await db.flush()
+    return co
 
 
 def _persist_items(

@@ -19,19 +19,27 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? "github" : "list",
   use: {
-    baseURL: "http://127.0.0.1:3100",
+    baseURL: "http://127.0.0.1:3101",
     trace: "on-first-retry",
     actionTimeout: 10_000,
   },
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      // `channel: "chromium"` picks the full Chromium build that ships with
+      // Playwright (installed at ~/Library/Caches/ms-playwright/chromium-*)
+      // instead of the smaller `chrome-headless-shell` variant that `Desktop
+      // Chrome` would otherwise pull in. Keeps the install footprint to a
+      // single browser and works offline once installed.
+      use: { ...devices["Desktop Chrome"], channel: "chromium" },
     },
   ],
   webServer: {
-    command: "npm run dev -- --port 3100",
-    url: "http://127.0.0.1:3100",
+    // Use 3101 rather than the obvious 3100 — `re-dagster` (an unrelated local
+    // Docker container) already binds 3100 on this workstation, and
+    // `reuseExistingServer: true` would happily attach to the wrong app.
+    command: "npm run dev -- --port 3101",
+    url: "http://127.0.0.1:3101",
     timeout: 120_000,
     reuseExistingServer: !process.env.CI,
     env: {

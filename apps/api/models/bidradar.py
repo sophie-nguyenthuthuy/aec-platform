@@ -4,11 +4,14 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Boolean, CHAR, Date, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import BigInteger, Boolean, CHAR, Date, DateTime, ForeignKey, Integer, Numeric, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
+
+# Postgres columns are `timestamp with time zone`; mirror at the ORM layer.
+TZ = DateTime(timezone=True)
 
 
 class Tender(Base):
@@ -25,12 +28,12 @@ class Tender(Base):
     province: Mapped[str | None] = mapped_column(Text)
     disciplines: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     project_types: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
-    submission_deadline: Mapped[datetime | None] = mapped_column()
-    published_at: Mapped[datetime | None] = mapped_column()
+    submission_deadline: Mapped[datetime | None] = mapped_column(TZ)
+    published_at: Mapped[datetime | None] = mapped_column(TZ)
     description: Mapped[str | None] = mapped_column(Text)
     raw_url: Mapped[str | None] = mapped_column(Text)
     raw_payload: Mapped[dict | None] = mapped_column(JSONB)
-    scraped_at: Mapped[datetime] = mapped_column()
+    scraped_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class FirmProfile(Base):
@@ -48,7 +51,7 @@ class FirmProfile(Base):
     active_capacity_pct: Mapped[float | None] = mapped_column(Numeric)
     past_wins: Mapped[list] = mapped_column(JSONB, default=list)
     keywords: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
-    updated_at: Mapped[datetime] = mapped_column()
+    updated_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class TenderMatch(Base):
@@ -71,8 +74,8 @@ class TenderMatch(Base):
     reviewed_by: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
-    reviewed_at: Mapped[datetime | None] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column()
+    reviewed_at: Mapped[datetime | None] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class TenderDigest(Base):
@@ -85,5 +88,5 @@ class TenderDigest(Base):
     week_end: Mapped[date] = mapped_column(Date, nullable=False)
     top_match_ids: Mapped[list[UUID] | None] = mapped_column(ARRAY(PGUUID(as_uuid=True)))
     sent_to: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
-    sent_at: Mapped[datetime | None] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column()
+    sent_at: Mapped[datetime | None] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ)

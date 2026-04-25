@@ -27,3 +27,9 @@ exclude = ["alembic/versions/", "apps/ml/training/"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["apps/api/tests", "apps/worker/tests", "apps/ml/tests"]
+markers = [
+    # Opt-in lane (apps/api/tests/conftest.py wires `--integration`). Tests
+    # tagged with this marker hit a live Postgres + apply the full alembic
+    # schema. Default `pytest` deselects them; `pytest --integration` runs them.
+    "integration: requires a live Postgres (COSTPULSE_RLS_DB_URL)",
+]

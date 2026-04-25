@@ -48,7 +48,9 @@ export function PDFViewer({
 
   useEffect(() => {
     let cancelled = false;
-    let renderTask: { cancel(): void } | null = null;
+    // pdfjs RenderTask exposes both `promise` and `cancel()`. We don't
+    // import the type to keep pdfjs an optional peer dep.
+    let renderTask: { cancel(): void; promise: Promise<unknown> } | null = null;
 
     (async () => {
       try {

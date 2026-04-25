@@ -40,6 +40,45 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret")
 
 
+# ---------- Integration lane ----------
+#
+# Three modules — `test_costpulse_rls.py`, `test_costpulse_pipeline_openai.py`,
+# `test_price_scrapers_writer.py` — each carry `pytest.mark.integration`. They
+# need a live Postgres (with `aec_app` from migration 0010 + the full
+# alembic-applied schema) to exercise RLS, real upserts, and the full
+# CostPulse pipeline. Skip rules:
+#
+#   * Default (no flag): collected but deselected. Nothing runs, nothing
+#     prints "skipped" — they don't show up at all.
+#   * `--integration`: collected and run. The per-module
+#     `skipif COSTPULSE_RLS_DB_URL is None` guard still acts as a runtime
+#     safety net; if you forgot the env var, you'll see "skipped" with a
+#     clear reason rather than a connection error.
+#
+# We collect-but-deselect (rather than module-level skip) because
+# `pytest --collect-only` should show the same test inventory regardless
+# of flag, and CI dashboards count "skipped" as noise.
+def pytest_addoption(parser):
+    parser.addoption(
+        "--integration",
+        action="store_true",
+        default=False,
+        help="Run integration tests that hit a live Postgres / Redis "
+             "(see Makefile: `make test-api-integration`).",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--integration"):
+        return
+    deselected = [it for it in items if it.get_closest_marker("integration")]
+    if not deselected:
+        return
+    remaining = [it for it in items if it not in deselected]
+    config.hook.pytest_deselected(items=deselected)
+    items[:] = remaining
+
+
 # ---------- Auth ----------
 
 @pytest.fixture

@@ -20,5 +20,10 @@ ENV PYTHONPATH=/app
 EXPOSE 8000 8265
 
 # `serve run` blocks in the foreground and manages the Ray head + replicas.
+# --route-prefix=/siteeye-safety aligns with the pipeline caller
+# (`apps/ml/pipelines/siteeye.py` hits `${base}/siteeye-safety/infer`) and the
+# k8s readiness probe (`/siteeye-safety/health`). Without this, `serve run`
+# defaults to `/` and both the pipeline and the probe would 404.
 CMD ["serve", "run", "--host", "0.0.0.0", "--port", "8000", \
+     "--route-prefix", "/siteeye-safety", \
      "apps.ml.serve.siteeye_safety:safety_app"]

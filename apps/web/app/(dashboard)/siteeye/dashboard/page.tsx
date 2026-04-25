@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import type { Route } from "next";
 
 import {
   PhaseBar,
@@ -30,7 +31,7 @@ export default function SiteDashboardPage() {
     return (
       <p className="text-sm text-gray-600">
         Select a project first.{" "}
-        <Link href="/projects" className="text-sky-600 underline">
+        <Link href={"/projects" as Route} className="text-sky-600 underline">
           Browse projects
         </Link>
       </p>

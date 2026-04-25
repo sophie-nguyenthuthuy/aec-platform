@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import type { Route } from "next";
 import { MatchFilters, TenderCard } from "@aec/ui/bidradar";
 import type { MatchStatus } from "@aec/ui/bidradar";
 import {
@@ -89,7 +90,7 @@ export default function BidRadarMatchesPage() {
               onPass={(id) => updateStatus.mutate({ matchId: id, status: "passed" })}
               onCreateProposal={async (id) => {
                 const res = await createProposal.mutateAsync(id);
-                router.push(res.winwork_url);
+                router.push(res.winwork_url as Route);
               }}
             />
           ))}

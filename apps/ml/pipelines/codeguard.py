@@ -8,10 +8,14 @@ Architecture:
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 from typing import Any
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
@@ -121,6 +125,11 @@ async def _sparse_search(
     try:
         from elasticsearch import AsyncElasticsearch
     except ImportError:
+        # Package not installed at all — this is a deployment-config issue,
+        # not a transient outage. Log once at DEBUG; bumping to WARNING
+        # would fire on every query in environments (e.g. CI, local dev)
+        # that intentionally run dense-only.
+        logger.debug("codeguard: elasticsearch package not installed, sparse search disabled")
         return []
 
     es = AsyncElasticsearch(_ES_URL)
@@ -150,7 +159,12 @@ async def _sparse_search(
             }
             for h in hits
         ]
-    except Exception:
+    except Exception as exc:
+        # Silent-return is graceful degradation (the pipeline falls back to
+        # dense-only), but silence in prod masks real ES outages. Log once
+        # per failed query at WARNING — noisy enough to show up in alerts,
+        # not so noisy it drowns the log if ES is down for an hour.
+        logger.warning("codeguard: BM25/Elasticsearch query failed, falling back to dense-only: %s", exc)
         return []
     finally:
         await es.close()
@@ -161,6 +175,16 @@ def _reciprocal_rank_fusion(
     sparse: list[dict[str, Any]],
     k: int = _RRF_K,
 ) -> list[dict[str, Any]]:
+    """Combine two ranked lists via Reciprocal Rank Fusion.
+
+    RRF score per doc = Σ 1 / (k + rank_in_list). `k=60` is the original
+    Cormack/Clark constant — larger `k` dampens the contribution of top
+    ranks, smaller `k` lets a single list dominate. 60 is the sweet spot
+    most RAG systems use and what we inherit from the module defaults.
+
+    Missing-from-one-list is the common case (dense-only or sparse-only
+    hit); those docs get the score from the list they're in.
+    """
     scores: dict[str, float] = {}
     payloads: dict[str, dict[str, Any]] = {}
     for rank, item in enumerate(dense):
@@ -173,6 +197,39 @@ def _reciprocal_rank_fusion(
         payloads.setdefault(key, item)
     fused = sorted(payloads.values(), key=lambda it: scores[str(it["id"])], reverse=True)
     return fused
+
+
+async def _hybrid_search(
+    db: AsyncSession,
+    query_text: str,
+    categories: list[RegulationCategory] | None,
+    jurisdiction: str | None,
+    top_k: int,
+    sparse_query: str | None = None,
+) -> list[dict[str, Any]]:
+    """Run dense + sparse retrieval concurrently and fuse via RRF.
+
+    Why a facade: `node_retrieve` (Q&A) and `auto_scan_project` both ran
+    dense → sparse → RRF inline, doing the two retrievals sequentially.
+    Since they hit different stores (pgvector vs Elasticsearch) there's no
+    reason to serialise them — `asyncio.gather` roughly halves retrieval
+    latency on a cache miss.
+
+    `sparse_query` defaults to `query_text` but can be narrower. The Q&A
+    pipeline passes a HyDE-expanded prose blob for dense retrieval (good:
+    adds semantic surface area) but should feed only the raw question to
+    BM25 (HyDE prose dilutes term signal for keyword match).
+
+    If Elasticsearch is unavailable, `_sparse_search` returns `[]` and this
+    function effectively becomes dense-only — the graceful-degradation path
+    is fully covered by `_reciprocal_rank_fusion([...], [])` returning the
+    dense list unchanged (one score term per doc, in dense rank order).
+    """
+    dense, sparse = await asyncio.gather(
+        _dense_search(db, query_text, categories, jurisdiction, top_k),
+        _sparse_search(sparse_query or query_text, categories, jurisdiction, top_k),
+    )
+    return _reciprocal_rank_fusion(dense, sparse)
 
 
 async def _rerank(query_text: str, candidates: list[dict[str, Any]], top_k: int) -> list[dict[str, Any]]:
@@ -241,6 +298,124 @@ def _format_context(chunks: list[dict[str, Any]]) -> str:
     return "\n\n".join(lines)
 
 
+# Localised abstain messages for when retrieval returns zero candidates.
+# These are the *only* strings users see when the corpus has no relevant
+# material — the alternative is letting the LLM hallucinate a plausible-
+# sounding regulation, which is the worst failure mode for a compliance
+# tool. Keep them short, unambiguous, and in the user's requested language.
+_ABSTAIN_MESSAGES = {
+    "vi": "Không tìm thấy quy định liên quan trong cơ sở tri thức CODEGUARD.",
+    "en": "No relevant regulations were found in the CODEGUARD knowledge base for this question.",
+}
+
+
+def _abstain_response(language: str) -> QueryResponse:
+    """Build the canonical zero-retrieval response.
+
+    Called when `node_retrieve` returns an empty candidate list — either the
+    corpus is empty, the filters (category/jurisdiction) matched nothing, or
+    the question is about a domain we haven't ingested yet. Skipping the LLM
+    call entirely is the correctness win: an empty context + a Claude prompt
+    reliably produces a confident-sounding fabrication, which we must never
+    ship to the UI for a compliance tool.
+
+    `confidence=0.0` is semantically load-bearing: downstream UI can switch
+    to a different rendering ("we don't have data for this") on that signal.
+    """
+    msg = _ABSTAIN_MESSAGES.get(language, _ABSTAIN_MESSAGES["en"])
+    return QueryResponse(
+        answer=msg,
+        confidence=0.0,
+        citations=[],
+        related_questions=[],
+    )
+
+
+def _norm_text(s: str) -> str:
+    """Whitespace-collapsed, lower-cased form for substring equality checks."""
+    return " ".join(s.lower().split())
+
+
+def _ground_citations(
+    raw_citations: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+) -> list[Citation]:
+    """Shape LLM-reported citations into verified `Citation` objects.
+
+    The #1 failure mode for RAG compliance tools is the LLM inventing
+    authoritative-looking section refs or quotes that don't exist in the
+    source. This function is the single choke point that prevents that:
+
+      * `chunk_index` must be a non-negative int within `candidates`. Any
+        other type (None, str, float, negative, out-of-range) is dropped
+        with a WARNING log — silent drops make this class of bug very hard
+        to diagnose in production.
+      * `regulation_id`, `regulation` (code_name), `section` (section_ref),
+        and `source_url` come exclusively from the retrieved DB row. The
+        LLM's only influence on provenance is *which* chunk to cite via
+        `chunk_index`; it cannot fabricate a code name or section.
+      * `excerpt` accepts the LLM's phrase IFF it's a faithful (whitespace-
+        collapsed, case-folded) substring of the chunk content. This keeps
+        the UX benefit of a focused highlight while guaranteeing the quoted
+        text actually appears in the source. If the excerpt is missing or
+        not a substring, we fall back to the first 300 chars of the chunk.
+
+    Returned citations are safe to render as authoritative without further
+    validation downstream.
+    """
+    grounded: list[Citation] = []
+    for raw in raw_citations or []:
+        idx = raw.get("chunk_index")
+        # Reject `bool` explicitly — Python's `isinstance(True, int)` is True
+        # but `candidates[True]` indexing a chunk list is never intended.
+        if not isinstance(idx, int) or isinstance(idx, bool):
+            logger.warning(
+                "codeguard: dropping citation with non-int chunk_index=%r", idx
+            )
+            continue
+        if idx < 0 or idx >= len(candidates):
+            logger.warning(
+                "codeguard: dropping citation with out-of-range chunk_index=%d "
+                "(have %d candidates)", idx, len(candidates),
+            )
+            continue
+
+        src = candidates[idx]
+        try:
+            regulation_id = UUID(str(src["regulation_id"]))
+        except (KeyError, ValueError) as exc:
+            logger.warning(
+                "codeguard: dropping citation — source row has no valid "
+                "regulation_id: %s", exc,
+            )
+            continue
+
+        src_content = src.get("content") or ""
+        raw_excerpt = raw.get("excerpt")
+        if (
+            isinstance(raw_excerpt, str)
+            and raw_excerpt.strip()
+            and _norm_text(raw_excerpt) in _norm_text(src_content)
+        ):
+            excerpt = raw_excerpt
+        else:
+            if isinstance(raw_excerpt, str) and raw_excerpt.strip():
+                logger.warning(
+                    "codeguard: replacing ungrounded excerpt for chunk_index=%d "
+                    "(LLM quote not found in source chunk)", idx,
+                )
+            excerpt = src_content[:300]
+
+        grounded.append(Citation(
+            regulation_id=regulation_id,
+            regulation=src.get("code_name") or "",
+            section=src.get("section_ref") or "",
+            excerpt=excerpt,
+            source_url=src.get("source_url"),
+        ))
+    return grounded
+
+
 async def answer_regulation_query(
     db: AsyncSession,
     question: str,
@@ -256,17 +431,36 @@ async def answer_regulation_query(
         return state
 
     async def node_retrieve(state: _QAState) -> _QAState:
+        # Dense query includes HyDE expansion for semantic surface area;
+        # sparse gets the raw question (HyDE prose would dilute BM25 terms).
+        # `_hybrid_search` runs both concurrently and fuses via RRF.
         query_text = f"{state.question}\n{state.hyde_text}"
-        dense, sparse = await _dense_search(
-            db, query_text, state.categories, state.jurisdiction, state.top_k
-        ), await _sparse_search(
-            state.question, state.categories, state.jurisdiction, state.top_k
+        fused = await _hybrid_search(
+            db, query_text,
+            categories=state.categories,
+            jurisdiction=state.jurisdiction,
+            top_k=state.top_k,
+            sparse_query=state.question,
         )
-        fused = _reciprocal_rank_fusion(dense, sparse)
         state.candidates = await _rerank(state.question, fused, state.top_k)
         return state
 
     async def node_generate(state: _QAState) -> _QAState:
+        # Zero-retrieval abstain: if hybrid search + re-rank found nothing
+        # we refuse to invoke the LLM. An empty `context` field in the
+        # prompt reliably coaxes Claude into fabricating a citation-shaped
+        # hallucination — the worst failure mode for a compliance tool.
+        # Short-circuit with the canned abstain response instead; this also
+        # saves ~2 API calls and ~1s of latency per out-of-corpus query.
+        if not state.candidates:
+            logger.info(
+                "codeguard: zero retrieval candidates for question=%r lang=%s — "
+                "returning abstain response (LLM skipped)",
+                state.question[:80], state.language,
+            )
+            state.answer = _abstain_response(state.language)
+            return state
+
         prompt = ChatPromptTemplate.from_messages([
             ("system", _QA_SYSTEM),
             ("human", _QA_USER),
@@ -278,19 +472,9 @@ async def answer_regulation_query(
             "context": _format_context(state.candidates),
         })
 
-        citations: list[Citation] = []
-        for cit in raw.get("citations", []):
-            idx = cit.get("chunk_index")
-            if idx is None or idx >= len(state.candidates):
-                continue
-            src = state.candidates[idx]
-            citations.append(Citation(
-                regulation_id=UUID(str(src["regulation_id"])),
-                regulation=src.get("code_name", cit.get("regulation", "")),
-                section=src.get("section_ref") or cit.get("section", ""),
-                excerpt=cit.get("excerpt", (src.get("content") or "")[:300]),
-                source_url=src.get("source_url"),
-            ))
+        # Citations pass through _ground_citations — the single choke point
+        # that rejects hallucinated section refs and excerpts (see its docstring).
+        citations = _ground_citations(raw.get("citations", []) or [], state.candidates)
 
         state.answer = QueryResponse(
             answer=raw.get("answer", ""),
@@ -374,9 +558,13 @@ async def auto_scan_project(
 
     for category in target_categories:
         query = _category_probe(category, parameters)
-        dense = await _dense_search(db, query, [category], jurisdiction, top_k=8)
-        sparse = await _sparse_search(query, [category], jurisdiction, top_k=8)
-        fused = _reciprocal_rank_fusion(dense, sparse)
+        # Same hybrid facade as the Q&A pipeline — concurrent dense + sparse
+        # with graceful dense-only fallback. No HyDE here since the probe
+        # query is already engineered for keyword precision.
+        fused = await _hybrid_search(
+            db, query,
+            categories=[category], jurisdiction=jurisdiction, top_k=8,
+        )
         chunks = await _rerank(query, fused, top_k=6)
         if not chunks:
             continue

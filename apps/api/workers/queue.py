@@ -16,6 +16,13 @@ from arq.cron import cron
 
 from core.config import get_settings
 
+# Register every ORM model so SQLAlchemy can sort FK deps at flush time.
+# Without this, drawbridge_ingest_job blows up at commit because its handler
+# only imports drawbridge models — but Document.project_id FK references
+# core.Project, which would otherwise never be registered.
+from models import register_all as _register_all_models
+_register_all_models()
+
 logger = logging.getLogger(__name__)
 
 _REDIS: Any | None = None
@@ -112,7 +119,7 @@ async def photo_analysis_job(
 ) -> dict:
     import asyncio
 
-    from apps.ml.pipelines.siteeye import _aggregate_progress, run_photo_analysis
+    from ml.pipelines.siteeye import _aggregate_progress, run_photo_analysis
 
     org = UUID(organization_id)
     proj = UUID(project_id)
@@ -133,7 +140,7 @@ async def weekly_report_job(
     week_start: str,
     week_end: str,
 ) -> dict:
-    from apps.ml.pipelines.siteeye import generate_weekly_report
+    from ml.pipelines.siteeye import generate_weekly_report
 
     report = await generate_weekly_report(
         organization_id=UUID(organization_id),
@@ -151,7 +158,7 @@ async def drawbridge_ingest_job(
     storage_key: str,
     mime_type: str,
 ) -> dict:
-    from apps.ml.pipelines.drawbridge import _ingest_document
+    from ml.pipelines.drawbridge import _ingest_document
 
     org = UUID(organization_id)
     doc = UUID(document_id)
@@ -211,13 +218,19 @@ async def weekly_report_cron(ctx: dict) -> dict:
 
     from sqlalchemy import text
 
-    from db.session import SessionFactory
+    # Cross-tenant discovery query: we need every (org, project) pair that
+    # uploaded photos this week, regardless of tenant. `site_photos` has
+    # RLS (tenant_isolation_site_photos). Under `aec_app` (NOBYPASSRLS) a
+    # regular SessionFactory would return zero rows and the cron would
+    # silently schedule nothing. AdminSessionFactory (superuser) is the
+    # correct escape hatch for this batch-discovery read.
+    from db.session import AdminSessionFactory
 
     today = date.today()
     week_start = today - timedelta(days=today.weekday() + 7)
     week_end = week_start + timedelta(days=6)
 
-    async with SessionFactory() as session:
+    async with AdminSessionFactory() as session:
         rows = (
             await session.execute(
                 text(

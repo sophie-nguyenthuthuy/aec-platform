@@ -13,6 +13,10 @@ export interface ScopeItem {
   fee_vnd?: number;
 }
 
+export interface ScopeOfWork {
+  items: ScopeItem[];
+}
+
 export interface FeeLine {
   phase: string;
   label: string;
@@ -35,7 +39,7 @@ export interface Proposal {
   status: ProposalStatus;
   client_name: string | null;
   client_email: string | null;
-  scope_of_work: { items: ScopeItem[] } | null;
+  scope_of_work: ScopeOfWork | null;
   fee_breakdown: FeeBreakdown | null;
   total_fee_vnd: number | null;
   total_fee_currency: string;

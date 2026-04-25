@@ -1,6 +1,6 @@
 "use client";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { NextIntlClientProvider } from "next-intl";
+import { NextIntlClientProvider, type AbstractIntlMessages } from "next-intl";
 import { useState, type ReactNode } from "react";
 
 import { makeQueryClient } from "@/lib/query-client";
@@ -10,7 +10,7 @@ interface ProvidersProps {
   children: ReactNode;
   session: SessionContext;
   locale: string;
-  messages: Record<string, unknown>;
+  messages: AbstractIntlMessages;
 }
 
 export function Providers({ children, session, locale, messages }: ProvidersProps) {

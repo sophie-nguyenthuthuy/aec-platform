@@ -14,17 +14,20 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from db.session import SessionFactory
+from db.session import AdminSessionFactory
 from services.mailer import send_mail
 
 logger = logging.getLogger(__name__)
 
 
 async def evaluate_price_alerts() -> dict:
-    # Cross-tenant read. RLS is disabled for the service role in prod; in dev the
-    # alerts table already has tenant_isolation but this job bypasses it intentionally
-    # by not setting app.current_org_id — the data we read is per-alert, not cross-org.
-    async with SessionFactory() as session:
+    # Cross-tenant read: iterate every alert across every org in one pass.
+    # `price_alerts` has RLS (tenant_isolation_price_alerts), and the
+    # runtime role `aec_app` is NOBYPASSRLS — so a regular SessionFactory
+    # here would silently return zero rows. AdminSessionFactory binds to
+    # `DATABASE_URL_ADMIN` (the superuser `aec` in compose), which has
+    # BYPASSRLS and lets this batch pass see all tenants at once.
+    async with AdminSessionFactory() as session:
         rows = (await session.execute(
             text(
                 """

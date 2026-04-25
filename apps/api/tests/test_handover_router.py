@@ -3,7 +3,7 @@
 The handover router uses raw SQL via `TenantAwareSession` — tests patch it
 with a recording session whose `execute()` returns pre-programmed results.
 ML pipeline entry points (`seed_closeout_items`, `generate_om_manual`,
-`extract_warranty_items`) are stubbed via `sys.modules["apps.ml.pipelines.handover"]`.
+`extract_warranty_items`) are stubbed via `sys.modules["ml.pipelines.handover"]`.
 
 These are smoke tests — they verify HTTP wiring, auth, validation, envelope
 shape, and error paths — not SQL correctness (which needs an integration
@@ -104,21 +104,24 @@ def patch_session(monkeypatch):
 
 @pytest.fixture
 def patch_handover_pipeline(monkeypatch):
-    """Stub `apps.ml.pipelines.handover` so the router's lazy imports succeed
+    """Stub `ml.pipelines.handover` so the router's lazy imports succeed
     without langchain/LLM dependencies. Returns the stub module so tests can
     reassign the three entry points per-test.
+
+    The router uses the bare `ml.pipelines.handover` path (not `apps.ml...`)
+    because `apps/ml` is on PYTHONPATH in both Docker and pytest (see conftest).
     """
-    mod = ModuleType("apps.ml.pipelines.handover")
+    mod = ModuleType("ml.pipelines.handover")
     mod.seed_closeout_items = AsyncMock(return_value=None)
     mod.generate_om_manual = AsyncMock(return_value=([], []))
     mod.extract_warranty_items = AsyncMock(return_value=[])
 
-    # Ensure parent packages exist in sys.modules — `from apps.ml.pipelines.handover
+    # Ensure parent packages exist in sys.modules — `from ml.pipelines.handover
     # import ...` walks the chain.
-    for parent in ("apps", "apps.ml", "apps.ml.pipelines"):
+    for parent in ("ml", "ml.pipelines"):
         if parent not in sys.modules:
             monkeypatch.setitem(sys.modules, parent, ModuleType(parent))
-    monkeypatch.setitem(sys.modules, "apps.ml.pipelines.handover", mod)
+    monkeypatch.setitem(sys.modules, "ml.pipelines.handover", mod)
     return mod
 
 
@@ -701,3 +704,153 @@ async def test_no_org_scoped_query_escapes_auth(client, patch_session, fake_auth
 
     _sql, params = patch_session.executes[0]
     assert params["org"] == str(fake_auth.organization_id)
+
+
+# ============================================================
+# DRAWBRIDGE → HANDOVER promote-drawings handoff
+# ============================================================
+
+async def test_promote_drawings_creates_and_versions(client, patch_session):
+    """The sweep creates an as-built for a new drawing_number and versions
+    an existing as-built when the drawbridge document points at a different
+    file_id."""
+    pkg_id = uuid4()
+    project_id = uuid4()
+
+    # Fresh drawbridge documents: two distinct drawing numbers, one of which
+    # has two revisions (we should only promote the newest per drawing_number).
+    new_file_id = uuid4()
+    old_file_id = uuid4()
+    e101_current_in_asbuilts = uuid4()
+
+    # 1. SELECT handover package → resolves project_id
+    patch_session.queue(_row(id=pkg_id, project_id=project_id))
+
+    # 2. SELECT candidate drawbridge documents
+    #    A-101 has two revs (A and B); we should take B (first in ORDER BY).
+    #    E-101 has one rev, pointing at a DIFFERENT file than the existing as-built.
+    patch_session.queue(_rows([
+        {
+            "id": uuid4(),
+            "drawing_number": "A-101",
+            "title": "Ground floor plan",
+            "revision": "B",
+            "discipline": "architecture",
+            "file_id": new_file_id,
+            "created_at": datetime.now(timezone.utc),
+        },
+        {
+            "id": uuid4(),
+            "drawing_number": "A-101",
+            "title": "Ground floor plan",
+            "revision": "A",
+            "discipline": "architecture",
+            "file_id": old_file_id,
+            "created_at": datetime.now(timezone.utc),
+        },
+        {
+            "id": uuid4(),
+            "drawing_number": "E-101",
+            "title": "Lighting layout",
+            "revision": "1",
+            "discipline": "mep",
+            "file_id": new_file_id,
+            "created_at": datetime.now(timezone.utc),
+        },
+    ]))
+
+    # 3. SELECT existing as_built for A-101 → none, so it'll be created
+    patch_session.queue(_row())  # first() returns empty dict which is falsy-ish
+    # Actually _row returns a MagicMock whose .mappings().first() returns {}
+    # which IS truthy. Need to make it explicitly None.
+
+    none_row = MagicMock()
+    none_row.mappings.return_value.first.return_value = None
+    # Replace the last queued item
+    patch_session._queue[-1] = none_row  # type: ignore[attr-defined]
+
+    # 4. INSERT as_built for A-101 — executes, no result consumed
+    patch_session.queue(_row())
+
+    # 5. SELECT existing as_built for E-101 → returns an existing one with a
+    #    DIFFERENT file_id, so we should version it.
+    patch_session.queue(_row(
+        id=uuid4(),
+        current_version=1,
+        current_file_id=e101_current_in_asbuilts,
+        superseded_file_ids=[],
+        changelog=[],
+    ))
+
+    # 6. UPDATE as_built for E-101
+    patch_session.queue(_row())
+
+    r = await client.post(
+        f"/api/v1/handover/packages/{pkg_id}/promote-drawings",
+        json={},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()["data"]
+    assert body["package_id"] == str(pkg_id)
+    assert body["project_id"] == str(project_id)
+    assert body["documents_considered"] == 3  # 3 drawbridge docs total
+
+    by_code = {p["drawing_code"]: p for p in body["promoted"]}
+    assert by_code["A-101"]["action"] == "created"
+    assert by_code["A-101"]["current_version"] == 1
+    assert by_code["E-101"]["action"] == "versioned"
+    assert by_code["E-101"]["current_version"] == 2
+
+
+async def test_promote_drawings_is_idempotent_for_same_file(client, patch_session):
+    """Re-promoting the same file_id that's already current is a no-op."""
+    pkg_id = uuid4()
+    project_id = uuid4()
+    same_file_id = uuid4()
+
+    patch_session.queue(_row(id=pkg_id, project_id=project_id))
+    patch_session.queue(_rows([
+        {
+            "id": uuid4(),
+            "drawing_number": "S-201",
+            "title": "Roof framing",
+            "revision": "C",
+            "discipline": "structural",
+            "file_id": same_file_id,
+            "created_at": datetime.now(timezone.utc),
+        },
+    ]))
+    # Existing as-built with the SAME current_file_id
+    patch_session.queue(_row(
+        id=uuid4(),
+        current_version=3,
+        current_file_id=same_file_id,
+        superseded_file_ids=[],
+        changelog=[],
+    ))
+
+    r = await client.post(
+        f"/api/v1/handover/packages/{pkg_id}/promote-drawings",
+        json={"discipline": "structure"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()["data"]
+    assert len(body["promoted"]) == 1
+    assert body["promoted"][0]["action"] == "skipped"
+    assert body["promoted"][0]["reason"] == "already_current"
+    assert body["promoted"][0]["current_version"] == 3
+
+
+async def test_promote_drawings_404_when_package_missing(client, patch_session):
+    """Non-existent or cross-tenant package returns 404."""
+    # First SELECT returns None
+    none_row = MagicMock()
+    none_row.mappings.return_value.first.return_value = None
+    patch_session.queue(none_row)
+
+    r = await client.post(
+        f"/api/v1/handover/packages/{uuid4()}/promote-drawings",
+        json={},
+    )
+    assert r.status_code == 404
+    assert "package_not_found" in r.text

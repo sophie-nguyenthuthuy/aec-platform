@@ -5,11 +5,14 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Date, ForeignKey, Integer, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
+
+# Postgres columns are `timestamp with time zone`; mirror at the ORM layer.
+TZ = DateTime(timezone=True)
 
 
 class DocumentSet(Base):
@@ -26,7 +29,7 @@ class DocumentSet(Base):
     discipline: Mapped[str | None] = mapped_column(Text)
     revision: Mapped[str | None] = mapped_column(Text)
     issued_date: Mapped[date | None] = mapped_column(Date)
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class Document(Base):
@@ -54,7 +57,7 @@ class Document(Base):
     processing_status: Mapped[str] = mapped_column(Text, default="pending")
     extracted_data: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     thumbnail_url: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class DocumentChunk(Base):
@@ -105,8 +108,8 @@ class Conflict(Base):
     )
     ai_explanation: Mapped[str | None] = mapped_column(Text)
     resolution_notes: Mapped[str | None] = mapped_column(Text)
-    detected_at: Mapped[datetime] = mapped_column()
-    resolved_at: Mapped[datetime | None] = mapped_column()
+    detected_at: Mapped[datetime] = mapped_column(TZ)
+    resolved_at: Mapped[datetime | None] = mapped_column(TZ)
     resolved_by: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
@@ -138,4 +141,4 @@ class Rfi(Base):
     )
     due_date: Mapped[date | None] = mapped_column(Date)
     response: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())

@@ -371,3 +371,122 @@ async def test_win_rate_analytics_returns_envelope(client, monkeypatch):
     assert r.status_code == 200
     assert r.json()["data"]["win_rate"] == 0.6
     assert r.json()["data"]["total"] == 10
+
+
+# ============================================================
+# Service-layer: mark_outcome('won') → project seeding
+# ============================================================
+
+async def test_mark_outcome_won_seeds_project_when_unattached(fake_db):
+    """When a proposal flips to won with no project_id, the service seeds a
+    projects row and links the proposal to it. Downstream modules (PULSE,
+    COSTPULSE, etc.) all key off project_id, so this is the critical handoff."""
+    from models.core import Project
+    from models.winwork import Proposal
+    from schemas.winwork import ProposalOutcomeUpdate
+    from services.winwork import mark_outcome
+
+    prop = Proposal(
+        id=uuid4(),
+        organization_id=UUID("22222222-2222-2222-2222-222222222222"),
+        project_id=None,
+        title="Proposal — Villa Thao Dien",
+        status="sent",
+        client_name="Khoa",
+        client_email="khoa@example.com",
+        total_fee_vnd=500_000_000,
+        total_fee_currency="VND",
+        ai_generated=False,
+        notes=None,
+        created_by=uuid4(),
+        created_at=datetime.now(timezone.utc),
+    )
+    fake_db.set_get(Proposal, prop.id, prop)
+
+    await mark_outcome(
+        fake_db,
+        prop.id,
+        ProposalOutcomeUpdate(status="won", actual_fee_vnd=550_000_000),
+    )
+
+    # proposal is marked won AND linked to a fresh project
+    assert prop.status == "won"
+    assert prop.project_id is not None
+
+    projects = [p for p in fake_db.added if isinstance(p, Project)]
+    assert len(projects) == 1
+    seeded = projects[0]
+    assert seeded.id == prop.project_id
+    assert seeded.organization_id == prop.organization_id
+    # "Proposal — " prefix stripped
+    assert seeded.name == "Villa Thao Dien"
+    # actual fee takes precedence over quoted total
+    assert seeded.budget_vnd == 550_000_000
+    # provenance recorded so downstream modules know where it came from
+    assert seeded.metadata_["seeded_from"] == "winwork.proposal"
+    assert seeded.metadata_["proposal_id"] == str(prop.id)
+
+
+async def test_mark_outcome_won_is_idempotent_when_already_linked(fake_db):
+    """Re-marking a won proposal that already has a project_id must not seed
+    a duplicate project."""
+    from models.core import Project
+    from models.winwork import Proposal
+    from schemas.winwork import ProposalOutcomeUpdate
+    from services.winwork import mark_outcome
+
+    existing_project_id = uuid4()
+    prop = Proposal(
+        id=uuid4(),
+        organization_id=UUID("22222222-2222-2222-2222-222222222222"),
+        project_id=existing_project_id,
+        title="Already-linked proposal",
+        status="won",
+        client_name="X",
+        client_email="x@example.com",
+        total_fee_vnd=500_000_000,
+        total_fee_currency="VND",
+        ai_generated=False,
+        created_by=uuid4(),
+        created_at=datetime.now(timezone.utc),
+    )
+    fake_db.set_get(Proposal, prop.id, prop)
+
+    await mark_outcome(fake_db, prop.id, ProposalOutcomeUpdate(status="won"))
+
+    assert prop.project_id == existing_project_id
+    assert [p for p in fake_db.added if isinstance(p, Project)] == []
+
+
+async def test_mark_outcome_lost_does_not_seed_project(fake_db):
+    """Losing a deal doesn't create a project."""
+    from models.core import Project
+    from models.winwork import Proposal
+    from schemas.winwork import ProposalOutcomeUpdate
+    from services.winwork import mark_outcome
+
+    prop = Proposal(
+        id=uuid4(),
+        organization_id=UUID("22222222-2222-2222-2222-222222222222"),
+        project_id=None,
+        title="Lost one",
+        status="sent",
+        client_name="Y",
+        client_email="y@example.com",
+        total_fee_vnd=500_000_000,
+        total_fee_currency="VND",
+        ai_generated=False,
+        created_by=uuid4(),
+        created_at=datetime.now(timezone.utc),
+    )
+    fake_db.set_get(Proposal, prop.id, prop)
+
+    await mark_outcome(
+        fake_db, prop.id, ProposalOutcomeUpdate(status="lost", reason="competitor underbid")
+    )
+
+    assert prop.status == "lost"
+    assert prop.project_id is None
+    assert [p for p in fake_db.added if isinstance(p, Project)] == []
+
+

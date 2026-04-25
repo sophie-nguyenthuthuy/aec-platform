@@ -19,7 +19,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.session import SessionFactory, tenant_session
+from db.session import AdminSessionFactory, SessionFactory, tenant_session
 from ml.pipelines.bidradar import (
     embed_tender,
     score_tender_for_firm,
@@ -46,7 +46,10 @@ async def scrape_and_score_for_all_orgs(source: str, max_pages: int = 5) -> dict
 
     scored_orgs = 0
     total_matches = 0
-    async with SessionFactory() as session:
+    # `firm_profiles` has RLS; we need every org's profile in one pass so we
+    # can fan out to tenant_session(...) below. Admin factory (BYPASSRLS) is
+    # the correct escape hatch.
+    async with AdminSessionFactory() as session:
         profiles = (await session.execute(select(FirmProfile))).scalars().all()
 
     for profile in profiles:
@@ -206,11 +209,16 @@ async def _score_and_persist(
 
 async def _embed_new_tenders(tender_ids: list[UUID]) -> None:
     """Best-effort embedding pass. Tenders live cross-tenant, so we embed under
-    a zero-UUID org so retrieval can still scope by source_module='bidradar'."""
+    a zero-UUID org so retrieval can still scope by source_module='bidradar'.
+
+    `embeddings` has RLS; the synthetic org means no real tenant's
+    current_org_id would match on insert. Use the admin factory to bypass
+    the policy for this cross-tenant write — retrieval later joins on
+    source_module='bidradar', not organization_id."""
     if not tender_ids:
         return
     system_org = UUID("00000000-0000-0000-0000-000000000000")
-    async with SessionFactory() as session:
+    async with AdminSessionFactory() as session:
         tenders = (
             await session.execute(select(Tender).where(Tender.id.in_(tender_ids)))
         ).scalars().all()

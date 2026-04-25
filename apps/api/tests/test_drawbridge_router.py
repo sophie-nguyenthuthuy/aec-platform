@@ -69,7 +69,11 @@ def _make_document(
     project_id: UUID | None = PROJECT_ID,
     **overrides: Any,
 ):
-    from datetime import datetime
+    # `datetime.utcnow()` is deprecated in 3.12+ — prefer the tz-aware
+    # constructor. `datetime.now(UTC)` keeps the same wall-clock value but
+    # produces an aware datetime, which is what SQLAlchemy wants for
+    # `TIMESTAMP WITH TIME ZONE` columns anyway.
+    from datetime import UTC, datetime
 
     from models.drawbridge import Document as DocumentModel
 
@@ -85,7 +89,7 @@ def _make_document(
         doc_type="drawing",
         processing_status="ready",
         extracted_data={},
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(UTC),
     )
     for k, v in overrides.items():
         setattr(doc, k, v)
@@ -100,7 +104,7 @@ def _make_conflict(
     status_: str = "open",
     **overrides: Any,
 ):
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     from models.drawbridge import Conflict as ConflictModel
 
@@ -112,7 +116,7 @@ def _make_conflict(
         severity="major",
         conflict_type="dimension",
         description="Floor thickness disagreement",
-        detected_at=datetime.utcnow(),
+        detected_at=datetime.now(UTC),
     )
     for k, v in overrides.items():
         setattr(c, k, v)

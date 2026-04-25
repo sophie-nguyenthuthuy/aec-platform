@@ -22,8 +22,19 @@ from urllib.parse import urljoin, urlparse
 
 from .base import BaseScraper, ScrapedPrice, ScrapeError
 from .ministry import _parse_bulletin_html
+from .parsers import parse_docx_bulletin, parse_pdf_bulletin
 
 logger = logging.getLogger(__name__)
+
+
+# Binary attachments we know how to parse. Maps the file extension
+# (lower-case, including dot) to the (parser, format-tag) pair. Formats
+# we *don't* yet handle (.doc legacy Word, .xls/.xlsx Excel) are left
+# out and fall through to the skip-and-log branch.
+_BINARY_PARSERS = {
+    ".docx": (parse_docx_bulletin, "docx"),
+    ".pdf": (parse_pdf_bulletin, "pdf"),
+}
 
 
 @dataclass(frozen=True)
@@ -89,11 +100,25 @@ class GenericProvinceScraper(BaseScraper):
                                self._config.slug)
                 return []
 
-            if bulletin_url.lower().endswith((".doc", ".docx", ".pdf", ".xls", ".xlsx")):
+            ext = _ext_of(bulletin_url)
+            if ext in _BINARY_PARSERS:
+                parser, fmt = _BINARY_PARSERS[ext]
+                bulletin = await client.get(bulletin_url, timeout=60.0)
+                bulletin.raise_for_status()
+                logger.info(
+                    "scraper.generic[%s]: parsing %s bulletin (%s)",
+                    self._config.slug, fmt, bulletin_url,
+                )
+                return parser(
+                    bulletin.content,
+                    source_url=bulletin_url,
+                    province=self._config.province,
+                )
+            if ext in {".doc", ".xls", ".xlsx"}:
                 logger.warning(
-                    "scraper.generic[%s]: latest bulletin is a binary attachment (%s); "
-                    "skipping — extend the scraper to parse this format",
-                    self._config.slug, bulletin_url,
+                    "scraper.generic[%s]: latest bulletin is a %s attachment (%s); "
+                    "skipping — no parser for this format yet",
+                    self._config.slug, ext, bulletin_url,
                 )
                 return []
 
@@ -134,6 +159,18 @@ def _base_of(url: str) -> str:
     """Return the scheme + netloc of `url` so we can resolve relative hrefs."""
     parsed = urlparse(url)
     return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _ext_of(url: str) -> str:
+    """Return the lower-cased extension of the URL's path (incl. dot), or ''.
+
+    Strips query and fragment so '/foo.pdf?download=1' → '.pdf'.
+    """
+    path = urlparse(url).path
+    dot = path.rfind(".")
+    if dot == -1:
+        return ""
+    return path[dot:].lower()
 
 
 def _find_first_matching_link(html: str, *, link_re: str, base_url: str) -> str | None:

@@ -8,8 +8,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # Runtime DB — non-superuser (aec_app) so RLS policies actually fire.
+    # Request-scoped sessions use this via db.session.SessionFactory.
     database_url: str = "postgresql+asyncpg://aec:aec@localhost:5432/aec"
+    # Migrations use this; Alembic needs DDL privileges so it stays as the
+    # superuser `aec`.
     database_url_sync: str = "postgresql://aec:aec@localhost:5432/aec"
+    # Admin async URL for background jobs that MUST read/write across tenants
+    # (e.g. price-alert evaluator, bidradar scrape fanout, weekly-report cron
+    # discovery). Only `db.session.AdminSessionFactory` should use this.
+    # Defaults to `database_url`; in dev/prod compose, override to the `aec`
+    # superuser so BYPASSRLS lets the job see all tenants.
+    database_url_admin: str | None = None
     redis_url: str = "redis://localhost:6379/0"
 
     supabase_jwt_secret: str = "dev-secret-change-me"

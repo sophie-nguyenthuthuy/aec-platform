@@ -22,11 +22,14 @@ services:
       retries: 10
 
   # Runtime DB role split:
-  #   aec      — superuser, used ONLY by alembic (DDL needs CREATE/OWN).
-  #   aec_app  — NOBYPASSRLS, used by every runtime connection (API + workers).
-  # Superusers implicitly bypass RLS, so connecting app traffic as `aec` would
-  # render every `tenant_isolation_*` policy a no-op. Migration 0010_app_role
-  # provisions aec_app with CRUD grants + ALTER DEFAULT PRIVILEGES.
+  #   aec      — superuser. Used by (a) alembic migrations (DDL needs OWN)
+  #              and (b) a small set of cross-tenant batch jobs via the
+  #              `AdminSessionFactory` (DATABASE_URL_ADMIN below).
+  #   aec_app  — NOBYPASSRLS, LOGIN only. Used by every request-scoped
+  #              runtime connection (API handlers + per-org worker jobs).
+  # Superusers implicitly bypass RLS, so connecting request traffic as `aec`
+  # would render every `tenant_isolation_*` policy a no-op. Migration
+  # 0010_app_role provisions aec_app with CRUD grants + ALTER DEFAULT PRIVILEGES.
   api:
     build:
       context: .
@@ -34,6 +37,10 @@ services:
     environment:
       # Runtime = non-superuser; policies are enforced.
       DATABASE_URL: postgresql+asyncpg://aec_app:aec_app@postgres:5432/aec
+      # Admin = superuser; used only by background jobs that legitimately
+      # read/write across tenants (price-alert evaluator, bidradar scrape
+      # fanout, weekly-report discovery). Request handlers must NOT use it.
+      DATABASE_URL_ADMIN: postgresql+asyncpg://aec:aec@postgres:5432/aec
       # Migrations = superuser; alembic reads this via env.py.
       DATABASE_URL_SYNC: postgresql://aec:aec@postgres:5432/aec
       REDIS_URL: redis://redis:6379/0
@@ -58,6 +65,7 @@ services:
       dockerfile: infra/docker/worker.Dockerfile
     environment:
       DATABASE_URL: postgresql+asyncpg://aec_app:aec_app@postgres:5432/aec
+      DATABASE_URL_ADMIN: postgresql+asyncpg://aec:aec@postgres:5432/aec
       DATABASE_URL_SYNC: postgresql://aec:aec@postgres:5432/aec
       REDIS_URL: redis://redis:6379/0
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -84,6 +92,9 @@ services:
       dockerfile: infra/docker/api.Dockerfile
     environment:
       DATABASE_URL: postgresql+asyncpg://aec_app:aec_app@postgres:5432/aec
+      # weekly_report_cron + price_alerts_evaluate_job + bidradar fanout need
+      # cross-tenant visibility; AdminSessionFactory reads this.
+      DATABASE_URL_ADMIN: postgresql+asyncpg://aec:aec@postgres:5432/aec
       DATABASE_URL_SYNC: postgresql://aec:aec@postgres:5432/aec
       REDIS_URL: redis://redis:6379/0
       SUPABASE_JWT_SECRET: dev-secret-change-me

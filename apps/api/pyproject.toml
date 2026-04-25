@@ -18,3 +18,6 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: requires live infra (Postgres / Redis / OpenAI). Skipped by default; pass --integration to opt in.",
+]

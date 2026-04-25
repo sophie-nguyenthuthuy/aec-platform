@@ -108,7 +108,7 @@ async def _download_bytes(storage_key: str) -> bytes:
     """Download a file from S3. Falls back to local read for dev fixtures."""
     try:
         import boto3
-        from apps.api.core.config import get_settings
+        from core.config import get_settings
 
         settings = get_settings()
         s3 = boto3.client("s3", region_name=settings.aws_region)
@@ -293,7 +293,7 @@ async def enqueue_ingest_document(
     the job just won't survive a process restart.
     """
     try:
-        from apps.api.workers.queue import get_pool
+        from workers.queue import get_pool
 
         pool = await get_pool()
         job = await pool.enqueue_job(
@@ -327,8 +327,8 @@ async def _ingest_document(
     mime_type: str,
 ) -> None:
     """End-to-end ingest. Persists chunks + embeddings, updates document.processing_status."""
-    from apps.api.db.session import TenantAwareSession
-    from apps.api.models.drawbridge import Document as DocumentModel
+    from db.session import TenantAwareSession
+    from models.drawbridge import Document as DocumentModel
 
     async with TenantAwareSession(organization_id) as session:
         doc = await session.get(DocumentModel, document_id)
@@ -709,7 +709,7 @@ async def run_conflict_scan(
     raised_by: UUID | None,
 ) -> ConflictScanResponse:
     """Scan new-or-specified documents against the rest of the project for cross-discipline conflicts."""
-    from apps.api.models.drawbridge import Conflict as ConflictModel
+    from models.drawbridge import Conflict as ConflictModel
 
     # Pick candidate-pool chunks with a dimension / schedule / note character,
     # filtered to target documents first then the rest of the project.
@@ -874,7 +874,7 @@ async def extract_document_data(
     target: Literal["schedule", "dimensions", "materials", "title_block", "all"],
     pages: list[int] | None,
 ) -> ExtractResponse:
-    from apps.api.models.drawbridge import Document as DocumentModel
+    from models.drawbridge import Document as DocumentModel
 
     sql = text(
         """
@@ -961,7 +961,7 @@ Return strict JSON: {"subject": str, "description": str}
 
 
 async def draft_rfi_from_conflict(db: AsyncSession, conflict_id: UUID) -> RfiDraft:
-    from apps.api.models.drawbridge import (
+    from models.drawbridge import (
         Conflict as ConflictModel,
         Document as DocumentModel,
         DocumentChunk as DocumentChunkModel,

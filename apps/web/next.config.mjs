@@ -10,10 +10,11 @@ const nextConfig = {
     typedRoutes: true,
   },
   // Docker runtime image copies from .next/standalone — requires this.
-  output: "standalone",
-  // TODO(platform-drift): parallel modules shipped with TS strict violations.
-  // Sweep these and flip these flags back off.
-  typescript: { ignoreBuildErrors: true },
+  // Disabled for local pnpm start (which doesn't support standalone output);
+  // re-enable via NEXT_OUTPUT=standalone when building the Docker image.
+  ...(process.env.NEXT_OUTPUT === "standalone" ? { output: "standalone" } : {}),
+  // Strict mode now enforced — fix any new violations as they appear.
+  typescript: { ignoreBuildErrors: false },
   eslint: { ignoreDuringBuilds: true },
 };
 

@@ -211,11 +211,12 @@ async def test_weekly_report_cron_enqueues_one_job_per_active_project(
             return result
 
     monkeypatch.setattr(queue, "get_pool", AsyncMock(return_value=fake_pool))
-    # SessionFactory is imported inside the cron body (`from db.session import ...`),
-    # so patch it on the source module.
+    # The cron uses AdminSessionFactory (BYPASSRLS) for its cross-tenant
+    # discovery read — see workers/queue.py. Patch on the source module
+    # because the import happens inside the cron body.
     from db import session as db_session
 
-    monkeypatch.setattr(db_session, "SessionFactory", lambda: _FakeSession())
+    monkeypatch.setattr(db_session, "AdminSessionFactory", lambda: _FakeSession())
 
     result = await queue.weekly_report_cron(ctx={})
 
@@ -251,7 +252,7 @@ async def test_weekly_report_cron_no_activity_enqueues_nothing(
     monkeypatch.setattr(queue, "get_pool", AsyncMock(return_value=fake_pool))
     from db import session as db_session
 
-    monkeypatch.setattr(db_session, "SessionFactory", lambda: _EmptySession())
+    monkeypatch.setattr(db_session, "AdminSessionFactory", lambda: _EmptySession())
 
     result = await queue.weekly_report_cron(ctx={})
 

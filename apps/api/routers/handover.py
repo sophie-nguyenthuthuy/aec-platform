@@ -33,6 +33,9 @@ from schemas.handover import (
     PackageListFilters,
     PackageStatus,
     PackageSummary,
+    PromoteDrawingsRequest,
+    PromoteDrawingsResponse,
+    PromotedDrawingSummary,
     WarrantyExtractRequest,
     WarrantyExtractResponse,
     WarrantyItem,
@@ -52,7 +55,7 @@ async def create_package(
     payload: HandoverPackageCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
 ):
-    from apps.ml.pipelines.handover import seed_closeout_items
+    from ml.pipelines.handover import seed_closeout_items
 
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
@@ -452,6 +455,218 @@ async def list_as_builts(
     return ok(items)
 
 
+@router.post("/packages/{package_id}/promote-drawings")
+async def promote_drawings_from_drawbridge(
+    package_id: UUID,
+    payload: PromoteDrawingsRequest,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+):
+    """DRAWBRIDGE → HANDOVER handoff: sweep the package's project for the
+    latest-revision drawing per drawing_number and register each as an
+    as-built. Skips documents with missing file_id or drawing_number.
+
+    Idempotent — re-running with the same set of drawings is a no-op because
+    the upsert keys on (project_id, drawing_code) and bumps version only
+    when the file_id differs.
+    """
+    async with TenantAwareSession(auth.organization_id) as session:
+        package = (
+            await session.execute(
+                text(
+                    """
+                    SELECT id, project_id FROM handover_packages
+                    WHERE id = :pkg AND organization_id = :org
+                    """
+                ),
+                {"pkg": str(package_id), "org": str(auth.organization_id)},
+            )
+        ).mappings().first()
+        if package is None:
+            raise HTTPException(status_code=404, detail="package_not_found")
+
+        project_id = package["project_id"]
+
+        # Pull candidate drawbridge documents. ORDER BY (drawing_number, created_at DESC)
+        # then dedupe in Python so we get the newest Document per drawing_number
+        # without relying on Postgres DISTINCT ON quirks.
+        where = ["d.organization_id = :org", "d.project_id = :project_id",
+                 "d.drawing_number IS NOT NULL", "d.file_id IS NOT NULL"]
+        params: dict[str, Any] = {
+            "org": str(auth.organization_id),
+            "project_id": str(project_id),
+        }
+        if payload.discipline:
+            where.append("d.discipline = :discipline")
+            params["discipline"] = payload.discipline.value
+        if payload.drawing_number_like:
+            where.append("d.drawing_number ILIKE :dn_like")
+            params["dn_like"] = payload.drawing_number_like
+
+        docs = (
+            await session.execute(
+                text(
+                    f"""
+                    SELECT d.id, d.drawing_number, d.title, d.revision, d.discipline,
+                           d.file_id, d.created_at
+                    FROM documents d
+                    WHERE {' AND '.join(where)}
+                    ORDER BY d.drawing_number ASC, d.created_at DESC
+                    """
+                ),
+                params,
+            )
+        ).mappings().all()
+
+        # Keep only the latest per drawing_number (first one in the sort above).
+        latest_per_number: dict[str, dict[str, Any]] = {}
+        for d in docs:
+            dn = d["drawing_number"]
+            if dn and dn not in latest_per_number:
+                latest_per_number[dn] = dict(d)
+
+        summaries: list[PromotedDrawingSummary] = []
+        now = datetime.now(timezone.utc)
+
+        for drawing_code, doc in latest_per_number.items():
+            title = (doc["title"] or drawing_code)[:200]
+            discipline = (doc["discipline"] or "architecture").lower()
+
+            existing = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT id, current_version, current_file_id,
+                               superseded_file_ids, changelog
+                        FROM as_built_drawings
+                        WHERE organization_id = :org
+                          AND project_id = :project_id
+                          AND drawing_code = :code
+                        """
+                    ),
+                    {
+                        "org": str(auth.organization_id),
+                        "project_id": str(project_id),
+                        "code": drawing_code,
+                    },
+                )
+            ).mappings().first()
+
+            change_note = (
+                f"Promoted from DRAWBRIDGE document {doc['id']}"
+                + (f" (rev {doc['revision']})" if doc["revision"] else "")
+            )
+
+            if existing is None:
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO as_built_drawings
+                          (organization_id, project_id, package_id, drawing_code,
+                           discipline, title, current_version, current_file_id,
+                           superseded_file_ids, changelog, last_updated_at)
+                        VALUES
+                          (:org, :project_id, :package_id, :code,
+                           :discipline, :title, 1, :file_id,
+                           ARRAY[]::uuid[], CAST(:changelog AS jsonb), :now)
+                        """
+                    ),
+                    {
+                        "org": str(auth.organization_id),
+                        "project_id": str(project_id),
+                        "package_id": str(package_id),
+                        "code": drawing_code,
+                        "discipline": discipline,
+                        "title": title,
+                        "file_id": str(doc["file_id"]),
+                        "changelog": _json(
+                            [
+                                {
+                                    "version": 1,
+                                    "file_id": str(doc["file_id"]),
+                                    "change_note": change_note,
+                                    "recorded_at": now.isoformat(),
+                                }
+                            ]
+                        ),
+                        "now": now,
+                    },
+                )
+                summaries.append(
+                    PromotedDrawingSummary(
+                        drawing_code=drawing_code,
+                        action="created",
+                        current_version=1,
+                    )
+                )
+            elif str(existing["current_file_id"]) == str(doc["file_id"]):
+                # Same file already registered → no-op
+                summaries.append(
+                    PromotedDrawingSummary(
+                        drawing_code=drawing_code,
+                        action="skipped",
+                        current_version=existing["current_version"],
+                        reason="already_current",
+                    )
+                )
+            else:
+                new_version = (existing["current_version"] or 0) + 1
+                superseded = list(existing["superseded_file_ids"] or [])
+                if existing["current_file_id"]:
+                    superseded.append(existing["current_file_id"])
+                changelog = list(existing["changelog"] or [])
+                changelog.append(
+                    {
+                        "version": new_version,
+                        "file_id": str(doc["file_id"]),
+                        "change_note": change_note,
+                        "recorded_at": now.isoformat(),
+                    }
+                )
+                await session.execute(
+                    text(
+                        """
+                        UPDATE as_built_drawings
+                        SET current_version = :version,
+                            current_file_id = :file_id,
+                            superseded_file_ids = CAST(:superseded AS uuid[]),
+                            changelog = CAST(:changelog AS jsonb),
+                            title = :title,
+                            discipline = :discipline,
+                            package_id = COALESCE(package_id, :package_id),
+                            last_updated_at = :now
+                        WHERE id = :id
+                        """
+                    ),
+                    {
+                        "version": new_version,
+                        "file_id": str(doc["file_id"]),
+                        "superseded": [str(s) for s in superseded],
+                        "changelog": _json(changelog),
+                        "title": title,
+                        "discipline": discipline,
+                        "package_id": str(package_id),
+                        "now": now,
+                        "id": existing["id"],
+                    },
+                )
+                summaries.append(
+                    PromotedDrawingSummary(
+                        drawing_code=drawing_code,
+                        action="versioned",
+                        current_version=new_version,
+                    )
+                )
+
+    return ok(
+        PromoteDrawingsResponse(
+            package_id=package_id,
+            project_id=project_id,
+            documents_considered=len(docs),
+            promoted=summaries,
+        ).model_dump(mode="json")
+    )
+
+
 # ---------- O&M manual ----------
 
 @router.post("/om-manuals/generate", status_code=status.HTTP_202_ACCEPTED)
@@ -459,7 +674,7 @@ async def generate_om_manual(
     payload: OmManualGenerateRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
 ):
-    from apps.ml.pipelines.handover import generate_om_manual as run_pipeline
+    from ml.pipelines.handover import generate_om_manual as run_pipeline
 
     manual_id = uuid4()
     job_id = uuid4()
@@ -590,7 +805,7 @@ async def extract_warranty(
     payload: WarrantyExtractRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
 ):
-    from apps.ml.pipelines.handover import extract_warranty_items
+    from ml.pipelines.handover import extract_warranty_items
 
     async with TenantAwareSession(auth.organization_id) as session:
         try:

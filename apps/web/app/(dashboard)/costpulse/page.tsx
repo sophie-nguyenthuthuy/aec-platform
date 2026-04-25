@@ -1,8 +1,9 @@
 import Link from "next/link";
+import type { Route } from "next";
 
 export const dynamic = "force-dynamic";
 
-const SECTIONS = [
+const SECTIONS: Array<{ href: Route; title: string; desc: string }> = [
   { href: "/costpulse/estimates", title: "Estimates", desc: "Browse, edit and approve cost estimates." },
   { href: "/costpulse/estimates/new", title: "New estimate", desc: "AI estimate from brief or drawings." },
   { href: "/costpulse/prices", title: "Price database", desc: "Live material prices + trend charts." },

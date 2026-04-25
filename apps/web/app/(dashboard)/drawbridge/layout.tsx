@@ -1,7 +1,8 @@
 import Link from "next/link";
+import type { Route } from "next";
 import type { ReactNode } from "react";
 
-const NAV = [
+const NAV: Array<{ href: Route; label: string }> = [
   { href: "/drawbridge/documents", label: "Tài liệu" },
   { href: "/drawbridge/query", label: "Hỏi bản vẽ" },
   { href: "/drawbridge/conflicts", label: "Xung đột" },

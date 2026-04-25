@@ -1,7 +1,8 @@
 import Link from "next/link";
+import type { Route } from "next";
 import type { ReactNode } from "react";
 
-const NAV = [
+const NAV: Array<{ href: Route; label: string }> = [
   { href: "/handover", label: "Gói bàn giao" },
   { href: "/handover/warranties", label: "Bảo hành" },
   { href: "/handover/defects", label: "Lỗi tồn đọng" },

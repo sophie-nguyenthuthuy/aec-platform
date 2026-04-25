@@ -327,7 +327,7 @@ async def generate_report(
     if payload.week_end < payload.week_start:
         raise HTTPException(status_code=400, detail="week_end must be on or after week_start")
 
-    from apps.ml.pipelines.siteeye import generate_weekly_report
+    from ml.pipelines.siteeye import generate_weekly_report
 
     report = await generate_weekly_report(
         organization_id=auth.organization_id,
@@ -379,7 +379,7 @@ async def send_report(
     payload: SendReportRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
 ):
-    from apps.ml.pipelines.siteeye import email_weekly_report
+    from ml.pipelines.siteeye import email_weekly_report
 
     sent = await email_weekly_report(
         organization_id=auth.organization_id,

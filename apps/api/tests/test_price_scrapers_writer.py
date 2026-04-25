@@ -33,6 +33,8 @@ _DB_URL = os.environ.get("COSTPULSE_RLS_DB_URL")
 
 pytestmark = [
     pytest.mark.asyncio,
+    # Gated by `--integration` (see apps/api/tests/conftest.py).
+    pytest.mark.integration,
     pytest.mark.skipif(
         _DB_URL is None,
         reason="COSTPULSE_RLS_DB_URL not set — integration test requires a live DB",

@@ -3,11 +3,15 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import CHAR, Date, ForeignKey, Text
+from sqlalchemy import CHAR, Date, DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
+
+# Postgres columns are `timestamp with time zone`; mirror at the ORM layer so
+# asyncpg round-trips tz-aware datetimes cleanly.
+TZ = DateTime(timezone=True)
 
 
 class Regulation(Base):
@@ -57,7 +61,7 @@ class ComplianceCheck(Base):
     created_by: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class PermitChecklist(Base):
@@ -72,5 +76,5 @@ class PermitChecklist(Base):
     jurisdiction: Mapped[str] = mapped_column(Text, nullable=False)
     project_type: Mapped[str] = mapped_column(Text, nullable=False)
     items: Mapped[list] = mapped_column(JSONB, nullable=False)
-    generated_at: Mapped[datetime] = mapped_column()
-    completed_at: Mapped[datetime | None] = mapped_column()
+    generated_at: Mapped[datetime] = mapped_column(TZ)
+    completed_at: Mapped[datetime | None] = mapped_column(TZ)

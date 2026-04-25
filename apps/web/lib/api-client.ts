@@ -8,9 +8,9 @@
  *     -> Promise<T>                               (data unwrapped)
  *
  *   apiRequestWithMeta<T>(path, { params?, token })
- *     -> Promise<{ data: T; meta: Record<string, unknown> }>
+ *     -> Promise<{ data: T; meta: Meta }>
  */
-import type { Envelope } from "@aec/types/envelope";
+import type { Envelope, Meta } from "@aec/types/envelope";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -68,7 +68,7 @@ async function request<T>(path: string, opts: RequestOptions): Promise<Envelope<
       res.status,
       err?.code ?? String(res.status),
       err?.message ?? res.statusText,
-      err?.field,
+      err?.field ?? undefined,
     );
   }
   return json;
@@ -84,7 +84,7 @@ export async function apiRequest<T>(path: string, opts: RequestOptions): Promise
 export async function apiRequestWithMeta<T>(
   path: string,
   opts: RequestOptions,
-): Promise<{ data: T; meta: Record<string, unknown> }> {
+): Promise<{ data: T; meta: Meta }> {
   const env = await request<T>(path, opts);
-  return { data: env.data as T, meta: (env.meta ?? {}) as Record<string, unknown> };
+  return { data: env.data as T, meta: env.meta ?? {} };
 }

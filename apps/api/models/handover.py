@@ -4,11 +4,14 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
+
+# Postgres columns are `timestamp with time zone`; mirror at the ORM layer.
+TZ = DateTime(timezone=True)
 
 
 class HandoverPackage(Base):
@@ -27,11 +30,11 @@ class HandoverPackage(Base):
     export_file_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL")
     )
-    delivered_at: Mapped[datetime | None] = mapped_column()
+    delivered_at: Mapped[datetime | None] = mapped_column(TZ)
     created_by: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class CloseoutItem(Base):
@@ -55,8 +58,8 @@ class CloseoutItem(Base):
     file_ids: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID(as_uuid=True)), default=list)
     notes: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    updated_at: Mapped[datetime] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column()
+    updated_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class AsBuiltDrawing(Base):
@@ -81,8 +84,8 @@ class AsBuiltDrawing(Base):
     )
     superseded_file_ids: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID(as_uuid=True)), default=list)
     changelog: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
-    last_updated_at: Mapped[datetime] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column()
+    last_updated_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class OmManual(Base):
@@ -110,11 +113,11 @@ class OmManual(Base):
     ai_job_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("ai_jobs.id", ondelete="SET NULL")
     )
-    generated_at: Mapped[datetime] = mapped_column()
+    generated_at: Mapped[datetime] = mapped_column(TZ)
     created_by: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class WarrantyItem(Base):
@@ -143,7 +146,7 @@ class WarrantyItem(Base):
     claim_contact: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
     notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class Defect(Base):
@@ -171,6 +174,6 @@ class Defect(Base):
     reported_by: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
-    reported_at: Mapped[datetime] = mapped_column()
-    resolved_at: Mapped[datetime | None] = mapped_column()
+    reported_at: Mapped[datetime] = mapped_column(TZ)
+    resolved_at: Mapped[datetime | None] = mapped_column(TZ)
     resolution_notes: Mapped[str | None] = mapped_column(Text)

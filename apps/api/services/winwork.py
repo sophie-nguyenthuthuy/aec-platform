@@ -197,8 +197,52 @@ async def mark_outcome(
     if data.actual_fee_vnd is not None:
         notes = f"{notes}\n[actual_fee_vnd] {data.actual_fee_vnd}".strip()
     proposal.notes = notes
+
+    # Won-deal handoff: if this proposal just flipped to 'won' and isn't yet
+    # attached to a project, seed a projects row so downstream modules
+    # (PULSE / COSTPULSE / DRAWBRIDGE / HANDOVER) have something to key off.
+    # Idempotent via the `proposal.project_id is None` check — re-marking a
+    # won proposal won't spawn duplicate projects.
+    if data.status == "won" and proposal.project_id is None:
+        project = await _seed_project_from_proposal(session, proposal, data)
+        proposal.project_id = project.id
+
     await session.flush()
     return proposal
+
+
+async def _seed_project_from_proposal(
+    session: AsyncSession,
+    proposal: Proposal,
+    data: ProposalOutcomeUpdate,
+) -> Project:
+    """Create a projects row from a won proposal.
+
+    Naming: strip the 'Proposal — ' prefix if present so the project reads
+    naturally in PULSE/COSTPULSE.
+    Budget: prefer the actual (won) fee over the quoted total.
+    """
+    name = proposal.title
+    if name.startswith("Proposal — "):
+        name = name[len("Proposal — "):]
+    name = name[:200] or f"Project from proposal {proposal.id}"
+
+    project = Project(
+        id=uuid4(),
+        organization_id=proposal.organization_id,
+        name=name,
+        type=None,  # unknown from a free-form proposal; PULSE can let the user set this
+        status="active",
+        budget_vnd=data.actual_fee_vnd or proposal.total_fee_vnd,
+        metadata_={
+            "seeded_from": "winwork.proposal",
+            "proposal_id": str(proposal.id),
+        },
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(project)
+    await session.flush()
+    return project
 
 
 async def mark_sent(session: AsyncSession, proposal_id: UUID) -> Proposal | None:

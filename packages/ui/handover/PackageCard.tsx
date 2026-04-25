@@ -86,7 +86,8 @@ export function PackageCard({ pkg, href }: PackageCardProps): JSX.Element {
     </div>
   );
 
-  return href ? <Link href={href}>{body}</Link> : body;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- typedRoutes can't infer caller-supplied URL
+  return href ? <Link href={href as any}>{body}</Link> : body;
 }
 
 type StatTone = "slate" | "amber" | "red";

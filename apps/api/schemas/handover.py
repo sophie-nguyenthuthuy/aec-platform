@@ -197,6 +197,34 @@ class AsBuiltDrawing(BaseModel):
     last_updated_at: datetime
 
 
+class PromoteDrawingsRequest(BaseModel):
+    """Sweep the DRAWBRIDGE `documents` table for the package's project and
+    promote the latest-revision drawing of each drawing_number into an
+    as-built. Uses `register_as_built` semantics per drawing, so re-running
+    is idempotent (re-promoting the same revision bumps nothing; promoting a
+    newer one versions + supersedes)."""
+
+    discipline: Discipline | None = None
+    drawing_number_like: str | None = Field(
+        default=None,
+        description="Optional ILIKE filter on drawbridge drawing_number (e.g. 'A-%' for architectural).",
+    )
+
+
+class PromotedDrawingSummary(BaseModel):
+    drawing_code: str
+    action: str  # "created" | "versioned" | "skipped"
+    current_version: int | None = None
+    reason: str | None = None
+
+
+class PromoteDrawingsResponse(BaseModel):
+    package_id: UUID
+    project_id: UUID
+    documents_considered: int
+    promoted: list[PromotedDrawingSummary] = Field(default_factory=list)
+
+
 # ---------- O&M manual ----------
 
 class EquipmentSpec(BaseModel):

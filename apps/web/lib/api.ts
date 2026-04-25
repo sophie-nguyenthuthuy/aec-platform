@@ -48,7 +48,7 @@ export async function apiFetch<T>(path: string, opts: ApiFetchOptions): Promise<
 
   if (!res.ok) {
     const err = json.errors?.[0];
-    throw new ApiError(res.status, err?.code ?? String(res.status), err?.message ?? res.statusText, err?.field);
+    throw new ApiError(res.status, err?.code ?? String(res.status), err?.message ?? res.statusText, err?.field ?? undefined);
   }
 
   return json;

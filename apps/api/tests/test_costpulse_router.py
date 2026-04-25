@@ -391,3 +391,174 @@ async def test_estimate_from_brief_delegates_to_pipeline(client, fake_db, monkey
     pipeline_kwargs = mock.await_args.kwargs
     assert pipeline_kwargs["organization_id"] == ORG_ID
     assert pipeline_kwargs["created_by"] == USER_ID
+
+
+# ---------- COSTPULSE → PULSE variance feed ----------
+
+def _estimate_row(**overrides: Any):
+    """Build a SimpleNamespace that stands in for an Estimate ORM instance.
+
+    The approve_estimate endpoint mutates `.status` and `.approved_by` on the
+    instance it pulled out of the session, so we use SimpleNamespace (not a
+    frozen dict) so attribute assignments work.
+    """
+    base = dict(
+        id=uuid4(),
+        organization_id=ORG_ID,
+        project_id=uuid4(),
+        name="Tower A detailed",
+        version=2,
+        status="in_review",
+        total_vnd=1_100_000_000,
+        confidence="detailed",
+        method="ai_generated",
+        created_by=USER_ID,
+        approved_by=None,
+        created_at=datetime.now(timezone.utc),
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+async def test_approve_estimate_emits_change_order_when_variance_exceeds_threshold(
+    client, fake_db
+):
+    """Second approval on a project with a 10% budget swing emits a draft CO."""
+    from models.pulse import ChangeOrder
+
+    project_id = uuid4()
+    prior = _estimate_row(
+        id=uuid4(),
+        project_id=project_id,
+        name="Tower A preliminary",
+        version=1,
+        status="approved",
+        total_vnd=1_000_000_000,
+    )
+    new = _estimate_row(
+        project_id=project_id,
+        name="Tower A detailed",
+        version=2,
+        status="in_review",
+        total_vnd=1_100_000_000,
+    )
+
+    # (1) SELECT estimate by id+org
+    q1 = MagicMock()
+    q1.scalar_one_or_none.return_value = new
+    fake_db.push_execute(q1)
+    # (2) SELECT prior approved baseline
+    q2 = MagicMock()
+    q2.scalar_one_or_none.return_value = prior
+    fake_db.push_execute(q2)
+    # (3) SELECT existing CO by (project_id, number) — none yet
+    q3 = MagicMock()
+    q3.scalar_one_or_none.return_value = None
+    fake_db.push_execute(q3)
+
+    res = await client.post(f"/api/v1/costpulse/estimates/{new.id}/approve")
+
+    assert res.status_code == 200, res.text
+    cos = [o for o in fake_db.added if isinstance(o, ChangeOrder)]
+    assert len(cos) == 1
+    co = cos[0]
+    assert co.organization_id == ORG_ID
+    assert co.project_id == project_id
+    assert co.status == "draft"
+    assert co.initiator == "costpulse"
+    assert co.cost_impact_vnd == 100_000_000  # +10%
+    assert co.number == f"COST-{new.id.hex[:8].upper()}"
+    assert co.ai_analysis["source"] == "costpulse.estimate_approved"
+    assert co.ai_analysis["prior_estimate_id"] == str(prior.id)
+    assert co.ai_analysis["new_estimate_id"] == str(new.id)
+    assert co.ai_analysis["variance_pct"] == pytest.approx(10.0)
+
+
+async def test_approve_estimate_skips_co_when_variance_below_threshold(
+    client, fake_db
+):
+    """A 1% shift is rounding noise — no change order should fire."""
+    from models.pulse import ChangeOrder
+
+    project_id = uuid4()
+    prior = _estimate_row(
+        id=uuid4(), project_id=project_id, status="approved", total_vnd=1_000_000_000
+    )
+    new = _estimate_row(project_id=project_id, status="in_review", total_vnd=1_010_000_000)
+
+    q1 = MagicMock(); q1.scalar_one_or_none.return_value = new
+    q2 = MagicMock(); q2.scalar_one_or_none.return_value = prior
+    fake_db.push_execute(q1)
+    fake_db.push_execute(q2)
+
+    res = await client.post(f"/api/v1/costpulse/estimates/{new.id}/approve")
+
+    assert res.status_code == 200, res.text
+    assert [o for o in fake_db.added if isinstance(o, ChangeOrder)] == []
+
+
+async def test_approve_estimate_skips_co_when_no_prior_baseline(client, fake_db):
+    """First approval on a project has nothing to compare against."""
+    from models.pulse import ChangeOrder
+
+    new = _estimate_row(status="in_review", total_vnd=1_000_000_000)
+
+    q1 = MagicMock(); q1.scalar_one_or_none.return_value = new
+    q2 = MagicMock(); q2.scalar_one_or_none.return_value = None  # no prior
+    fake_db.push_execute(q1)
+    fake_db.push_execute(q2)
+
+    res = await client.post(f"/api/v1/costpulse/estimates/{new.id}/approve")
+
+    assert res.status_code == 200, res.text
+    assert [o for o in fake_db.added if isinstance(o, ChangeOrder)] == []
+
+
+async def test_approve_estimate_is_idempotent_for_repeated_approval(client, fake_db):
+    """Re-approving an already-approved estimate must not emit a second CO."""
+    from models.pulse import ChangeOrder
+
+    project_id = uuid4()
+    # Already approved: `was_already_approved` guard should short-circuit the
+    # whole variance branch, so we only queue the initial SELECT result.
+    already = _estimate_row(
+        project_id=project_id, status="approved", total_vnd=1_100_000_000
+    )
+    q1 = MagicMock(); q1.scalar_one_or_none.return_value = already
+    fake_db.push_execute(q1)
+
+    res = await client.post(f"/api/v1/costpulse/estimates/{already.id}/approve")
+
+    assert res.status_code == 200, res.text
+    assert [o for o in fake_db.added if isinstance(o, ChangeOrder)] == []
+
+
+async def test_approve_estimate_skips_co_when_duplicate_number_exists(client, fake_db):
+    """Deterministic CO number doubles as idempotency key — a pre-existing row
+    with the same (project_id, number) means this delta was already recorded,
+    so we must not insert again."""
+    from models.pulse import ChangeOrder
+
+    project_id = uuid4()
+    prior = _estimate_row(
+        id=uuid4(), project_id=project_id, status="approved", total_vnd=1_000_000_000
+    )
+    new = _estimate_row(project_id=project_id, status="in_review", total_vnd=1_200_000_000)
+
+    existing_co = SimpleNamespace(
+        id=uuid4(),
+        project_id=project_id,
+        number=f"COST-{new.id.hex[:8].upper()}",
+    )
+
+    q1 = MagicMock(); q1.scalar_one_or_none.return_value = new
+    q2 = MagicMock(); q2.scalar_one_or_none.return_value = prior
+    q3 = MagicMock(); q3.scalar_one_or_none.return_value = existing_co
+    fake_db.push_execute(q1)
+    fake_db.push_execute(q2)
+    fake_db.push_execute(q3)
+
+    res = await client.post(f"/api/v1/costpulse/estimates/{new.id}/approve")
+
+    assert res.status_code == 200, res.text
+    assert [o for o in fake_db.added if isinstance(o, ChangeOrder)] == []

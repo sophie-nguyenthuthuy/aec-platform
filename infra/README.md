@@ -67,3 +67,15 @@ Weights are pulled at startup from `s3://aec-platform-models/siteeye/...`
 
 The API + Arq worker reach the model via the `SITEEYE_RAY_SERVE_URL` env var
 (defaults to `http://siteeye-safety:8000` in-cluster).
+
+### Route prefix
+
+The Dockerfile starts Ray Serve with `--route-prefix=/siteeye-safety`, which
+means the app is served at:
+
+- `GET  /siteeye-safety/health`  — used by the k8s readiness probe
+- `POST /siteeye-safety/infer`   — called by `apps/ml/pipelines/siteeye.py`
+
+If you change the prefix, update **all three** call sites: the Dockerfile
+CMD, the k8s `readinessProbe.httpGet.path` in `infra/k8s/siteeye-safety.yaml`,
+and the URL assembled in `apps/ml/pipelines/siteeye.py::_ray_serve_base()`.

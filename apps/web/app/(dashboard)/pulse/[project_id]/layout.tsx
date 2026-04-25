@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import type { ReactNode } from "react";
 
 const NAV = [
@@ -24,7 +25,7 @@ export default function PulseProjectLayout({
         {NAV.map((n) => (
           <Link
             key={n.slug}
-            href={`${base}/${n.slug}`}
+            href={`${base}/${n.slug}` as Route}
             className="rounded px-2 py-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
           >
             {n.label}
