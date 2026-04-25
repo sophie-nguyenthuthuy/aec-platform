@@ -9,8 +9,12 @@
     "./*": "./*"
   },
   "peerDependencies": {
+    "next": "^14",
     "react": "^18",
     "react-dom": "^18"
+  },
+  "peerDependenciesMeta": {
+    "next": { "optional": true }
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -20,6 +24,7 @@
     "recharts": "^2.12.7"
   },
   "devDependencies": {
+    "next": "14.2.15",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
     "typescript": "^5.4.5"

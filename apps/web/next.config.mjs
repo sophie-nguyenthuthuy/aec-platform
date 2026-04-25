@@ -6,9 +6,12 @@ const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ["@aec/ui", "@aec/types"],
-  experimental: {
-    typedRoutes: true,
-  },
+  // typedRoutes requires `.next/types/` from a prior `next build`. CI runs
+  // typecheck before build, so the strict `Route<"/...">` literal types
+  // aren't generated yet and every literal href becomes a TS error. Re-
+  // enable once the CI step order is build → typecheck (slower but accurate)
+  // or once Next ships standalone typegen.
+  // experimental: { typedRoutes: true },
   // Docker runtime image copies from .next/standalone — requires this.
   // Disabled for local pnpm start (which doesn't support standalone output);
   // re-enable via NEXT_OUTPUT=standalone when building the Docker image.
