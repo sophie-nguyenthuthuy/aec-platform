@@ -105,4 +105,7 @@ pnpm lint
 
 ## License
 
-TBD — currently all rights reserved. Replace this section before first public push.
+[GNU AGPL-3.0](./LICENSE). You're free to read, fork, modify, and self-host this
+code. If you run a modified version as a network-accessible service, AGPL §13
+requires you to offer the modified source to your users. For commercial use that
+needs different terms, please reach out.
