@@ -13,6 +13,7 @@ def register_all() -> None:
         drawbridge,  # noqa: F401
         handover,  # noqa: F401
         pulse,  # noqa: F401
+        schedulepilot,  # noqa: F401
         siteeye,  # noqa: F401
         winwork,  # noqa: F401
     )

@@ -8,6 +8,7 @@
     ".": "./index.ts",
     "./envelope": "./envelope.ts",
     "./winwork": "./winwork.ts",
-    "./projects": "./projects.ts"
+    "./projects": "./projects.ts",
+    "./schedulepilot": "./schedulepilot.ts"
   }
 }
