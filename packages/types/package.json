@@ -9,6 +9,7 @@
     "./envelope": "./envelope.ts",
     "./winwork": "./winwork.ts",
     "./projects": "./projects.ts",
-    "./schedulepilot": "./schedulepilot.ts"
+    "./schedulepilot": "./schedulepilot.ts",
+    "./submittals": "./submittals.ts"
   }
 }

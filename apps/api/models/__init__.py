@@ -15,5 +15,6 @@ def register_all() -> None:
         pulse,  # noqa: F401
         schedulepilot,  # noqa: F401
         siteeye,  # noqa: F401
+        submittals,  # noqa: F401
         winwork,  # noqa: F401
     )
