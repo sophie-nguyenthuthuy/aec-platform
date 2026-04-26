@@ -45,11 +45,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-
-logger = logging.getLogger(__name__)
-
 from schemas.drawbridge import (
     Conflict,
     ConflictScanResponse,
@@ -65,6 +60,10 @@ from schemas.drawbridge import (
     ScheduleRow,
     SourceDocument,
 )
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # Clients
@@ -76,6 +75,10 @@ _ES_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 _RERANKER_ENDPOINT = os.getenv("RERANKER_ENDPOINT")
 _VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
 _RRF_K = 60
+
+# Strong refs for fire-and-forget asyncio tasks — without this set the GC
+# can collect the Task before it finishes, see Python 3.11 release notes.
+_BG_TASKS: set[asyncio.Task[Any]] = set()
 _EMBED_BATCH = 100
 
 
@@ -117,8 +120,13 @@ async def _download_bytes(storage_key: str) -> bytes:
     except Exception:
         local = os.path.join("/tmp", storage_key.replace("/", "_"))
         if os.path.exists(local):
-            with open(local, "rb") as f:
-                return f.read()
+            # Sync read inside `await asyncio.to_thread` to avoid blocking the
+            # event loop on dev-fixture fallback reads.
+            def _read() -> bytes:
+                with open(local, "rb") as f:
+                    return f.read()
+
+            return await asyncio.to_thread(_read)
         return b""
 
 
@@ -309,14 +317,21 @@ async def enqueue_ingest_document(
             "drawbridge ingest: arq unavailable, running inline task for doc=%s",
             document_id,
         )
-        asyncio.create_task(
-            _ingest_document(
-                organization_id=organization_id,
-                document_id=document_id,
-                storage_key=storage_key,
-                mime_type=mime_type,
+        # Fire-and-forget: the inline fallback path doesn't have a real queue
+        # to manage the task lifetime, so we deliberately don't hold a ref.
+        # `_BG_TASKS` keeps a strong reference until the task completes so
+        # Python's GC can't yank it mid-flight, satisfying RUF006.
+        _BG_TASKS.add(
+            task := asyncio.create_task(
+                _ingest_document(
+                    organization_id=organization_id,
+                    document_id=document_id,
+                    storage_key=storage_key,
+                    mime_type=mime_type,
+                )
             )
         )
+        task.add_done_callback(_BG_TASKS.discard)
         return None
 
 

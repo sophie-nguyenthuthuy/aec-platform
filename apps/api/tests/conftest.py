@@ -83,7 +83,7 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture
-def fake_auth() -> AuthContext:
+def fake_auth():
     from middleware.auth import AuthContext
 
     return AuthContext(

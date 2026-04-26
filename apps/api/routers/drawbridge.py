@@ -272,8 +272,6 @@ async def get_document_file(
     read `file_id` → `GET /files/{file_id}/download`, they can hit this
     endpoint directly. Useful for the conflict detail PDF panes.
     """
-    from fastapi.responses import RedirectResponse
-
     doc = await db.get(DocumentModel, document_id)
     if doc is None or doc.organization_id != auth.organization_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
@@ -284,25 +282,6 @@ async def get_document_file(
         url=f"/api/v1/files/{doc.file_id}/download",
         status_code=status.HTTP_307_TEMPORARY_REDIRECT,
     )
-
-
-@router.get("/documents/{document_id}/file")
-async def get_document_file(
-    document_id: UUID,
-    auth: Annotated[AuthContext, Depends(require_auth)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> RedirectResponse:
-    """Short-circuit to the shared `/api/v1/files/{file_id}/download` endpoint.
-
-    UI components (PDFViewer, download buttons) render against a drawing record;
-    this hop lets them use a stable drawbridge URL without knowing the file_id.
-    """
-    doc = await db.get(DocumentModel, document_id)
-    if doc is None or doc.organization_id != auth.organization_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
-    if doc.file_id is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document has no file")
-    return RedirectResponse(url=f"/api/v1/files/{doc.file_id}/download", status_code=307)
 
 
 @router.delete("/documents/{document_id}", response_model=Envelope[dict])

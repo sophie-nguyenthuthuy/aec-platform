@@ -433,7 +433,7 @@ async def render_report_pdf(html: str, *, base_url: str | None = None) -> bytes:
         base_url: Optional base for resolving relative URLs.
 
     Returns:
-        The PDF bytes. Typical size for a weekly report is 40–200 KB.
+        The PDF bytes. Typical size for a weekly report is 40-200 KB.
 
     Raises:
         PDFRendererUnavailable: if WeasyPrint or its native deps are missing.

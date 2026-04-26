@@ -810,7 +810,7 @@ async def generate_om_manual(
                 ),
                 {"id": str(manual_id), "err": str(exc)[:500], "job_id": str(job_id)},
             )
-        raise HTTPException(status_code=502, detail=f"om_manual_pipeline_failed: {exc}")
+        raise HTTPException(status_code=502, detail=f"om_manual_pipeline_failed: {exc}") from exc
 
     new_status = OmManualStatus.ready if equipment else OmManualStatus.failed
     async with TenantAwareSession(auth.organization_id) as session:
@@ -891,7 +891,7 @@ async def extract_warranty(
                 contract_file_ids=payload.contract_file_ids,
             )
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"warranty_extraction_failed: {exc}")
+            raise HTTPException(status_code=502, detail=f"warranty_extraction_failed: {exc}") from exc
 
         created: list[dict] = []
         for item in items:
@@ -1236,7 +1236,7 @@ def _json(value: Any) -> str | None:
 
 
 def _default_serializer(value: Any) -> Any:
-    if isinstance(value, (datetime, date)):
+    if isinstance(value, datetime | date):
         return value.isoformat()
     if isinstance(value, UUID):
         return str(value)

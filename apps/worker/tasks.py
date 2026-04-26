@@ -82,7 +82,7 @@ def bidradar_scrape_source(self, source: str, max_pages: int = 5) -> dict:
         result = _run_async(scrape_and_score_for_all_orgs(source=source, max_pages=max_pages))
     except Exception as exc:
         log.exception("bidradar.scrape_source failed for %s", source)
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc) from exc
     return result
 
 

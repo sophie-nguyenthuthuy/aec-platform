@@ -16,8 +16,6 @@ import os
 from typing import Any
 from uuid import UUID
 
-logger = logging.getLogger(__name__)
-
 from langchain_anthropic import ChatAnthropic
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -36,6 +34,8 @@ from schemas.codeguard import (
 )
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 # ---------- Model / index clients ----------
 

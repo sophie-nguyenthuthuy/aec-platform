@@ -43,6 +43,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 _settings = get_settings()
 
+# Strong refs for fire-and-forget asyncio tasks — without this set the GC
+# can collect the Task before it finishes; see Python 3.11 release notes.
+_BG_TASKS: set[asyncio.Task[None]] = set()
+
 # ---------- Constants ----------
 
 MAX_EDGE_PX = 1024
@@ -138,7 +142,8 @@ async def enqueue_photo_analysis(
             logger.exception("photo analysis job failed")
             await _mark_job(job_id, organization_id, status_="failed", error=str(exc))
 
-    asyncio.create_task(_runner())
+    _BG_TASKS.add(task := asyncio.create_task(_runner()))
+    task.add_done_callback(_BG_TASKS.discard)
     return job_id
 
 
@@ -224,9 +229,7 @@ async def _node_safety(state: PhotoState) -> PhotoState:
         d for d in detections if d.label in SAFETY_INCIDENT_CLASSES and d.confidence >= 0.5
     ]
     if violations:
-        worst = max(
-            violations, key=lambda d: SAFETY_INCIDENT_CLASSES[d.label][1].value == "critical"
-        )
+        max(violations, key=lambda d: SAFETY_INCIDENT_CLASSES[d.label][1].value == "critical")
         state.safety_status = (
             SafetyStatus.critical
             if any(
@@ -271,7 +274,7 @@ async def _node_progress(state: PhotoState) -> PhotoState:
         state.phase = ConstructionPhase(parsed.get("phase")) if parsed.get("phase") else None
     except ValueError:
         state.phase = None
-    if isinstance(parsed.get("overall_completion_hint"), (int, float)):
+    if isinstance(parsed.get("overall_completion_hint"), int | float):
         state.completion_hint = float(parsed["overall_completion_hint"])
     return state
 
@@ -423,7 +426,7 @@ async def _aggregate_progress(*, organization_id: UUID, project_id: UUID) -> Non
             ai = r["ai_analysis"] or {}
             phase = ai.get("phase")
             hint = ai.get("completion_hint")
-            if phase and isinstance(hint, (int, float)):
+            if phase and isinstance(hint, int | float):
                 phase_totals.setdefault(phase, []).append(float(hint))
             photo_ids.append(str(r["id"]))
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -249,7 +250,7 @@ async def trigger_scrape(
     try:
         scraped = await scrape_source(source=payload.source.value, max_pages=payload.max_pages)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Scrape failed: {exc}")
+        raise HTTPException(status_code=502, detail=f"Scrape failed: {exc}") from exc
 
     new_count = 0
     tender_ids: list[UUID] = []
@@ -301,7 +302,7 @@ async def trigger_scrape(
     await db.commit()
 
     for tid, (title, description) in tender_texts.items():
-        try:
+        with contextlib.suppress(Exception):
             await embed_tender(
                 db=db,
                 organization_id=auth.organization_id,
@@ -309,8 +310,6 @@ async def trigger_scrape(
                 title=title,
                 description=description,
             )
-        except Exception:
-            pass
     if tender_texts:
         await db.commit()
 
@@ -571,7 +570,7 @@ async def send_digest(
             match_ids=top_match_ids,
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Digest send failed: {exc}")
+        raise HTTPException(status_code=502, detail=f"Digest send failed: {exc}") from exc
 
     digest = TenderDigest(
         id=uuid4(),

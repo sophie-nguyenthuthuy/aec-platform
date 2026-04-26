@@ -296,8 +296,8 @@ async def win_rate_analytics(session: AsyncSession) -> WinRateAnalytics:
         .order_by(month_trunc)
     )
     by_month = [
-        MonthlyWinRate(month=m, total=int(t), won=int(w), lost=int(l))
-        for m, t, w, l in (await session.execute(by_month_stmt)).all()
+        MonthlyWinRate(month=m, total=int(t), won=int(w), lost=int(losses))
+        for m, t, w, losses in (await session.execute(by_month_stmt)).all()
     ]
 
     return WinRateAnalytics(

@@ -64,7 +64,7 @@ async def estimate_from_brief(
             payload=payload,
         )
     except Exception as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Estimate pipeline failed: {exc}")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Estimate pipeline failed: {exc}") from exc
 
     return ok(result.model_dump(mode="json"))
 
@@ -86,7 +86,7 @@ async def estimate_from_drawings(
             payload=payload,
         )
     except Exception as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Drawing pipeline failed: {exc}")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Drawing pipeline failed: {exc}") from exc
 
     return ok(result.model_dump(mode="json"))
 
