@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID
 
@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # ---------- Enums ----------
 
 
-class RegulationCategory(str, Enum):
+class RegulationCategory(StrEnum):
     fire_safety = "fire_safety"
     accessibility = "accessibility"
     structure = "structure"
@@ -20,32 +20,32 @@ class RegulationCategory(str, Enum):
     energy = "energy"
 
 
-class CheckType(str, Enum):
+class CheckType(StrEnum):
     manual_query = "manual_query"
     auto_scan = "auto_scan"
     permit_checklist = "permit_checklist"
 
 
-class CheckStatus(str, Enum):
+class CheckStatus(StrEnum):
     pending = "pending"
     running = "running"
     completed = "completed"
     failed = "failed"
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     critical = "critical"
     major = "major"
     minor = "minor"
 
 
-class FindingStatus(str, Enum):
+class FindingStatus(StrEnum):
     fail = "FAIL"
     warn = "WARN"
     pass_ = "PASS"
 
 
-class ChecklistItemStatus(str, Enum):
+class ChecklistItemStatus(StrEnum):
     pending = "pending"
     in_progress = "in_progress"
     done = "done"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 # ---------- Enums ----------
 
 
-class TenderSource(str, Enum):
+class TenderSource(StrEnum):
     mua_sam_cong_vn = "mua-sam-cong.gov.vn"
     philgeps_ph = "philgeps.gov.ph"
     egp_th = "egp.go.th"
@@ -21,14 +21,14 @@ class TenderSource(str, Enum):
     other = "other"
 
 
-class MatchStatus(str, Enum):
+class MatchStatus(StrEnum):
     new = "new"
     saved = "saved"
     pursuing = "pursuing"
     passed = "passed"
 
 
-class CompetitionLevel(str, Enum):
+class CompetitionLevel(StrEnum):
     low = "low"
     moderate = "moderate"
     high = "high"

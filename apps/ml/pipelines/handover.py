@@ -218,7 +218,7 @@ async def generate_om_manual(
                         task=str(task.get("task") or "").strip(),
                         frequency=str(task.get("frequency") or "yearly"),
                         duration_minutes=int(duration)
-                        if isinstance(duration, (int, float))
+                        if isinstance(duration, int | float)
                         else None,
                         tools=[str(t) for t in (task.get("tools") or [])],
                         safety=task.get("safety"),
@@ -296,7 +296,7 @@ async def extract_warranty_items(
         period = item.get("warranty_period_months")
         start = _parse_iso_date(item.get("start_date"))
         expiry: date | None = None
-        if isinstance(period, (int, float)) and start:
+        if isinstance(period, int | float) and start:
             expiry = start + timedelta(days=int(period) * 30)
 
         contract_file_id = contract_file_ids[i % len(contract_file_ids)]
@@ -309,7 +309,7 @@ async def extract_warranty_items(
                 category=item.get("category"),
                 vendor=item.get("vendor"),
                 contract_file_id=contract_file_id,
-                warranty_period_months=int(period) if isinstance(period, (int, float)) else None,
+                warranty_period_months=int(period) if isinstance(period, int | float) else None,
                 start_date=start,
                 expiry_date=expiry,
                 coverage=item.get("coverage"),

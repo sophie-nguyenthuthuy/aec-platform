@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -12,14 +12,14 @@ from pydantic import BaseModel, ConfigDict, Field
 # ---------- Enums ----------
 
 
-class PackageStatus(str, Enum):
+class PackageStatus(StrEnum):
     draft = "draft"
     in_review = "in_review"
     approved = "approved"
     delivered = "delivered"
 
 
-class CloseoutCategory(str, Enum):
+class CloseoutCategory(StrEnum):
     drawings = "drawings"
     documents = "documents"
     certificates = "certificates"
@@ -30,14 +30,14 @@ class CloseoutCategory(str, Enum):
     other = "other"
 
 
-class CloseoutStatus(str, Enum):
+class CloseoutStatus(StrEnum):
     pending = "pending"
     in_progress = "in_progress"
     done = "done"
     not_applicable = "not_applicable"
 
 
-class Discipline(str, Enum):
+class Discipline(StrEnum):
     architecture = "architecture"
     structure = "structure"
     mep = "mep"
@@ -49,21 +49,21 @@ class Discipline(str, Enum):
     interior = "interior"
 
 
-class OmManualStatus(str, Enum):
+class OmManualStatus(StrEnum):
     draft = "draft"
     generating = "generating"
     ready = "ready"
     failed = "failed"
 
 
-class WarrantyStatus(str, Enum):
+class WarrantyStatus(StrEnum):
     active = "active"
     expiring = "expiring"
     expired = "expired"
     claimed = "claimed"
 
 
-class DefectStatus(str, Enum):
+class DefectStatus(StrEnum):
     open = "open"
     assigned = "assigned"
     in_progress = "in_progress"
@@ -71,7 +71,7 @@ class DefectStatus(str, Enum):
     rejected = "rejected"
 
 
-class DefectPriority(str, Enum):
+class DefectPriority(StrEnum):
     low = "low"
     medium = "medium"
     high = "high"

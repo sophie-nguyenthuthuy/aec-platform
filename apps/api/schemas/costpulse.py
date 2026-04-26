@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID
 
@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # ---------- Enums ----------
 
 
-class MaterialCategory(str, Enum):
+class MaterialCategory(StrEnum):
     concrete = "concrete"
     steel = "steel"
     finishing = "finishing"
@@ -23,38 +23,38 @@ class MaterialCategory(str, Enum):
     other = "other"
 
 
-class EstimateStatus(str, Enum):
+class EstimateStatus(StrEnum):
     draft = "draft"
     approved = "approved"
     superseded = "superseded"
 
 
-class EstimateConfidence(str, Enum):
+class EstimateConfidence(StrEnum):
     rough_order = "rough_order"
     preliminary = "preliminary"
     detailed = "detailed"
 
 
-class EstimateMethod(str, Enum):
+class EstimateMethod(StrEnum):
     ai_generated = "ai_generated"
     manual = "manual"
     imported = "imported"
 
 
-class RfqStatus(str, Enum):
+class RfqStatus(StrEnum):
     draft = "draft"
     sent = "sent"
     responding = "responding"
     closed = "closed"
 
 
-class PriceSource(str, Enum):
+class PriceSource(StrEnum):
     government = "government"
     supplier = "supplier"
     crowdsource = "crowdsource"
 
 
-class BoqItemSource(str, Enum):
+class BoqItemSource(StrEnum):
     ai_extracted = "ai_extracted"
     manual = "manual"
     price_db = "price_db"

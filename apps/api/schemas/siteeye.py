@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID
 
@@ -12,13 +12,13 @@ from pydantic import BaseModel, ConfigDict, Field
 # ---------- Enums ----------
 
 
-class SafetyStatus(str, Enum):
+class SafetyStatus(StrEnum):
     clear = "clear"
     warning = "warning"
     critical = "critical"
 
 
-class IncidentType(str, Enum):
+class IncidentType(StrEnum):
     no_ppe = "no_ppe"
     unsafe_scaffold = "unsafe_scaffold"
     open_trench = "open_trench"
@@ -26,21 +26,21 @@ class IncidentType(str, Enum):
     electrical_hazard = "electrical_hazard"
 
 
-class IncidentSeverity(str, Enum):
+class IncidentSeverity(StrEnum):
     low = "low"
     medium = "medium"
     high = "high"
     critical = "critical"
 
 
-class IncidentStatus(str, Enum):
+class IncidentStatus(StrEnum):
     open = "open"
     acknowledged = "acknowledged"
     resolved = "resolved"
     dismissed = "dismissed"
 
 
-class ConstructionPhase(str, Enum):
+class ConstructionPhase(StrEnum):
     site_prep = "site_prep"
     foundation = "foundation"
     structure = "structure"

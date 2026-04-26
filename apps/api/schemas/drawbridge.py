@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID
 
@@ -12,14 +12,14 @@ from pydantic import BaseModel, ConfigDict, Field
 # ---------- Enums ----------
 
 
-class Discipline(str, Enum):
+class Discipline(StrEnum):
     architectural = "architectural"
     structural = "structural"
     mep = "mep"
     civil = "civil"
 
 
-class DocType(str, Enum):
+class DocType(StrEnum):
     drawing = "drawing"
     spec = "spec"
     report = "report"
@@ -28,14 +28,14 @@ class DocType(str, Enum):
     submittal = "submittal"
 
 
-class ProcessingStatus(str, Enum):
+class ProcessingStatus(StrEnum):
     pending = "pending"
     processing = "processing"
     ready = "ready"
     failed = "failed"
 
 
-class ChunkType(str, Enum):
+class ChunkType(StrEnum):
     text = "text"
     table = "table"
     schedule = "schedule"
@@ -43,32 +43,32 @@ class ChunkType(str, Enum):
     dimension = "dimension"
 
 
-class ConflictStatus(str, Enum):
+class ConflictStatus(StrEnum):
     open = "open"
     resolved = "resolved"
     dismissed = "dismissed"
 
 
-class ConflictSeverity(str, Enum):
+class ConflictSeverity(StrEnum):
     critical = "critical"
     major = "major"
     minor = "minor"
 
 
-class ConflictType(str, Enum):
+class ConflictType(StrEnum):
     dimension = "dimension"
     material = "material"
     structural = "structural"
     elevation = "elevation"
 
 
-class RfiStatus(str, Enum):
+class RfiStatus(StrEnum):
     open = "open"
     answered = "answered"
     closed = "closed"
 
 
-class RfiPriority(str, Enum):
+class RfiPriority(StrEnum):
     low = "low"
     normal = "normal"
     high = "high"

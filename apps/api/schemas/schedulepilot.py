@@ -8,7 +8,7 @@ for the endpoints that operate on the schedule rather than a single row
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -17,27 +17,27 @@ from pydantic import BaseModel, ConfigDict, Field
 # ---------- Enums ----------
 
 
-class ScheduleStatus(str, Enum):
+class ScheduleStatus(StrEnum):
     draft = "draft"
     baselined = "baselined"
     active = "active"
     archived = "archived"
 
 
-class ActivityType(str, Enum):
+class ActivityType(StrEnum):
     task = "task"
     milestone = "milestone"
     summary = "summary"
 
 
-class ActivityStatus(str, Enum):
+class ActivityStatus(StrEnum):
     not_started = "not_started"
     in_progress = "in_progress"
     complete = "complete"
     on_hold = "on_hold"
 
 
-class DependencyType(str, Enum):
+class DependencyType(StrEnum):
     fs = "fs"
     ss = "ss"
     ff = "ff"

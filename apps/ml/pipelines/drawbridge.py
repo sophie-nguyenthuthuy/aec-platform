@@ -118,16 +118,17 @@ async def _download_bytes(storage_key: str) -> bytes:
         obj = s3.get_object(Bucket=settings.s3_bucket, Key=storage_key)
         return obj["Body"].read()
     except Exception:
+        # All sync I/O (exists + read) happens inside one to_thread call so
+        # nothing blocks the event loop on dev-fixture fallback reads.
         local = os.path.join("/tmp", storage_key.replace("/", "_"))
-        if os.path.exists(local):
-            # Sync read inside `await asyncio.to_thread` to avoid blocking the
-            # event loop on dev-fixture fallback reads.
-            def _read() -> bytes:
-                with open(local, "rb") as f:
-                    return f.read()
 
-            return await asyncio.to_thread(_read)
-        return b""
+        def _read_local() -> bytes:
+            if not os.path.exists(local):
+                return b""
+            with open(local, "rb") as f:
+                return f.read()
+
+        return await asyncio.to_thread(_read_local)
 
 
 def _extract_pdf_blocks(raw: bytes) -> list[PageBlock]:

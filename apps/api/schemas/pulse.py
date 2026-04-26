@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID
 
@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # ---------- Enums ----------
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     todo = "todo"
     in_progress = "in_progress"
     review = "review"
@@ -20,46 +20,46 @@ class TaskStatus(str, Enum):
     blocked = "blocked"
 
 
-class Priority(str, Enum):
+class Priority(StrEnum):
     low = "low"
     normal = "normal"
     high = "high"
     urgent = "urgent"
 
 
-class Phase(str, Enum):
+class Phase(StrEnum):
     design = "design"
     permit = "permit"
     construction = "construction"
     closeout = "closeout"
 
 
-class MilestoneStatus(str, Enum):
+class MilestoneStatus(StrEnum):
     upcoming = "upcoming"
     achieved = "achieved"
     missed = "missed"
 
 
-class ChangeOrderStatus(str, Enum):
+class ChangeOrderStatus(StrEnum):
     draft = "draft"
     submitted = "submitted"
     approved = "approved"
     rejected = "rejected"
 
 
-class ChangeOrderInitiator(str, Enum):
+class ChangeOrderInitiator(StrEnum):
     client = "client"
     contractor = "contractor"
     designer = "designer"
 
 
-class ReportStatus(str, Enum):
+class ReportStatus(StrEnum):
     draft = "draft"
     sent = "sent"
     archived = "archived"
 
 
-class RAG(str, Enum):
+class RAG(StrEnum):
     green = "green"
     amber = "amber"
     red = "red"
