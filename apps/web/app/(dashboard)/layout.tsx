@@ -12,6 +12,10 @@ const NAV: Array<{ href: Route; label: string; section?: string }> = [
   { href: "/costpulse", label: "CostPulse" },
   { section: "Giai đoạn thi công", href: "/pulse", label: "Pulse" },
   { href: "/siteeye", label: "SiteEye" },
+  { href: "/schedule", label: "SchedulePilot" },
+  { href: "/submittals", label: "Submittals" },
+  { href: "/dailylog", label: "Nhật ký" },
+  { href: "/changeorder", label: "Change orders" },
   { section: "Bàn giao", href: "/handover", label: "Handover" },
 ];
 

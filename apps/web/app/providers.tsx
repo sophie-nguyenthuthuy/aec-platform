@@ -8,7 +8,9 @@ import { SessionCtx, type SessionContext } from "@/lib/auth-context";
 
 interface ProvidersProps {
   children: ReactNode;
-  session: SessionContext;
+  /** null on public pages (e.g. /login). Authenticated pages assert via
+   *  `useSession()` which throws if session is missing. */
+  session: SessionContext | null;
   locale: string;
   messages: AbstractIntlMessages;
 }

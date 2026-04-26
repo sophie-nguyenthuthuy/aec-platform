@@ -100,7 +100,7 @@ class Conflict(Base):
     )
     ai_explanation: Mapped[str | None] = mapped_column(Text)
     resolution_notes: Mapped[str | None] = mapped_column(Text)
-    detected_at: Mapped[datetime] = mapped_column(TZ)
+    detected_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(TZ)
     resolved_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
 

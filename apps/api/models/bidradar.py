@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import CHAR, BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import CHAR, BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -35,7 +35,7 @@ class Tender(Base):
     description: Mapped[str | None] = mapped_column(Text)
     raw_url: Mapped[str | None] = mapped_column(Text)
     raw_payload: Mapped[dict | None] = mapped_column(JSONB)
-    scraped_at: Mapped[datetime] = mapped_column(TZ)
+    scraped_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class FirmProfile(Base):
@@ -53,7 +53,7 @@ class FirmProfile(Base):
     active_capacity_pct: Mapped[float | None] = mapped_column(Numeric)
     past_wins: Mapped[list] = mapped_column(JSONB, default=list)
     keywords: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
-    updated_at: Mapped[datetime] = mapped_column(TZ)
+    updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class TenderMatch(Base):
@@ -75,7 +75,7 @@ class TenderMatch(Base):
     proposal_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     reviewed_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     reviewed_at: Mapped[datetime | None] = mapped_column(TZ)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class TenderDigest(Base):
@@ -89,4 +89,4 @@ class TenderDigest(Base):
     top_match_ids: Mapped[list[UUID] | None] = mapped_column(ARRAY(PGUUID(as_uuid=True)))
     sent_to: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     sent_at: Mapped[datetime | None] = mapped_column(TZ)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())

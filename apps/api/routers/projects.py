@@ -20,23 +20,35 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.envelope import ok, paginated
 from db.deps import get_db
 from middleware.auth import AuthContext, require_auth
+from models.changeorder import ChangeOrderCandidate
 from models.codeguard import ComplianceCheck, PermitChecklist
 from models.core import Project
 from models.costpulse import Estimate
+from models.dailylog import DailyLog, DailyLogObservation
 from models.drawbridge import Conflict, Document, Rfi
 from models.handover import Defect, HandoverPackage, WarrantyItem
 from models.pulse import ChangeOrder, Milestone, Task
+from models.schedulepilot import Activity as ScheduleActivity
+from models.schedulepilot import (
+    Schedule,
+    ScheduleRiskAssessment,
+)
 from models.siteeye import SafetyIncident, SiteVisit
+from models.submittals import Submittal
 from models.winwork import Proposal
 from schemas.projects import (
+    ChangeorderStatus,
     CodeguardStatus,
     CostpulseStatus,
+    DailylogStatus,
     DrawbridgeStatus,
     HandoverStatus,
     ProjectDetail,
     ProjectSummary,
     PulseStatus,
+    SchedulepilotStatus,
     SiteeyeStatus,
+    SubmittalsStatus,
     WinworkStatus,
 )
 
@@ -161,6 +173,10 @@ async def get_project_detail(
     detail.handover = await _handover_status(db, project_id)
     detail.siteeye = await _siteeye_status(db, project_id)
     detail.codeguard = await _codeguard_status(db, project_id)
+    detail.schedulepilot = await _schedulepilot_status(db, project_id)
+    detail.submittals = await _submittals_status(db, project_id)
+    detail.dailylog = await _dailylog_status(db, project_id)
+    detail.changeorder = await _changeorder_status(db, project_id)
 
     return ok(detail.model_dump(mode="json"))
 
@@ -324,4 +340,156 @@ async def _codeguard_status(db: AsyncSession, project_id: UUID) -> CodeguardStat
     return CodeguardStatus(
         compliance_check_count=int(checks or 0),
         permit_checklist_count=int(permits or 0),
+    )
+
+
+async def _schedulepilot_status(db: AsyncSession, project_id: UUID) -> SchedulepilotStatus:
+    """Roll up SchedulePilot counters for the project hub.
+
+    `behind_schedule_count` and `percent_complete` come from the activity
+    rows directly. `on_critical_path_count` and `overall_slip_days` come
+    from the LATEST risk assessment per schedule (if any) — falling back to
+    zero when no assessment has been generated yet.
+    """
+    sched_count = (await db.execute(select(func.count()).where(Schedule.project_id == project_id))).scalar_one()
+
+    activity_row = (
+        await db.execute(
+            select(
+                func.count().label("activity_count"),
+                func.coalesce(func.avg(ScheduleActivity.percent_complete), 0).label("avg_pct"),
+                func.count()
+                .filter(
+                    ScheduleActivity.baseline_finish.is_not(None),
+                    ScheduleActivity.planned_finish > ScheduleActivity.baseline_finish,
+                )
+                .label("behind"),
+            )
+            .select_from(ScheduleActivity)
+            .join(Schedule, Schedule.id == ScheduleActivity.schedule_id)
+            .where(Schedule.project_id == project_id)
+        )
+    ).one()
+
+    # Latest assessment per schedule — sum critical-path codes across them.
+    cpm_row = (
+        await db.execute(
+            select(func.coalesce(func.max(ScheduleRiskAssessment.overall_slip_days), 0).label("slip"))
+            .select_from(ScheduleRiskAssessment)
+            .join(Schedule, Schedule.id == ScheduleRiskAssessment.schedule_id)
+            .where(Schedule.project_id == project_id)
+        )
+    ).one()
+
+    on_cpm = (
+        await db.execute(
+            select(func.count())
+            .select_from(ScheduleActivity)
+            .join(Schedule, Schedule.id == ScheduleActivity.schedule_id)
+            .where(
+                Schedule.project_id == project_id,
+                ScheduleActivity.code.in_(
+                    select(func.unnest(ScheduleRiskAssessment.critical_path_codes))
+                    .select_from(ScheduleRiskAssessment)
+                    .join(Schedule, Schedule.id == ScheduleRiskAssessment.schedule_id)
+                    .where(Schedule.project_id == project_id)
+                    .scalar_subquery()
+                ),
+            )
+        )
+    ).scalar_one()
+
+    return SchedulepilotStatus(
+        schedule_count=int(sched_count or 0),
+        activity_count=int(activity_row.activity_count or 0),
+        behind_schedule_count=int(activity_row.behind or 0),
+        on_critical_path_count=int(on_cpm or 0),
+        overall_slip_days=int(cpm_row.slip or 0),
+        percent_complete=float(activity_row.avg_pct or 0),
+    )
+
+
+async def _submittals_status(db: AsyncSession, project_id: UUID) -> SubmittalsStatus:
+    row = (
+        await db.execute(
+            select(
+                func.count()
+                .filter(Submittal.status.in_(["pending_review", "under_review", "revise_resubmit"]))
+                .label("open"),
+                func.count().filter(Submittal.status == "revise_resubmit").label("revise"),
+                func.count().filter(Submittal.status == "approved").label("approved"),
+                func.count().filter(Submittal.ball_in_court == "designer").label("designer"),
+                func.count().filter(Submittal.ball_in_court == "contractor").label("contractor"),
+            ).where(Submittal.project_id == project_id)
+        )
+    ).one()
+    return SubmittalsStatus(
+        open_count=int(row.open or 0),
+        revise_resubmit_count=int(row.revise or 0),
+        approved_count=int(row.approved or 0),
+        designer_court_count=int(row.designer or 0),
+        contractor_court_count=int(row.contractor or 0),
+    )
+
+
+async def _dailylog_status(db: AsyncSession, project_id: UUID) -> DailylogStatus:
+    counts = (
+        await db.execute(
+            select(
+                func.count().label("log_count"),
+                func.max(DailyLog.log_date).label("last_log_date"),
+            ).where(DailyLog.project_id == project_id)
+        )
+    ).one()
+
+    obs_row = (
+        await db.execute(
+            select(
+                func.count().filter(DailyLogObservation.status.in_(["open", "in_progress"])).label("open"),
+                func.count().filter(DailyLogObservation.severity.in_(["high", "critical"])).label("high"),
+            )
+            .select_from(DailyLogObservation)
+            .join(DailyLog, DailyLog.id == DailyLogObservation.log_id)
+            .where(DailyLog.project_id == project_id)
+        )
+    ).one()
+
+    return DailylogStatus(
+        log_count=int(counts.log_count or 0),
+        open_observation_count=int(obs_row.open or 0),
+        high_severity_observation_count=int(obs_row.high or 0),
+        last_log_date=counts.last_log_date,
+    )
+
+
+async def _changeorder_status(db: AsyncSession, project_id: UUID) -> ChangeorderStatus:
+    co_row = (
+        await db.execute(
+            select(
+                func.count().label("total"),
+                func.count().filter(ChangeOrder.status.in_(["draft", "submitted", "reviewed"])).label("open"),
+                func.count().filter(ChangeOrder.status == "approved").label("approved"),
+                func.coalesce(func.sum(ChangeOrder.cost_impact_vnd), 0).label("cost"),
+                func.coalesce(func.sum(ChangeOrder.schedule_impact_days), 0).label("days"),
+            ).where(ChangeOrder.project_id == project_id)
+        )
+    ).one()
+
+    pending_candidates = (
+        await db.execute(
+            select(func.count()).where(
+                ChangeOrderCandidate.project_id == project_id,
+                ChangeOrderCandidate.accepted_co_id.is_(None),
+                ChangeOrderCandidate.rejected_at.is_(None),
+            )
+        )
+    ).scalar_one()
+
+    return ChangeorderStatus(
+        total_count=int(co_row.total or 0),
+        open_count=int(co_row.open or 0),
+        approved_count=int(co_row.approved or 0),
+        pending_candidates=int(pending_candidates or 0),
+        total_cost_impact_vnd=int(co_row.cost or 0),
+        total_schedule_impact_days=int(co_row.days or 0),
     )

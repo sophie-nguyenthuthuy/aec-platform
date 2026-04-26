@@ -161,7 +161,22 @@ jobs:
         # tests are deselected (not skipped). The Postgres + Redis service
         # containers above plus the alembic step (which provisions aec_app)
         # satisfy every requirement.
-        run: pytest --integration -q
+        #
+        # `--junitxml` writes a structured report into test-results/ so the
+        # upload-artifact step below has something to publish on failure.
+        # Mirrors the Playwright trace upload in the Node job.
+        run: pytest --integration -q --junitxml=test-results/junit.xml
+
+      # Upload pytest results when the job fails so a CI-only flake doesn't
+      # require a re-run with extra logging. Default retention keeps disk
+      # usage bounded; 7 days is enough to triage.
+      - name: Upload pytest results (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: apps/api/test-results/
+          retention-days: 7
 
   terraform:
     name: Terraform — fmt + validate

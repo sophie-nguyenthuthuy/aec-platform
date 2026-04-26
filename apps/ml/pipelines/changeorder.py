@@ -3,7 +3,7 @@
 Two operations:
 
   1. **Extract candidates** — given an RFI's subject+description or a pasted
-     email body, the LLM proposes 0–3 ChangeOrder candidates. Each
+     email body, the LLM proposes 0-3 ChangeOrder candidates. Each
      candidate is a structured proposal: title, description, line items
      (with cost & schedule estimates), an overall confidence percentage,
      and a short rationale citing the source. The router persists each
@@ -17,6 +17,7 @@ Two operations:
 
 Both calls degrade gracefully without ANTHROPIC_API_KEY.
 """
+
 from __future__ import annotations
 
 import json
@@ -146,9 +147,7 @@ async def extract_candidates(
                 "description": description,
                 "line_items": line_items,
                 "cost_impact_vnd_estimate": _opt_int(c.get("cost_impact_vnd_estimate")),
-                "schedule_impact_days_estimate": _opt_int(
-                    c.get("schedule_impact_days_estimate")
-                ),
+                "schedule_impact_days_estimate": _opt_int(c.get("schedule_impact_days_estimate")),
                 "confidence_pct": _opt_int(c.get("confidence_pct")),
                 "rationale": (str(c.get("rationale", "") or "")[:480] or None),
             }
@@ -203,9 +202,7 @@ async def analyze_impact(
             or 0
         ),
         "rollup_method": "sum_cost+max_days" if line_items else "passthrough",
-        "assumptions": ["Heuristic rollup (no LLM)"]
-        if not os.getenv("ANTHROPIC_API_KEY")
-        else [],
+        "assumptions": ["Heuristic rollup (no LLM)"] if not os.getenv("ANTHROPIC_API_KEY") else [],
         "confidence_pct": 50,
         "summary": "Heuristic rollup",
         "model_version": _ANALYZE_MODEL_VERSION + "+fallback",
@@ -222,9 +219,7 @@ async def analyze_impact(
         return fallback
 
     llm = ChatAnthropic(model=_ANTHROPIC_MODEL, temperature=0.1, max_tokens=512)
-    prompt = ChatPromptTemplate.from_messages(
-        [("system", _ANALYZE_PROMPT), ("human", "{payload}")]
-    )
+    prompt = ChatPromptTemplate.from_messages([("system", _ANALYZE_PROMPT), ("human", "{payload}")])
     chain = prompt | llm | JsonOutputParser()
     try:
         out = await chain.ainvoke({"payload": payload})
@@ -236,9 +231,7 @@ async def analyze_impact(
         "cost_impact_vnd": _opt_int(out.get("cost_impact_vnd")) or 0,
         "schedule_impact_days": _opt_int(out.get("schedule_impact_days")) or 0,
         "rollup_method": str(out.get("rollup_method", "") or "")[:60] or "unknown",
-        "assumptions": [
-            str(a)[:240] for a in (out.get("assumptions") or [])[:6] if a
-        ],
+        "assumptions": [str(a)[:240] for a in (out.get("assumptions") or [])[:6] if a],
         "confidence_pct": _opt_int(out.get("confidence_pct")),
         "summary": str(out.get("summary", "") or "")[:480],
         "model_version": _ANALYZE_MODEL_VERSION,
@@ -278,4 +271,4 @@ def _normalise_line_kind(v: Any) -> str:
     return s if s in ("add", "delete", "substitute") else "add"
 
 
-__all__ = ["extract_candidates", "analyze_impact"]
+__all__ = ["analyze_impact", "extract_candidates"]

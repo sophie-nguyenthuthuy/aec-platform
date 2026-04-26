@@ -21,6 +21,8 @@ import { useIsWatching, useToggleWatch } from "@/hooks/notifications";
 import { useProject } from "@/hooks/projects";
 import type { ProjectDetail } from "@aec/types/projects";
 
+import { AskAiPanel } from "./AskAiPanel";
+
 const STATUS_BADGE: Record<string, string> = {
   planning: "bg-slate-100 text-slate-700",
   design: "bg-indigo-100 text-indigo-700",
@@ -196,6 +198,11 @@ export default function ProjectDetailPage() {
         />
         <RiskCard project={project} />
       </div>
+
+      {/* Floating Ask-AI button + slide-over panel. Self-contained
+          (manages its own open state + chat history); zero extra
+          plumbing on this page. */}
+      <AskAiPanel projectId={project.id} />
     </div>
   );
 }

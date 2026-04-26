@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import CHAR, Date, DateTime, ForeignKey, Text
+from sqlalchemy import CHAR, Date, DateTime, ForeignKey, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -56,7 +56,7 @@ class ComplianceCheck(Base):
     findings: Mapped[list | None] = mapped_column(JSONB)
     regulations_referenced: Mapped[list[UUID] | None] = mapped_column(ARRAY(PGUUID(as_uuid=True)))
     created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class PermitChecklist(Base):
@@ -69,5 +69,5 @@ class PermitChecklist(Base):
     jurisdiction: Mapped[str] = mapped_column(Text, nullable=False)
     project_type: Mapped[str] = mapped_column(Text, nullable=False)
     items: Mapped[list] = mapped_column(JSONB, nullable=False)
-    generated_at: Mapped[datetime] = mapped_column(TZ)
+    generated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(TZ)

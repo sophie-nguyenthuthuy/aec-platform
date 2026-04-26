@@ -250,6 +250,110 @@ async def codeguard_scan(
     return ok(response)
 
 
+@router.post("/scan/stream")
+async def codeguard_scan_stream(
+    payload: ScanRequest,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> StreamingResponse:
+    """SSE-streamed compliance scan.
+
+    Wire format:
+
+        event: category_start
+        data: {"category": "fire_safety"}
+
+        event: category_done
+        data: {"category": "fire_safety",
+               "findings": [{status, severity, ..., citation}, ...]}
+
+        event: done
+        data: {"check_id": "<uuid>", "total": N,
+               "pass_count": ..., "warn_count": ..., "fail_count": ...}
+
+        event: error
+        data: {"message": "..."}
+
+    Per-category events let the frontend render findings as each
+    category finishes — for the slowest endpoint in the module
+    (5 sequential LLM calls), that's the difference between "stare at
+    a spinner for 30s" and "watch findings populate live."
+
+    `done` is terminal and only fires on success. `error` is also
+    terminal. `reg_ids` is rolled into the persisted ComplianceCheck
+    row but NOT echoed in `done` (the frontend doesn't need it).
+    """
+    from ml.pipelines.codeguard import auto_scan_project_stream
+
+    async def sse_stream():
+        try:
+            all_findings: list = []
+            all_reg_ids: list = []
+
+            async for event_name, event_payload in auto_scan_project_stream(
+                db=db,
+                parameters=payload.parameters,
+                categories=payload.categories,
+            ):
+                if event_name == "category_start":
+                    yield (f"event: category_start\ndata: {json.dumps({'category': event_payload.value})}\n\n")
+                elif event_name == "category_done":
+                    cat = event_payload["category"]
+                    findings = event_payload["findings"]
+                    all_findings.extend(findings)
+                    all_reg_ids.extend(event_payload["reg_ids"])
+                    body = {
+                        "category": cat.value,
+                        "findings": [f.model_dump(mode="json") for f in findings],
+                    }
+                    yield f"event: category_done\ndata: {json.dumps(body)}\n\n"
+                elif event_name == "error":
+                    yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
+                    return
+
+            # All categories done — persist the ComplianceCheck row
+            # before emitting the terminal `done`. Mirrors the
+            # non-streaming /scan persistence shape exactly so audit
+            # consumers (history page, /checks endpoint) treat both
+            # paths identically.
+            pass_count = sum(1 for f in all_findings if f.status == "PASS")
+            warn_count = sum(1 for f in all_findings if f.status == "WARN")
+            fail_count = sum(1 for f in all_findings if f.status == "FAIL")
+
+            check = ComplianceCheckModel(
+                id=uuid4(),
+                organization_id=auth.organization_id,
+                project_id=payload.project_id,
+                check_type=CheckType.auto_scan.value,
+                status=CheckStatus.completed.value,
+                input=payload.model_dump(mode="json"),
+                findings=[f.model_dump(mode="json") for f in all_findings],
+                regulations_referenced=list({rid for rid in all_reg_ids}),
+                created_by=auth.user_id,
+                created_at=datetime.now(UTC),
+            )
+            db.add(check)
+            await db.flush()
+            await db.refresh(check)
+
+            done_body = {
+                "check_id": str(check.id),
+                "total": len(all_findings),
+                "pass_count": pass_count,
+                "warn_count": warn_count,
+                "fail_count": fail_count,
+            }
+            yield f"event: done\ndata: {json.dumps(done_body)}\n\n"
+        except Exception as exc:  # pragma: no cover — defensive
+            yield (f"event: error\ndata: {json.dumps({'message': f'Auto-scan failed: {exc}'})}\n\n")
+
+    return StreamingResponse(
+        sse_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ---------- Permit checklist ----------
 
 

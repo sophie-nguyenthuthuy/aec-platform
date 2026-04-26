@@ -200,9 +200,10 @@ test.describe("Schedule / detail", () => {
     await expect(page.getByText("Cột & vách").first()).toBeVisible();
     await expect(page.getByText("Mái").first()).toBeVisible();
 
-    // Risk panel
+    // Risk panel. `/7 ngày/` resolves to both the headline duration ("7 ngày")
+    // and the activity-impact chip ("+7 ngày"); `.first()` picks the headline.
     await expect(page.getByText(/Phân tích rủi ro AI/i)).toBeVisible();
-    await expect(page.getByText(/7 ngày/)).toBeVisible();
+    await expect(page.getByText(/7 ngày/).first()).toBeVisible();
     await expect(page.getByText(/A → B → C/)).toBeVisible();
     await expect(page.getByText(/Add a second concrete crew/)).toBeVisible();
   });

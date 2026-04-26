@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -28,7 +28,7 @@ class SiteVisit(Base):
     workers_count: Mapped[int | None] = mapped_column(Integer)
     notes: Mapped[str | None] = mapped_column(Text)
     ai_summary: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class SitePhoto(Base):
@@ -48,7 +48,7 @@ class SitePhoto(Base):
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     ai_analysis: Mapped[dict | None] = mapped_column(JSONB)
     safety_status: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class ProgressSnapshot(Base):
@@ -63,7 +63,7 @@ class ProgressSnapshot(Base):
     phase_progress: Mapped[dict | None] = mapped_column(JSONB)
     ai_notes: Mapped[str | None] = mapped_column(Text)
     photo_ids: Mapped[list[UUID] | None] = mapped_column(ARRAY(PGUUID(as_uuid=True)))
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class SafetyIncident(Base):
@@ -102,4 +102,4 @@ class WeeklyReport(Base):
     pdf_url: Mapped[str | None] = mapped_column(Text)
     sent_to: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     sent_at: Mapped[datetime | None] = mapped_column(TZ)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())

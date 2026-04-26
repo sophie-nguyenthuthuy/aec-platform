@@ -26,13 +26,14 @@ Cross-module hooks:
   * Cost line items map to CostPulse via free-form spec_section text (no
     hard FK; CostPulse keys on price catalog rows that change frequently).
 """
+
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Numeric, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -60,9 +61,7 @@ class ChangeOrderSource(Base):
     )
     # rfi | observation | email | manual | external
     source_kind: Mapped[str] = mapped_column(Text, nullable=False)
-    rfi_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("rfis.id", ondelete="SET NULL")
-    )
+    rfi_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("rfis.id", ondelete="SET NULL"))
     observation_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("daily_log_observations.id", ondelete="SET NULL"),
@@ -71,7 +70,7 @@ class ChangeOrderSource(Base):
     # references: a URL or doc title.
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class ChangeOrderLineItem(Base):
@@ -110,7 +109,7 @@ class ChangeOrderLineItem(Base):
     )
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class ChangeOrderApproval(Base):
@@ -135,11 +134,9 @@ class ChangeOrderApproval(Base):
     from_status: Mapped[str | None] = mapped_column(Text)
     # draft | submitted | reviewed | approved | rejected | executed | cancelled
     to_status: Mapped[str] = mapped_column(Text, nullable=False)
-    actor_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    actor_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class ChangeOrderCandidate(Base):
@@ -165,9 +162,7 @@ class ChangeOrderCandidate(Base):
     )
     # rfi | email | manual_paste
     source_kind: Mapped[str] = mapped_column(Text, nullable=False)
-    source_rfi_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("rfis.id", ondelete="SET NULL")
-    )
+    source_rfi_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("rfis.id", ondelete="SET NULL"))
     source_text_snippet: Mapped[str | None] = mapped_column(Text)
     # The LLM's structured proposal:
     #   { title, description, line_items: [...], cost_impact_vnd_estimate,
@@ -180,7 +175,5 @@ class ChangeOrderCandidate(Base):
     accepted_at: Mapped[datetime | None] = mapped_column(TZ)
     rejected_at: Mapped[datetime | None] = mapped_column(TZ)
     rejected_reason: Mapped[str | None] = mapped_column(Text)
-    actor_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    actor_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())

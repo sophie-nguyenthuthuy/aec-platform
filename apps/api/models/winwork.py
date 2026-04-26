@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import CHAR, BigInteger, Boolean, Date, DateTime, ForeignKey, Numeric, Text
+from sqlalchemy import CHAR, BigInteger, Boolean, Date, DateTime, ForeignKey, Numeric, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -43,7 +43,7 @@ class Proposal(Base):
     sent_at: Mapped[datetime | None] = mapped_column(TZ)
     responded_at: Mapped[datetime | None] = mapped_column(TZ)
     created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class ProposalTemplate(Base):

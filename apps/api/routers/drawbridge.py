@@ -86,9 +86,19 @@ async def _storage_put(file_bytes: bytes, name: str, mime: str) -> str:
         s3.put_object(Bucket=settings.s3_bucket, Key=key, Body=file_bytes, ContentType=mime)
         return key
     except Exception:
-        # Dev fallback: deterministic local key.
+        # Dev fallback: persist to /tmp so `_download_bytes` (in the ml
+        # pipeline) can read it back. The fallback there already maps
+        # `<storage_key with / replaced by _>` to `/tmp/<that>` — make the
+        # upload side symmetric so PDF→chunks ingestion works without S3.
+        import os
+
         digest = hashlib.sha256(file_bytes).hexdigest()[:16]
-        return f"drawbridge/{digest}/{name}"
+        key = f"drawbridge/{digest}/{name}"
+        local = os.path.join("/tmp", key.replace("/", "_"))
+        os.makedirs(os.path.dirname(local) or "/tmp", exist_ok=True)
+        with open(local, "wb") as f:
+            f.write(file_bytes)
+        return key
 
 
 async def _load_conflict_excerpts(

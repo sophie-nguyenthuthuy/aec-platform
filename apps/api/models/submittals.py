@@ -32,7 +32,7 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -82,8 +82,8 @@ class Submittal(Base):
     submitted_at: Mapped[datetime | None] = mapped_column(TZ)
     closed_at: Mapped[datetime | None] = mapped_column(TZ)
     notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(TZ)
-    updated_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class SubmittalRevision(Base):
@@ -109,7 +109,7 @@ class SubmittalRevision(Base):
     reviewer_notes: Mapped[str | None] = mapped_column(Text)
     # Free-form annotations (markup coordinates, comments) attached to the rev.
     annotations: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 # ---------- RFI augmentation ----------
@@ -139,7 +139,7 @@ class RfiEmbedding(Base):
     model_version: Mapped[str] = mapped_column(Text, nullable=False)
     # NB: `embedding vector(3072)` lives here in the DB but is NOT mapped
     # on this ORM class — see the migration for how it's added.
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class RfiResponseDraft(Base):
@@ -164,7 +164,7 @@ class RfiResponseDraft(Base):
     # [{document_id, page_number, chunk_id, snippet, drawing_number?}]
     citations: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
     model_version: Mapped[str] = mapped_column(Text, nullable=False)
-    generated_at: Mapped[datetime] = mapped_column(TZ)
+    generated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     accepted_at: Mapped[datetime | None] = mapped_column(TZ)
     accepted_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     notes: Mapped[str | None] = mapped_column(Text)

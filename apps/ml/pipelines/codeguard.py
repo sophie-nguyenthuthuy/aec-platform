@@ -45,6 +45,26 @@ _ES_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 _RERANKER_ENDPOINT = os.getenv("RERANKER_ENDPOINT")  # bge-reranker-v2-m3 service
 _RRF_K = 60
 
+# HyDE expansion is the most-skippable LLM call in the pipeline: it
+# transforms `question` into a hypothetical regulation paragraph used
+# for dense retrieval, but the same question always wants the same
+# expansion. Cache aggressively so repeat questions in an active
+# session skip the Anthropic round-trip entirely. ~500-800ms saved
+# per cache hit, which is exactly the gap users see between clicking
+# "Gửi" and the first streamed token.
+#
+# In-memory + per-process; multi-worker production gets N independent
+# caches. A shared Redis cache is a worthwhile follow-up but adds an
+# infra dep we don't currently need for dev/staging.
+import cachetools  # noqa: E402
+
+_HYDE_CACHE_MAX = int(os.getenv("CODEGUARD_HYDE_CACHE_MAX", "10000"))
+_HYDE_CACHE_TTL = int(os.getenv("CODEGUARD_HYDE_CACHE_TTL_SEC", "3600"))
+_hyde_cache: cachetools.TTLCache = cachetools.TTLCache(
+    maxsize=_HYDE_CACHE_MAX,
+    ttl=_HYDE_CACHE_TTL,
+)
+
 
 def _llm(temperature: float = 0.1) -> ChatAnthropic:
     return ChatAnthropic(model=_ANTHROPIC_MODEL, temperature=temperature, max_tokens=4096)
@@ -64,7 +84,24 @@ def _detect_language(text_in: str) -> str:
 
 
 async def _hyde_expand(question: str, language: str) -> str:
-    """Generate a hypothetical regulation excerpt to improve dense retrieval."""
+    """Generate a hypothetical regulation excerpt to improve dense retrieval.
+
+    TTL-cached on `(question, language)`. Cache hits skip the Anthropic
+    call entirely and return immediately — same prompt, same model,
+    same answer in 99% of cases, so the worst the cache does is replay
+    a slightly stale generation. Misses populate the cache *only* on
+    success; a raised exception leaves the cache unchanged so retries
+    can proceed normally.
+
+    Defaults: 10000 entries, 1h TTL. Override via env:
+      * `CODEGUARD_HYDE_CACHE_MAX`     — max entries (LRU eviction past)
+      * `CODEGUARD_HYDE_CACHE_TTL_SEC` — TTL in seconds
+    """
+    key = (question, language)
+    cached = _hyde_cache.get(key)
+    if cached is not None:
+        return cached
+
     prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -78,7 +115,19 @@ async def _hyde_expand(question: str, language: str) -> str:
     )
     chain = prompt | _llm(temperature=0.3)
     result = await chain.ainvoke({"question": question, "language": language})
-    return result.content if isinstance(result.content, str) else str(result.content)
+    text_value = result.content if isinstance(result.content, str) else str(result.content)
+    # Only store on success — a thrown exception above bypasses this.
+    _hyde_cache[key] = text_value
+    return text_value
+
+
+def _hyde_clear_cache() -> None:
+    """Test helper: drop all cached HyDE entries.
+
+    Production code should never need this. Tests use it between cases
+    to keep state isolated when monkeypatching the LLM factory.
+    """
+    _hyde_cache.clear()
 
 
 # ---------- Retrieval ----------
@@ -777,6 +826,146 @@ async def auto_scan_project(
                 continue
 
     return all_findings, list(all_reg_ids)
+
+
+async def auto_scan_project_stream(
+    db: AsyncSession,
+    parameters: ProjectParameters,
+    categories: list[RegulationCategory] | None,
+):
+    """Streaming variant of `auto_scan_project`.
+
+    Yields a sequence of `(event_name, payload)` tuples:
+      ("category_start", RegulationCategory)
+          Emitted just before each category's retrieval + LLM call begin.
+          Lets the UI render a placeholder ("Đang quét fire_safety...")
+          before any latency is incurred.
+
+      ("category_done", {"category": RegulationCategory,
+                          "findings": list[Finding],
+                          "reg_ids": list[UUID]})
+          Emitted once a category's findings are fully grounded and
+          ready to render. `findings` may be empty if the LLM returned
+          nothing (or retrieval was empty); the UI should still render
+          a "no issues found for X" advisory rather than skipping the
+          category silently.
+
+      ("error", str)
+          Terminal — emitted only on a hard failure that aborts the
+          whole scan. Per-category LLM exceptions are swallowed
+          (matching the non-streaming path) and the category just
+          yields zero findings.
+
+    The terminal event is left to the caller (route layer) — this
+    helper does NOT emit a final `("done", ...)` because the route
+    needs to persist the ComplianceCheck row and compute aggregate
+    counts before sending the SSE `done` frame to the client.
+
+    Sharing semantics with `auto_scan_project`: same `_hybrid_search`,
+    same `_rerank`, same Citation construction (which already grounds
+    citations from the DB row, not the LLM). Anything you change in
+    those flows lands in both paths.
+    """
+    target_categories = categories or _CATEGORY_DEFAULTS
+
+    jurisdiction = None
+    if parameters.location:
+        jurisdiction = parameters.location.get("province") or parameters.location.get(
+            "jurisdiction"
+        )
+
+    param_summary = json.dumps(
+        parameters.model_dump(exclude_none=True), ensure_ascii=False, indent=2
+    )
+
+    try:
+        for category in target_categories:
+            yield ("category_start", category)
+
+            query = _category_probe(category, parameters)
+            fused = await _hybrid_search(
+                db,
+                query,
+                categories=[category],
+                jurisdiction=jurisdiction,
+                top_k=8,
+            )
+            chunks = await _rerank(query, fused, top_k=6)
+            if not chunks:
+                # No retrieval → no findings, but emit the `done` event
+                # so the UI can render the empty advisory rather than
+                # showing the category as still in-flight.
+                yield (
+                    "category_done",
+                    {"category": category, "findings": [], "reg_ids": []},
+                )
+                continue
+
+            reg_ids: list[UUID] = [UUID(str(c["regulation_id"])) for c in chunks]
+
+            prompt = ChatPromptTemplate.from_messages(
+                [("system", _SCAN_SYSTEM), ("human", _SCAN_USER)]
+            )
+            chain = prompt | _llm(temperature=0.0) | JsonOutputParser()
+            try:
+                raw = await chain.ainvoke(
+                    {
+                        "category": category.value,
+                        "params": param_summary,
+                        "context": _format_context(chunks),
+                    }
+                )
+            except Exception as exc:
+                # Same per-category swallow as the non-streaming path —
+                # one bad category shouldn't kill the whole scan.
+                logger.warning(
+                    "codeguard: scan stream — LLM call for category=%s failed: %s",
+                    category.value,
+                    exc,
+                )
+                yield (
+                    "category_done",
+                    {"category": category, "findings": [], "reg_ids": reg_ids},
+                )
+                continue
+
+            findings: list[Finding] = []
+            for f in raw.get("findings", []) or []:
+                idx = f.get("citation_chunk_index")
+                citation: Citation | None = None
+                if isinstance(idx, int) and 0 <= idx < len(chunks):
+                    src = chunks[idx]
+                    citation = Citation(
+                        regulation_id=UUID(str(src["regulation_id"])),
+                        regulation=src.get("code_name", ""),
+                        section=src.get("section_ref") or "",
+                        excerpt=(src.get("content") or "")[:300],
+                        source_url=src.get("source_url"),
+                    )
+                try:
+                    findings.append(
+                        Finding(
+                            status=FindingStatus(f.get("status", "WARN")),
+                            severity=Severity(f.get("severity", "minor")),
+                            category=category,
+                            title=f.get("title", ""),
+                            description=f.get("description", ""),
+                            resolution=f.get("resolution"),
+                            citation=citation,
+                        )
+                    )
+                except ValueError:
+                    # Malformed enum value — skip the finding rather
+                    # than dropping the rest of the category.
+                    continue
+
+            yield (
+                "category_done",
+                {"category": category, "findings": findings, "reg_ids": reg_ids},
+            )
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.exception("codeguard: scan stream aborted")
+        yield ("error", str(exc))
 
 
 def _category_probe(category: RegulationCategory, p: ProjectParameters) -> str:

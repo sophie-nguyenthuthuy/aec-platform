@@ -6,6 +6,7 @@ from __future__ import annotations
 def register_all() -> None:
     # Import inside function to avoid circulars during tooling
     from . import (
+        assistant,  # noqa: F401
         bidradar,  # noqa: F401
         changeorder,  # noqa: F401
         codeguard,  # noqa: F401

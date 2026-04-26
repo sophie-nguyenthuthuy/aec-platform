@@ -44,6 +44,11 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     env: {
       NEXT_PUBLIC_API_URL: "http://api.e2e.local",
+      // Skip the Supabase auth gate (`apps/web/middleware.ts`). Specs mock
+      // every `/api/v1/...` call via `page.route` and never talk to a real
+      // Supabase, so providing real env would just slow startup and pull in
+      // a network roundtrip per page load. Production code never sets this.
+      E2E_BYPASS_AUTH: "1",
     },
   },
 });

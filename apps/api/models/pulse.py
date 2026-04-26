@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, Numeric, Text, func
 
 TZ = DateTime(timezone=True)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -41,7 +41,7 @@ class Task(Base):
     position: Mapped[Decimal | None] = mapped_column(Numeric)
     tags: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
     created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class Milestone(Base):
@@ -79,7 +79,7 @@ class ChangeOrder(Base):
     submitted_at: Mapped[datetime | None] = mapped_column(TZ)
     approved_at: Mapped[datetime | None] = mapped_column(TZ)
     approved_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class MeetingNote(Base):
@@ -96,7 +96,7 @@ class MeetingNote(Base):
     raw_notes: Mapped[str | None] = mapped_column(Text)
     ai_structured: Mapped[dict | None] = mapped_column(JSONB)
     created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class ClientReport(Base):
@@ -116,4 +116,4 @@ class ClientReport(Base):
     status: Mapped[str] = mapped_column(Text, default="draft", nullable=False)
     sent_at: Mapped[datetime | None] = mapped_column(TZ)
     sent_to: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())

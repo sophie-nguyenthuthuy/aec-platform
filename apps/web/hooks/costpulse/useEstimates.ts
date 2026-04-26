@@ -134,6 +134,110 @@ export function useUpdateBoq(estimateId: UUID) {
   });
 }
 
+
+/**
+ * Upload an .xlsx file to replace this estimate's BOQ.
+ *
+ * Bypasses `apiFetch` because that helper hardcodes
+ * `Content-Type: application/json`; multipart uploads need the browser
+ * to set the boundary header itself. We still pass token + X-Org-ID
+ * by hand so the auth contract matches.
+ */
+export function useImportBoq(estimateId: UUID) {
+  const { token, orgId } = useSession();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const res = await fetch(
+        `${baseUrl}/api/v1/costpulse/estimates/${estimateId}/boq/import`,
+        {
+          method: "POST",
+          body: fd,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "X-Org-ID": orgId,
+            // Note: do NOT set Content-Type — fetch needs to add the
+            // multipart boundary on its own.
+          },
+        },
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        data?: EstimateDetail;
+        errors?: Array<{ message: string }>;
+      };
+      if (!res.ok) {
+        throw new Error(json.errors?.[0]?.message ?? `HTTP ${res.status}`);
+      }
+      if (!json.data) throw new Error("Empty response from import");
+      return json.data;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(costpulseKeys.estimateDetail(estimateId), data);
+      void qc.invalidateQueries({ queryKey: costpulseKeys.estimates() });
+    },
+  });
+}
+
+
+/**
+ * Trigger a browser download of the BOQ as Excel or PDF.
+ *
+ * Returns a callable that fetches the binary blob (with Bearer auth)
+ * and synthesises a download via a temporary `<a download>` element.
+ * We don't open the URL directly because the auth header doesn't
+ * survive a top-level navigation — the bearer token would be missing
+ * on the server side.
+ */
+export function useExportBoq(estimateId: UUID) {
+  const { token, orgId } = useSession();
+  return async function downloadBoq(format: "xlsx" | "pdf"): Promise<void> {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+    const res = await fetch(
+      `${baseUrl}/api/v1/costpulse/estimates/${estimateId}/boq/export.${format}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "X-Org-ID": orgId,
+        },
+      },
+    );
+    if (!res.ok) {
+      throw new Error(`Export failed: HTTP ${res.status}`);
+    }
+    const filename = parseFilenameFromContentDisposition(
+      res.headers.get("Content-Disposition"),
+      `boq.${format}`,
+    );
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    try {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      // Revoke after a tick so the browser has time to start the download.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  };
+}
+
+
+function parseFilenameFromContentDisposition(
+  header: string | null,
+  fallback: string,
+): string {
+  if (!header) return fallback;
+  // Tolerant match: `attachment; filename="foo.xlsx"` or unquoted.
+  const match = header.match(/filename\*?=(?:"([^"]+)"|([^;]+))/i);
+  return match ? (match[1] ?? match[2]).trim() : fallback;
+}
+
 export function useApproveEstimate(estimateId: UUID) {
   const { token, orgId } = useSession();
   const qc = useQueryClient();

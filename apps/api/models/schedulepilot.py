@@ -28,7 +28,7 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -61,8 +61,8 @@ class Schedule(Base):
     data_date: Mapped[date | None] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column(TZ)
-    updated_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class Activity(Base):
@@ -98,8 +98,8 @@ class Activity(Base):
     assignee_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     notes: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(TZ)
-    updated_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class ScheduleDependency(Base):
@@ -125,7 +125,7 @@ class ScheduleDependency(Base):
     relationship_type: Mapped[str] = mapped_column(Text, nullable=False, default="fs")
     # Negative for lead, positive for lag.
     lag_days: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class ScheduleRiskAssessment(Base):
@@ -142,7 +142,7 @@ class ScheduleRiskAssessment(Base):
         ForeignKey("schedules.id", ondelete="CASCADE"),
         nullable=False,
     )
-    generated_at: Mapped[datetime] = mapped_column(TZ)
+    generated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     model_version: Mapped[str | None] = mapped_column(Text)
     data_date_used: Mapped[date | None] = mapped_column(Date)
     # Computed: max activity slip on critical path (baseline → projected).

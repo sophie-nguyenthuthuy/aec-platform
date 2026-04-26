@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import CHAR, BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import CHAR, BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -25,7 +25,7 @@ class Organization(Base):
     modules: Mapped[list] = mapped_column(JSONB, default=list)
     settings: Mapped[dict] = mapped_column(JSONB, default=dict)
     country_code: Mapped[str] = mapped_column(CHAR(2), default="VN")
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class User(Base):
@@ -35,7 +35,7 @@ class User(Base):
     full_name: Mapped[str | None] = mapped_column(Text)
     avatar_url: Mapped[str | None] = mapped_column(Text)
     preferred_language: Mapped[str] = mapped_column(Text, default="vi")
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class OrgMember(Base):
@@ -46,7 +46,7 @@ class OrgMember(Base):
     )
     user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
     role: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class Project(Base):
@@ -65,7 +65,7 @@ class Project(Base):
     start_date: Mapped[date | None] = mapped_column(Date)
     end_date: Mapped[date | None] = mapped_column(Date)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class File(Base):
@@ -90,7 +90,7 @@ class File(Base):
     processing_status: Mapped[str] = mapped_column(Text, default="pending")
     extracted_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class ProjectWatch(Base):
@@ -125,7 +125,7 @@ class ProjectWatch(Base):
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
     )
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class ScraperRun(Base):
@@ -141,7 +141,7 @@ class ScraperRun(Base):
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
     slug: Mapped[str] = mapped_column(Text, nullable=False)
-    started_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(TZ, nullable=False, server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(TZ)
     ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     error: Mapped[str | None] = mapped_column(Text)

@@ -4,6 +4,7 @@ The base ChangeOrder model lives in pulse.py. This module covers the
 extension tables (sources, line items, approvals, AI candidates) plus
 the AI extract / analyze request shapes.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -12,7 +13,6 @@ from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-
 
 # ---------- Enums ----------
 

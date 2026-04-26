@@ -1,6 +1,11 @@
 export { codeguardKeys } from "./keys";
 export { useCodeguardQuery } from "./useQuery";
 export type { QueryRequest } from "./useQuery";
+export { useCodeguardQueryStream } from "./useQueryStream";
+export type {
+  QueryStreamRequest,
+  QueryStreamHandlers,
+} from "./useQueryStream";
 export { useCodeguardScan, useProjectChecks } from "./useScan";
 export type { ScanRequest, ProjectParameters, ComplianceCheck } from "./useScan";
 export { useGeneratePermitChecklist, useMarkChecklistItem } from "./useChecklist";

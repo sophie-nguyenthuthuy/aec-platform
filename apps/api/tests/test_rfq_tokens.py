@@ -35,12 +35,15 @@ def test_mint_then_verify_roundtrips_uuids():
 
 
 def test_verify_rejects_tampered_token():
-    """A flipped byte in the signature must fail verification."""
+    """A mangled signature segment must fail verification.
+
+    We append `XXXX` to the token rather than flipping a single byte —
+    a one-char flip in base64 occasionally lands on a still-valid
+    signature byte, making the test flaky. Appending guarantees a
+    different decoded signature with no ambiguity.
+    """
     token = mint_response_token(rfq_id=uuid4(), supplier_id=uuid4())
-    # Flip the last char of the signature segment.
-    last = token[-1]
-    flipped = "a" if last != "a" else "b"
-    tampered = token[:-1] + flipped
+    tampered = token + "XXXX"
     with pytest.raises(TokenError):
         verify_response_token(tampered)
 

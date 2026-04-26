@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     database_url_admin: str | None = None
     redis_url: str = "redis://localhost:6379/0"
 
+    # Supabase project URL. When set, the auth middleware switches to
+    # ES256/EdDSA verification via JWKS at `<url>/auth/v1/.well-known/jwks.json`.
+    # Leave empty in tests / legacy deploys to keep the HS256 fallback below.
+    supabase_url: str | None = Field(default=None, validation_alias="SUPABASE_URL")
+    # Server-only secret key (`sb_secret_*`). Required for admin Supabase
+    # API calls (e.g. listing users, sending magic links). Never ship to the
+    # browser.
+    supabase_secret_key: str | None = Field(default=None, validation_alias="SUPABASE_SECRET_KEY")
+
+    # Legacy HS256 secret. Used only when `supabase_url` is unset (tests,
+    # migrating deployments). Has no effect once the asymmetric path is on.
     supabase_jwt_secret: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
 

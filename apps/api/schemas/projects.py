@@ -62,6 +62,39 @@ class CodeguardStatus(BaseModel):
     permit_checklist_count: int = 0
 
 
+class SchedulepilotStatus(BaseModel):
+    schedule_count: int = 0
+    activity_count: int = 0
+    behind_schedule_count: int = 0
+    on_critical_path_count: int = 0
+    overall_slip_days: int = 0
+    percent_complete: float = 0.0
+
+
+class SubmittalsStatus(BaseModel):
+    open_count: int = 0
+    revise_resubmit_count: int = 0
+    approved_count: int = 0
+    designer_court_count: int = 0
+    contractor_court_count: int = 0
+
+
+class DailylogStatus(BaseModel):
+    log_count: int = 0
+    open_observation_count: int = 0
+    high_severity_observation_count: int = 0
+    last_log_date: date | None = None
+
+
+class ChangeorderStatus(BaseModel):
+    total_count: int = 0
+    open_count: int = 0
+    approved_count: int = 0
+    pending_candidates: int = 0
+    total_cost_impact_vnd: int = 0
+    total_schedule_impact_days: int = 0
+
+
 # ---------- Aggregate project views ----------
 
 
@@ -111,3 +144,7 @@ class ProjectDetail(BaseModel):
     handover: HandoverStatus = Field(default_factory=HandoverStatus)
     siteeye: SiteeyeStatus = Field(default_factory=SiteeyeStatus)
     codeguard: CodeguardStatus = Field(default_factory=CodeguardStatus)
+    schedulepilot: SchedulepilotStatus = Field(default_factory=SchedulepilotStatus)
+    submittals: SubmittalsStatus = Field(default_factory=SubmittalsStatus)
+    dailylog: DailylogStatus = Field(default_factory=DailylogStatus)
+    changeorder: ChangeorderStatus = Field(default_factory=ChangeorderStatus)

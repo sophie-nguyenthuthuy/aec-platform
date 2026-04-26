@@ -237,6 +237,15 @@ async def test_get_project_detail_rolls_up_all_modules(client, fake_db):
     # 15. Siteeye: open safety incidents
     # 16. Codeguard: compliance checks
     # 17. Codeguard: permit checklists
+    # 18. Schedulepilot: schedule count (scalar)
+    # 19. Schedulepilot: activity row (activity_count, avg_pct, behind)
+    # 20. Schedulepilot: max slip row
+    # 21. Schedulepilot: on-critical-path count (scalar)
+    # 22. Submittals: counts row (open, revise, approved, designer, contractor)
+    # 23. Dailylog: log_count + last_log_date
+    # 24. Dailylog: observation counts row (open, high)
+    # 25. Changeorder: counts row (total, open, approved, cost, days)
+    # 26. Changeorder: pending candidates (scalar)
     latest_est_id = uuid4()
 
     def _one(**attrs):
@@ -281,6 +290,15 @@ async def test_get_project_detail_rolls_up_all_modules(client, fake_db):
         _scalar(1),  # 15 open safety incidents
         _scalar(3),  # 16 compliance checks
         _scalar(2),  # 17 permit checklists
+        _scalar(2),  # 18 schedule count
+        _one(activity_count=12, avg_pct=Decimal("47.5"), behind=2),  # 19 activity stats
+        _one(slip=7),  # 20 max slip
+        _scalar(4),  # 21 on-critical-path count
+        _one(open=3, revise=1, approved=8, designer=2, contractor=1),  # 22 submittals
+        _one(log_count=12, last_log_date=date(2026, 4, 25)),  # 23 daily log counts
+        _one(open=5, high=2),  # 24 observation counts
+        _one(total=6, open=2, approved=3, cost=120_000_000, days=8),  # 25 change orders
+        _scalar(1),  # 26 pending candidates
     ]:
         fake_db.push_execute(r)
 

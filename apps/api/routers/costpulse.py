@@ -7,7 +7,8 @@ from decimal import Decimal
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -202,6 +203,123 @@ async def update_boq(
 
     detail = await _load_estimate_detail(db, estimate_id)
     return ok(detail.model_dump(mode="json"))
+
+
+# ---------- BOQ Excel/PDF I/O ----------
+
+
+# Cap on import payload size. Realistic BOQs are at most a few MB; we
+# reject anything bigger so a misconfigured client can't OOM the worker
+# by uploading a 1GB binary that openpyxl would try to load fully.
+_MAX_BOQ_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+@router.post("/estimates/{estimate_id}/boq/import")
+async def import_boq_xlsx(
+    estimate_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: Annotated[UploadFile, File(description="BOQ as .xlsx")],
+):
+    """Replace the estimate's BOQ from an uploaded Excel file.
+
+    Same write semantics as `PUT /boq` — wipes the existing items and
+    inserts the parsed ones. Approved estimates are read-only here too.
+    Returns the refreshed `EstimateDetail` so the UI can re-render
+    without a separate fetch.
+    """
+    estimate = (
+        await db.execute(
+            select(Estimate).where(
+                Estimate.id == estimate_id,
+                Estimate.organization_id == auth.organization_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if estimate is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Estimate not found")
+    if estimate.status == EstimateStatus.approved.value:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Approved estimates are read-only")
+
+    content = await file.read()
+    if len(content) > _MAX_BOQ_UPLOAD_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"BOQ upload exceeds the {_MAX_BOQ_UPLOAD_BYTES // 1024 // 1024} MB limit.",
+        )
+
+    from services.boq_io import BoqIOError, parse_boq_xlsx
+
+    try:
+        rows = parse_boq_xlsx(content)
+    except BoqIOError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    # Map BoqRow → BoqItemIn (Pydantic) so we can reuse the existing
+    # `_persist_items` writer + total recompute logic.
+    items_in: list[BoqItemIn] = [
+        BoqItemIn(
+            id=None,
+            parent_id=None,
+            sort_order=row.sort_order,
+            code=row.code,
+            description=row.description,
+            unit=row.unit,
+            quantity=row.quantity,
+            unit_price_vnd=row.unit_price_vnd,
+            total_price_vnd=row.total_price_vnd,
+            material_code=row.material_code,
+        )
+        for row in rows
+    ]
+
+    await db.execute(delete(BoqItem).where(BoqItem.estimate_id == estimate_id))
+    total = _persist_items(db, estimate_id, items_in, recompute=True)
+    estimate.total_vnd = int(total)
+    await db.commit()
+
+    detail = await _load_estimate_detail(db, estimate_id)
+    return ok(detail.model_dump(mode="json"))
+
+
+@router.get("/estimates/{estimate_id}/boq/export.xlsx")
+async def export_boq_xlsx(
+    estimate_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Download the estimate's BOQ as an Excel workbook."""
+    rows, estimate = await _load_estimate_for_export(db, auth, estimate_id)
+
+    from services.boq_io import render_boq_xlsx
+
+    blob = render_boq_xlsx(rows, sheet_name=_safe_sheet_name(estimate.name))
+    filename = _filename_for_export(estimate.name, ext="xlsx")
+    return Response(
+        content=blob,
+        media_type=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/estimates/{estimate_id}/boq/export.pdf")
+async def export_boq_pdf(
+    estimate_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Download the estimate's BOQ as a PDF report."""
+    rows, estimate = await _load_estimate_for_export(db, auth, estimate_id)
+
+    from services.boq_io import render_boq_pdf
+
+    blob = render_boq_pdf(estimate.name, rows)
+    filename = _filename_for_export(estimate.name, ext="pdf")
+    return Response(
+        content=blob,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/estimates/{estimate_id}/approve")
@@ -729,3 +847,79 @@ async def _load_estimate_detail(db: AsyncSession, estimate_id: UUID) -> Estimate
         created_at=estimate.created_at,
         items=[BoqItemOut.model_validate(i) for i in items],
     )
+
+
+# ---------- BOQ-export helpers ----------
+
+
+async def _load_estimate_for_export(
+    db: AsyncSession,
+    auth: AuthContext,
+    estimate_id: UUID,
+) -> tuple[list, Estimate]:
+    """Common loader for the export endpoints.
+
+    Returns `(boq_rows, estimate)` so the caller can render either format
+    without two round-trips to the DB. `boq_rows` is `list[BoqRow]` from
+    `services.boq_io`, ready for `render_boq_xlsx` / `render_boq_pdf`.
+    """
+    estimate = (
+        await db.execute(
+            select(Estimate).where(
+                Estimate.id == estimate_id,
+                Estimate.organization_id == auth.organization_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if estimate is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Estimate not found")
+
+    items = (
+        (await db.execute(select(BoqItem).where(BoqItem.estimate_id == estimate_id).order_by(BoqItem.sort_order)))
+        .scalars()
+        .all()
+    )
+
+    from services.boq_io import BoqRow
+
+    rows = [
+        BoqRow(
+            description=i.description or "",
+            code=i.code,
+            unit=i.unit,
+            quantity=i.quantity,
+            unit_price_vnd=i.unit_price_vnd,
+            total_price_vnd=i.total_price_vnd,
+            material_code=i.material_code,
+            sort_order=i.sort_order or 0,
+        )
+        for i in items
+    ]
+    return rows, estimate
+
+
+def _safe_sheet_name(name: str) -> str:
+    """Excel sheet names cap at 31 chars and disallow `:\\/?*[]`.
+
+    Trim + replace illegal chars with hyphens. Empty / whitespace falls
+    back to "BOQ" so a sheet always has a stable name.
+    """
+    cleaned = "".join("-" if c in r":\\/?*[]" else c for c in (name or "").strip())
+    return (cleaned[:31] or "BOQ").rstrip()
+
+
+def _filename_for_export(estimate_name: str, *, ext: str) -> str:
+    """ASCII-safe filename for the `Content-Disposition` header.
+
+    HTTP filename* RFC-5987 is the proper handling for non-ASCII names,
+    but most browsers and curl handle the unquoted simple form fine for
+    ASCII-only filenames — and Vietnamese estimate names contain
+    diacritics that some clients mangle. We strip to a safe-ASCII slug
+    rather than escape, accepting that the visual fidelity of the
+    download name takes a small hit in exchange for cross-client
+    reliability.
+    """
+    import re
+
+    base = re.sub(r"[^A-Za-z0-9._-]+", "-", (estimate_name or "boq")).strip("-_") or "boq"
+    return f"{base[:80]}.{ext}"

@@ -27,6 +27,7 @@ from routers import (  # noqa: E402
     drawbridge,
     files,
     handover,
+    me,
     notifications,
     projects,
     pulse,
@@ -43,9 +44,7 @@ def create_app() -> FastAPI:
     # otherwise let any caller mint a valid JWT against the well-known dev
     # secret. Restricted to AEC_ENV=production so local/staging keep booting.
     if settings.environment == "production" and settings.supabase_jwt_secret == "dev-secret-change-me":
-        raise RuntimeError(
-            "AEC_ENV=production but SUPABASE_JWT_SECRET is the dev default — refusing to start"
-        )
+        raise RuntimeError("AEC_ENV=production but SUPABASE_JWT_SECRET is the dev default — refusing to start")
 
     app = FastAPI(title="AEC Platform API", version="0.1.0")
 
@@ -65,6 +64,7 @@ def create_app() -> FastAPI:
     # inbound request, including ones that 404 before hitting a handler.
     setup_observability(app, settings)
 
+    app.include_router(me.router)
     app.include_router(projects.router)
     app.include_router(activity.router)
     app.include_router(notifications.router)

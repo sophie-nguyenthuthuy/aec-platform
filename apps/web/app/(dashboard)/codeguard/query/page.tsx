@@ -4,36 +4,96 @@ import { useState } from "react";
 import { Info, Send } from "lucide-react";
 import { CitationCard } from "@aec/ui/codeguard";
 import type { QueryResponse } from "@aec/ui/codeguard";
-import { useCodeguardQuery } from "@/hooks/codeguard";
+import { useCodeguardQueryStream } from "@/hooks/codeguard";
 
-interface ChatTurn {
-  role: "user" | "assistant";
+interface UserTurn {
+  role: "user";
   text: string;
-  response?: QueryResponse;
 }
+
+interface AssistantTurnState {
+  role: "assistant";
+  /** Text rendered for this turn — incremental during streaming, final
+   *  on `done`, "Lỗi: ..." on error. */
+  text: string;
+  /** Set on `done`; carries citations + confidence + related_questions. */
+  response?: QueryResponse;
+  /** True from when the user submits until the terminal SSE event. */
+  streaming: boolean;
+}
+
+type ChatTurn = UserTurn | AssistantTurnState;
 
 export default function RegulationChatPage() {
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState<ChatTurn[]>([]);
-  const mutation = useCodeguardQuery();
+  const [pending, setPending] = useState(false);
+  const startStream = useCodeguardQueryStream();
 
-  // Parameterised so it can be invoked both from the form and from a
-  // clicked "related question" suggestion. When called with no arg it
-  // consumes the current `input` state and clears the textbox; when
-  // called with `questionText` it leaves `input` alone (so the user
-  // doesn't lose anything they were typing).
+  /**
+   * Patch the most-recent assistant turn (which is always the in-flight
+   * one when this is called). Using a callback form so consecutive
+   * setStates inside a single SSE batch all see the latest state — React
+   * batches them but each token handler reads `state.turns` via the
+   * functional update.
+   */
+  const patchAssistant = (patch: (t: AssistantTurnState) => AssistantTurnState) => {
+    setTurns((curr) => {
+      const last = curr.at(-1);
+      // Defensive: only patch if the last turn is the in-flight assistant
+      // turn we expect. A user-then-assistant append always sets this up
+      // before submit() awaits, so in practice this guard never triggers
+      // — TS just needs the explicit narrowing for noUncheckedIndexedAccess.
+      if (!last || last.role !== "assistant") return curr;
+      return [...curr.slice(0, -1), patch(last)];
+    });
+  };
+
   const submit = async (questionText?: string) => {
     const question = (questionText ?? input).trim();
-    if (!question || mutation.isPending) return;
+    if (!question || pending) return;
     if (questionText === undefined) setInput("");
-    setTurns((t) => [...t, { role: "user", text: question }]);
-    try {
-      const response = await mutation.mutateAsync({ question });
-      setTurns((t) => [...t, { role: "assistant", text: response.answer, response }]);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Đã xảy ra lỗi";
-      setTurns((t) => [...t, { role: "assistant", text: `Lỗi: ${message}` }]);
-    }
+
+    // Append user turn + a placeholder assistant turn that starts in
+    // streaming mode. The assistant turn is mutated in place by the
+    // SSE handlers below; on terminal events `streaming` flips to
+    // false and any final state (response or error) is attached.
+    setTurns((t) => [
+      ...t,
+      { role: "user", text: question },
+      { role: "assistant", text: "", streaming: true },
+    ]);
+    setPending(true);
+
+    await startStream(
+      { question },
+      {
+        onToken: (delta) => {
+          patchAssistant((a) => ({ ...a, text: a.text + delta }));
+        },
+        onDone: (response) => {
+          patchAssistant((a) => ({
+            ...a,
+            // For the abstain shape (confidence===0 + empty citations)
+            // the streaming path emits `done` with no preceding tokens,
+            // so we always sync `text` to the canonical answer here
+            // — covers both "tokens accumulated" and "tokens skipped"
+            // cases without branching.
+            text: response.answer,
+            response,
+            streaming: false,
+          }));
+        },
+        onError: (message) => {
+          patchAssistant((a) => ({
+            ...a,
+            text: `Lỗi: ${message}`,
+            streaming: false,
+          }));
+        },
+      },
+    );
+    setPending(false);
   };
 
   return (
@@ -55,13 +115,10 @@ export default function RegulationChatPage() {
                     {t.text}
                   </div>
                 ) : (
-                  <AssistantTurn text={t.text} response={t.response} onAskRelated={submit} />
+                  <AssistantTurn turn={t} onAskRelated={submit} />
                 )}
               </li>
             ))}
-            {mutation.isPending && (
-              <li className="text-sm text-slate-500">Đang tra cứu quy chuẩn...</li>
-            )}
           </ul>
         )}
       </div>
@@ -78,12 +135,12 @@ export default function RegulationChatPage() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Đặt câu hỏi về QCVN, TCVN, luật xây dựng..."
-          disabled={mutation.isPending}
+          disabled={pending}
           className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
         <button
           type="submit"
-          disabled={mutation.isPending || !input.trim()}
+          disabled={pending || !input.trim()}
           className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
           <Send size={14} />
@@ -95,14 +152,14 @@ export default function RegulationChatPage() {
 }
 
 function AssistantTurn({
-  text,
-  response,
+  turn,
   onAskRelated,
 }: {
-  text: string;
-  response?: QueryResponse;
+  turn: AssistantTurnState;
   onAskRelated: (q: string) => void;
 }) {
+  const { text, response, streaming } = turn;
+
   // Backend abstain contract (see `_abstain_response` in
   // apps/ml/pipelines/codeguard.py): when retrieval returns no chunks the
   // pipeline skips the LLM entirely and returns confidence=0 with empty
@@ -110,6 +167,7 @@ function AssistantTurn({
   // rather than mistaking it for a low-confidence answer — for a compliance
   // tool the difference matters.
   const isAbstain =
+    !streaming &&
     response !== undefined &&
     response.confidence === 0 &&
     response.citations.length === 0;
@@ -128,7 +186,19 @@ function AssistantTurn({
 
   return (
     <div className="inline-block max-w-full rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-900">
-      <p className="whitespace-pre-wrap">{text}</p>
+      {/* Empty-text-while-streaming placeholder: gives the user
+          immediate visual feedback that something started, before the
+          first token arrives. */}
+      {streaming && text.length === 0 ? (
+        <p className="text-slate-500">Đang tra cứu quy chuẩn...</p>
+      ) : (
+        <p className="whitespace-pre-wrap">
+          {text}
+          {streaming && (
+            <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-slate-400 align-middle" />
+          )}
+        </p>
+      )}
       {response && response.citations.length > 0 && (
         <div className="mt-3 space-y-2">
           <div className="flex items-center gap-2 text-xs text-slate-600">

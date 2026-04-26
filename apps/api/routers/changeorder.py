@@ -7,10 +7,10 @@ The base `change_orders` table was created in 0002_pulse and lives in
 features (extract candidates, analyze impact) need a dedicated surface
 that the Pulse module shouldn't carry.
 """
+
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -138,13 +138,8 @@ async def list_change_orders(
             )
         ).all()
 
-    items = [
-        ChangeOrder.model_validate(_row_to_dict(r)).model_dump(mode="json")
-        for r in rows
-    ]
-    return paginated(
-        items, page=offset // limit + 1, per_page=limit, total=int(total or 0)
-    )
+    items = [ChangeOrder.model_validate(_row_to_dict(r)).model_dump(mode="json") for r in rows]
+    return paginated(items, page=offset // limit + 1, per_page=limit, total=int(total or 0))
 
 
 @router.get("/cos/{co_id}")
@@ -163,9 +158,7 @@ async def get_change_order(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Change order not found")
         sources = (
             await session.execute(
-                text(
-                    "SELECT * FROM change_order_sources WHERE change_order_id = :id"
-                ),
+                text("SELECT * FROM change_order_sources WHERE change_order_id = :id"),
                 {"id": str(co_id)},
             )
         ).all()
@@ -219,9 +212,7 @@ async def update_change_order(
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
             await session.execute(
-                text(
-                    f"UPDATE change_orders SET {set_sql} WHERE id = :id RETURNING *"
-                ),
+                text(f"UPDATE change_orders SET {set_sql} WHERE id = :id RETURNING *"),
                 {**fields, "id": str(co_id)},
             )
         ).one_or_none()
@@ -258,11 +249,7 @@ async def add_source(
                     "coid": str(co_id),
                     "sk": payload.source_kind.value,
                     "rfi": str(payload.rfi_id) if payload.rfi_id else None,
-                    "obs": (
-                        str(payload.observation_id)
-                        if payload.observation_id
-                        else None
-                    ),
+                    "obs": (str(payload.observation_id) if payload.observation_id else None),
                     "payload": json.dumps(payload.payload),
                     "notes": payload.notes,
                 },
@@ -285,11 +272,7 @@ async def add_line_item(
         # cost_vnd auto-derives from quantity*unit_cost_vnd if both supplied
         # and cost_vnd wasn't.
         cost = payload.cost_vnd
-        if (
-            cost is None
-            and payload.quantity is not None
-            and payload.unit_cost_vnd is not None
-        ):
+        if cost is None and payload.quantity is not None and payload.unit_cost_vnd is not None:
             cost = int(round(payload.quantity * payload.unit_cost_vnd))
 
         row = (
@@ -317,11 +300,7 @@ async def add_line_item(
                     "uc": payload.unit_cost_vnd,
                     "cost": cost,
                     "days": payload.schedule_impact_days,
-                    "sched_act": (
-                        str(payload.schedule_activity_id)
-                        if payload.schedule_activity_id
-                        else None
-                    ),
+                    "sched_act": (str(payload.schedule_activity_id) if payload.schedule_activity_id else None),
                     "sort_order": payload.sort_order,
                     "notes": payload.notes,
                 },
@@ -349,10 +328,7 @@ async def update_line_item(
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
             await session.execute(
-                text(
-                    f"UPDATE change_order_line_items SET {set_sql} "
-                    "WHERE id = :id RETURNING *"
-                ),
+                text(f"UPDATE change_order_line_items SET {set_sql} WHERE id = :id RETURNING *"),
                 {**fields, "id": str(li_id)},
             )
         ).one_or_none()
@@ -415,9 +391,7 @@ async def record_approval(
         if new_status == "approved":
             params["approver"] = str(auth.user_id)
         await session.execute(
-            text(
-                f"UPDATE change_orders SET status = :status{extra_set} WHERE id = :id"
-            ),
+            text(f"UPDATE change_orders SET status = :status{extra_set} WHERE id = :id"),
             params,
         )
         await session.commit()
@@ -453,13 +427,9 @@ async def extract_candidates_endpoint(
             if rfi is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "RFI not found")
             rfi_d = _row_to_dict(rfi)
-            text_blob = (
-                (rfi_d.get("subject") or "") + "\n\n" + (rfi_d.get("description") or "")
-            ).strip()
+            text_blob = ((rfi_d.get("subject") or "") + "\n\n" + (rfi_d.get("description") or "")).strip()
 
-        proposals = await extract_candidates(
-            text=text_blob or "", source_kind=payload.source_kind.value
-        )
+        proposals = await extract_candidates(text=text_blob or "", source_kind=payload.source_kind.value)
         from ml.pipelines.changeorder import _EXTRACT_MODEL_VERSION as model_version
 
         rows = []
@@ -528,11 +498,7 @@ async def accept_candidate(
                 )
             ).one_or_none()
             if existing is not None:
-                return ok(
-                    ChangeOrder.model_validate(_row_to_dict(existing)).model_dump(
-                        mode="json"
-                    )
-                )
+                return ok(ChangeOrder.model_validate(_row_to_dict(existing)).model_dump(mode="json"))
 
         proposal = cand_d.get("proposal") or {}
         title = payload.title_override or proposal.get("title") or "Đề xuất thay đổi"
@@ -605,12 +571,8 @@ async def accept_candidate(
                 "org": str(auth.organization_id),
                 "coid": str(co_id),
                 "sk": cand_d["source_kind"],
-                "rfi": (
-                    str(cand_d["source_rfi_id"]) if cand_d.get("source_rfi_id") else None
-                ),
-                "payload": json.dumps(
-                    {"candidate_id": str(cand_id), "snippet": cand_d.get("source_text_snippet")}
-                ),
+                "rfi": (str(cand_d["source_rfi_id"]) if cand_d.get("source_rfi_id") else None),
+                "payload": json.dumps({"candidate_id": str(cand_id), "snippet": cand_d.get("source_text_snippet")}),
                 "notes": "Promoted from AI candidate",
             },
         )
@@ -691,10 +653,7 @@ async def analyze_impact_endpoint(
         if co is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Change order not found")
         co_d = _row_to_dict(co)
-        if (
-            co_d.get("ai_analysis")
-            and not payload.force
-        ):
+        if co_d.get("ai_analysis") and not payload.force:
             return ok(co_d["ai_analysis"])
 
         line_items = [

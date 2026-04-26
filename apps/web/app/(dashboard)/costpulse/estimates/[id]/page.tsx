@@ -1,19 +1,20 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { BoqItemInput, UUID } from "@aec/types";
 
 import { Button } from "@aec/ui/primitives";
 import {
   BOQTable,
   ConfidenceMeter,
-  ExportBOQ,
   formatVnd,
 } from "@aec/ui/costpulse";
 import {
   useApproveEstimate,
   useEstimate,
+  useExportBoq,
+  useImportBoq,
   useUpdateBoq,
 } from "@/hooks/costpulse";
 
@@ -24,8 +25,12 @@ export default function EstimateEditorPage(): JSX.Element {
   const { data: estimate, isLoading, error } = useEstimate(id);
   const updateMut = useUpdateBoq(id);
   const approveMut = useApproveEstimate(id);
+  const importMut = useImportBoq(id);
+  const downloadBoq = useExportBoq(id);
 
   const [pending, setPending] = useState<BoqItemInput[] | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isReadOnly = estimate?.status === "approved";
 
   if (isLoading) return <div className="p-6 text-slate-500">Loading…</div>;
@@ -52,17 +57,88 @@ export default function EstimateEditorPage(): JSX.Element {
         <div className="rounded-lg border border-slate-200 bg-white p-4">
           <ConfidenceMeter confidence={estimate.confidence} />
         </div>
-        <div className="flex items-center justify-end gap-2 rounded-lg border border-slate-200 bg-white p-4">
-          <ExportBOQ estimate={estimate} items={estimate.items} />
-          {!isReadOnly && (
+        <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {!isReadOnly && (
+              <>
+                {/* Hidden file input so we can style the trigger as a Button. */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    // Reset the input so picking the same file twice still
+                    // fires onChange — otherwise the browser sees no change.
+                    e.target.value = "";
+                    if (!file) return;
+                    try {
+                      await importMut.mutateAsync(file);
+                    } catch {
+                      // mutation surfaces the message in importMut.error;
+                      // no need to re-throw and crash the dialog.
+                    }
+                  }}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={importMut.isPending}
+                >
+                  {importMut.isPending ? "Importing…" : "Import .xlsx"}
+                </Button>
+              </>
+            )}
             <Button
+              size="sm"
               variant="outline"
-              onClick={() => approveMut.mutate()}
-              disabled={approveMut.isPending}
+              onClick={async () => {
+                setExportError(null);
+                try {
+                  await downloadBoq("xlsx");
+                } catch (e) {
+                  setExportError(e instanceof Error ? e.message : "Export failed");
+                }
+              }}
             >
-              {approveMut.isPending ? "Approving…" : "Approve"}
+              Export .xlsx
             </Button>
-          )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                setExportError(null);
+                try {
+                  await downloadBoq("pdf");
+                } catch (e) {
+                  setExportError(e instanceof Error ? e.message : "Export failed");
+                }
+              }}
+            >
+              Export .pdf
+            </Button>
+            {!isReadOnly && (
+              <Button
+                variant="outline"
+                onClick={() => approveMut.mutate()}
+                disabled={approveMut.isPending}
+              >
+                {approveMut.isPending ? "Approving…" : "Approve"}
+              </Button>
+            )}
+          </div>
+          {importMut.isError ? (
+            <p className="text-right text-xs text-red-600">
+              Import failed: {importMut.error?.message ?? "unknown error"}
+            </p>
+          ) : null}
+          {exportError ? (
+            <p className="text-right text-xs text-red-600">
+              {exportError}
+            </p>
+          ) : null}
         </div>
       </div>
 

@@ -570,3 +570,217 @@ async def test_approve_estimate_skips_co_when_duplicate_number_exists(client, fa
 
     assert res.status_code == 200, res.text
     assert [o for o in fake_db.added if isinstance(o, ChangeOrder)] == []
+
+
+# ---------- BOQ Excel/PDF I/O ----------
+
+
+def _build_boq_xlsx_bytes(rows: list[tuple[str, str, str, float, float]]) -> bytes:
+    """Build a minimal in-memory .xlsx with `(code, desc, unit, qty, price)` rows."""
+    import io as io_mod
+
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    s = wb.active
+    s.append(["STT", "Mô tả", "Đơn vị", "Khối lượng", "Đơn giá", "Thành tiền"])
+    for code, desc, unit, qty, price in rows:
+        s.append([code, desc, unit, qty, price, qty * price])
+    buf = io_mod.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+async def test_import_boq_xlsx_replaces_items_and_recomputes_total(client, fake_db):
+    """Happy path: an .xlsx with two rows lands as two BoqItem inserts."""
+    estimate = _estimate_row(status="draft")
+    # The handler issues four execute() calls in order:
+    #   1. SELECT Estimate          (auth check)
+    #   2. DELETE BoqItem           (wipe old rows; return value unused)
+    #   3. SELECT Estimate          (in _load_estimate_detail; .scalar_one())
+    #   4. SELECT BoqItem           (in _load_estimate_detail; .scalars().all())
+    q_estimate = MagicMock()
+    q_estimate.scalar_one_or_none.return_value = estimate
+    fake_db.push_execute(q_estimate)
+    fake_db.push_execute(MagicMock())  # DELETE — no consumer cares
+    detail_q = MagicMock()
+    detail_q.scalar_one.return_value = estimate
+    fake_db.push_execute(detail_q)
+    items_q = MagicMock()
+    items_q.scalars.return_value.all.return_value = []
+    fake_db.push_execute(items_q)
+
+    blob = _build_boq_xlsx_bytes(
+        [
+            ("1.1", "Bê tông C30", "m3", 120, 2050000),
+            ("1.2", "Thép CB500", "kg", 8500, 20500),
+        ]
+    )
+
+    res = await client.post(
+        f"/api/v1/costpulse/estimates/{estimate.id}/boq/import",
+        files={
+            "file": (
+                "boq.xlsx",
+                blob,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    assert res.status_code == 200, res.text
+
+    # Two BoqItem rows added — one per line.
+    from models.costpulse import BoqItem
+
+    added_items = [o for o in fake_db.added if isinstance(o, BoqItem)]
+    assert len(added_items) == 2
+    descriptions = [it.description for it in added_items]
+    assert "Bê tông C30" in descriptions
+    assert "Thép CB500" in descriptions
+
+    # Estimate total recomputed: 120*2050000 + 8500*20500.
+    expected_total = 120 * 2050000 + 8500 * 20500
+    assert estimate.total_vnd == expected_total
+
+
+async def test_import_boq_xlsx_404_when_estimate_in_other_org(client, fake_db):
+    """An estimate that doesn't belong to the caller's org returns 404, not 403."""
+    q = MagicMock()
+    q.scalar_one_or_none.return_value = None
+    fake_db.push_execute(q)
+
+    blob = _build_boq_xlsx_bytes([("1.1", "Bê tông C30", "m3", 1, 1000)])
+    res = await client.post(
+        f"/api/v1/costpulse/estimates/{uuid4()}/boq/import",
+        files={"file": ("boq.xlsx", blob, "x")},
+    )
+    assert res.status_code == 404
+
+
+async def test_import_boq_xlsx_409_when_estimate_approved(client, fake_db):
+    """Approved estimates are read-only — import must 409, not silently overwrite."""
+    estimate = _estimate_row(status="approved")
+    q = MagicMock()
+    q.scalar_one_or_none.return_value = estimate
+    fake_db.push_execute(q)
+
+    blob = _build_boq_xlsx_bytes([("1.1", "Bê tông C30", "m3", 1, 1000)])
+    res = await client.post(
+        f"/api/v1/costpulse/estimates/{estimate.id}/boq/import",
+        files={"file": ("boq.xlsx", blob, "x")},
+    )
+    assert res.status_code == 409
+
+
+async def test_import_boq_xlsx_400_when_file_unparseable(client, fake_db):
+    """A non-xlsx upload must surface as a 400 with the parser's message."""
+    estimate = _estimate_row(status="draft")
+    q = MagicMock()
+    q.scalar_one_or_none.return_value = estimate
+    fake_db.push_execute(q)
+
+    res = await client.post(
+        f"/api/v1/costpulse/estimates/{estimate.id}/boq/import",
+        files={"file": ("boq.xlsx", b"this is not an xlsx file", "x")},
+    )
+    assert res.status_code == 400
+    assert "could not open" in res.json()["errors"][0]["message"]
+
+
+async def test_import_boq_xlsx_413_when_payload_too_large(client, fake_db, monkeypatch):
+    """A 6MB upload must be rejected before openpyxl loads it into memory."""
+    from routers import costpulse as costpulse_router
+
+    # Tighten the cap so the test doesn't have to generate megabytes.
+    monkeypatch.setattr(costpulse_router, "_MAX_BOQ_UPLOAD_BYTES", 1024)
+
+    estimate = _estimate_row(status="draft")
+    q = MagicMock()
+    q.scalar_one_or_none.return_value = estimate
+    fake_db.push_execute(q)
+
+    big_blob = b"x" * 2048
+    res = await client.post(
+        f"/api/v1/costpulse/estimates/{estimate.id}/boq/import",
+        files={"file": ("boq.xlsx", big_blob, "x")},
+    )
+    assert res.status_code == 413
+
+
+async def test_export_boq_xlsx_returns_workbook(client, fake_db):
+    """Happy path: 200 + xlsx body + Content-Disposition attachment header."""
+    estimate = _estimate_row(name="Tower X — schematic v1")
+    q_estimate = MagicMock()
+    q_estimate.scalar_one_or_none.return_value = estimate
+    fake_db.push_execute(q_estimate)
+    items_q = MagicMock()
+    items_q.scalars.return_value.all.return_value = [
+        SimpleNamespace(
+            description="Bê tông C30",
+            code="1.1",
+            unit="m3",
+            quantity=Decimal("120"),
+            unit_price_vnd=Decimal("2050000"),
+            total_price_vnd=Decimal("246000000"),
+            material_code="CONC_C30",
+            sort_order=0,
+        )
+    ]
+    fake_db.push_execute(items_q)
+
+    res = await client.get(f"/api/v1/costpulse/estimates/{estimate.id}/boq/export.xlsx")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    cd = res.headers["content-disposition"]
+    assert "attachment" in cd
+    assert ".xlsx" in cd
+    # Body is a real xlsx — zip magic on first bytes.
+    assert res.content[:4] == b"PK\x03\x04"
+
+
+async def test_export_boq_xlsx_404_for_other_org(client, fake_db):
+    q = MagicMock()
+    q.scalar_one_or_none.return_value = None
+    fake_db.push_execute(q)
+    res = await client.get(f"/api/v1/costpulse/estimates/{uuid4()}/boq/export.xlsx")
+    assert res.status_code == 404
+
+
+async def test_export_boq_pdf_returns_pdf_bytes(client, fake_db):
+    estimate = _estimate_row(name="Tower X")
+    q_estimate = MagicMock()
+    q_estimate.scalar_one_or_none.return_value = estimate
+    fake_db.push_execute(q_estimate)
+    items_q = MagicMock()
+    items_q.scalars.return_value.all.return_value = []
+    fake_db.push_execute(items_q)
+
+    res = await client.get(f"/api/v1/costpulse/estimates/{estimate.id}/boq/export.pdf")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/pdf"
+    assert res.content.startswith(b"%PDF-")
+
+
+async def test_safe_sheet_name_caps_at_31_chars_and_strips_illegal():
+    # Async-marked to satisfy the module-level `pytestmark = asyncio`,
+    # even though the function is purely synchronous — pytest-asyncio's
+    # auto-mode warns when a sync test gets the marker.
+    from routers.costpulse import _safe_sheet_name
+
+    assert _safe_sheet_name("simple") == "simple"
+    assert _safe_sheet_name("a" * 50) == "a" * 31
+    # Illegal chars in Excel sheet names: : \ / ? * [ ]
+    assert _safe_sheet_name("Q1/2026: Tower [A]") == "Q1-2026- Tower -A-"
+    # Empty falls back to a stable name.
+    assert _safe_sheet_name("   ") == "BOQ"
+    assert _safe_sheet_name("") == "BOQ"
+
+
+async def test_filename_for_export_replaces_unsafe_chars():
+    from routers.costpulse import _filename_for_export
+
+    assert _filename_for_export("Tower X — Schematic v1", ext="xlsx").endswith(".xlsx")
+    # Vietnamese accents land as `-` so the filename is ASCII-only.
+    assert "—" not in _filename_for_export("Tower X — Schematic v1", ext="xlsx")
+    # Empty estimate name still produces a usable default.
+    assert _filename_for_export("", ext="pdf") == "boq.pdf"

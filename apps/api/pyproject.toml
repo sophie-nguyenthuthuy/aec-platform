@@ -46,3 +46,12 @@ testpaths = ["tests"]
 markers = [
     "integration: requires live infra (Postgres / Redis / OpenAI). Skipped by default; pass --integration to opt in.",
 ]
+filterwarnings = [
+    # langsmith (transitive langchain dep) calls `pydantic.v1` ForwardRef
+    # machinery at class-definition time, which triggers a Python 3.13
+    # DeprecationWarning about `type_params` from `typing.ForwardRef._evaluate`.
+    # Not our code, can't fix here, fires 16× per pytest run otherwise. Scope
+    # the silence to the exact module so genuine deprecations elsewhere stay
+    # visible.
+    "ignore::DeprecationWarning:pydantic.v1.typing",
+]

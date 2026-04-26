@@ -1,4 +1,5 @@
 """Router tests for /api/v1/changeorder/*. Same pattern as schedulepilot."""
+
 from __future__ import annotations
 
 import sys
@@ -133,9 +134,7 @@ def app(patch_session) -> FastAPI:
     from middleware.auth import AuthContext, require_auth
     from routers import changeorder as router_mod
 
-    auth = AuthContext(
-        user_id=USER_ID, organization_id=ORG_ID, role="admin", email="t@example.com"
-    )
+    auth = AuthContext(user_id=USER_ID, organization_id=ORG_ID, role="admin", email="t@example.com")
     a = FastAPI()
     a.add_exception_handler(HTTPException, http_exception_handler)
     a.add_exception_handler(Exception, unhandled_exception_handler)
@@ -146,9 +145,7 @@ def app(patch_session) -> FastAPI:
 
 @pytest.fixture
 async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 
 
@@ -179,9 +176,7 @@ def _co_row(**overrides: Any) -> SimpleNamespace:
 # =============================================================================
 
 
-async def test_create_co_auto_assigns_number_and_seeds_draft_approval(
-    client, patch_session
-):
+async def test_create_co_auto_assigns_number_and_seeds_draft_approval(client, patch_session):
     # 1: SELECT next number → 1; 2: INSERT CO RETURNING; 3: INSERT initial approval
     patch_session.queue(_scalar(1))
     patch_session.queue(_result(_co_row(number="CO-001")))
@@ -240,9 +235,7 @@ async def test_extract_requires_rfi_or_text(client, patch_session, patch_pipelin
     patch_pipeline.extract_candidates.assert_not_awaited()
 
 
-async def test_extract_persists_candidates_for_pasted_text(
-    client, patch_session, patch_pipeline
-):
+async def test_extract_persists_candidates_for_pasted_text(client, patch_session, patch_pipeline):
     cand_row = _make_row(
         id=uuid4(),
         organization_id=ORG_ID,
@@ -284,9 +277,7 @@ async def test_extract_persists_candidates_for_pasted_text(
     patch_pipeline.extract_candidates.assert_awaited_once()
 
 
-async def test_accept_candidate_creates_co_and_links_back(
-    client, patch_session, patch_pipeline
-):
+async def test_accept_candidate_creates_co_and_links_back(client, patch_session, patch_pipeline):
     cand_id = uuid4()
     new_co_id = uuid4()
     cand_row = _make_row(
@@ -328,16 +319,12 @@ async def test_accept_candidate_creates_co_and_links_back(
     patch_session.queue(_result(None))
     patch_session.queue(_result(None))
 
-    resp = await client.post(
-        f"/api/v1/changeorder/candidates/{cand_id}/accept", json={}
-    )
+    resp = await client.post(f"/api/v1/changeorder/candidates/{cand_id}/accept", json={})
     assert resp.status_code == 200, resp.text
     assert resp.json()["data"]["number"] == "CO-002"
 
 
-async def test_analyze_impact_persists_and_returns_rollup(
-    client, patch_session, patch_pipeline
-):
+async def test_analyze_impact_persists_and_returns_rollup(client, patch_session, patch_pipeline):
     cid = uuid4()
     co_row = _make_row(
         title="Door sub",
@@ -351,9 +338,7 @@ async def test_analyze_impact_persists_and_returns_rollup(
     patch_session.queue(_result(rows=[]))
     patch_session.queue(_result(None))
 
-    resp = await client.post(
-        f"/api/v1/changeorder/cos/{cid}/analyze", json={"force": True}
-    )
+    resp = await client.post(f"/api/v1/changeorder/cos/{cid}/analyze", json={"force": True})
     assert resp.status_code == 201, resp.text
     body = resp.json()["data"]
     assert body["cost_impact_vnd"] == 18_000_000
