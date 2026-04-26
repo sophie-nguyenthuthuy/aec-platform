@@ -32,3 +32,17 @@ openai==1.51.0
 # pdfplumber: table extraction from PDFs (MIT, wraps pdfminer.six).
 python-docx==1.1.2
 pdfplumber==0.11.4
+
+# BOQ I/O — Excel import/export and PDF export for `services.boq_io`.
+# openpyxl: pure-Python .xlsx read/write (no LibreOffice / system deps).
+# reportlab: pure-Python PDF generation. Used for BOQ exports because a
+#   tabular report doesn't need the full CSS pipeline weasyprint pulls
+#   in via cairo/pango.
+openpyxl==3.1.5
+reportlab==4.2.5
+
+# HTML parsing for BIDRADAR scrapers (mua-sam-cong.gov.vn, philgeps,
+# egp.go.th, etc.). Required at *import* time by apps/ml/pipelines/bidradar.py,
+# so any test touching that lane pulls it in transitively — without this
+# CI fails with `ModuleNotFoundError: bs4`.
+beautifulsoup4==4.12.3

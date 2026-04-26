@@ -192,9 +192,13 @@ test.describe("Schedule / detail", () => {
     for (const code of ["A", "B", "C"]) {
       await expect(page.getByText(code, { exact: true }).first()).toBeVisible();
     }
-    await expect(page.getByText("Móng")).toBeVisible();
-    await expect(page.getByText("Cột & vách")).toBeVisible();
-    await expect(page.getByText("Mái")).toBeVisible();
+    // The activity-name strings appear once in the Gantt-row label *and*
+    // once in the AI risk panel ("B · Cột & vách"), so a plain getByText
+    // hits two nodes. `.first()` scopes to the row label which is what
+    // these visibility checks care about.
+    await expect(page.getByText("Móng").first()).toBeVisible();
+    await expect(page.getByText("Cột & vách").first()).toBeVisible();
+    await expect(page.getByText("Mái").first()).toBeVisible();
 
     // Risk panel
     await expect(page.getByText(/Phân tích rủi ro AI/i)).toBeVisible();
