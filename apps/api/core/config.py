@@ -2,11 +2,17 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # Deployment env marker. "production" disables every dev stub and
+    # tightens secret validation at startup. Read from `AEC_ENV` to match
+    # the rest of the platform's `AEC_*` env convention.
+    environment: str = Field(default="development", validation_alias="AEC_ENV")
 
     # Runtime DB — non-superuser (aec_app) so RLS policies actually fire.
     # Request-scoped sessions use this via db.session.SessionFactory.

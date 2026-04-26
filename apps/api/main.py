@@ -14,6 +14,7 @@ from routers import (
     handover,
     projects,
     pulse,
+    schedulepilot,
     siteeye,
     winwork,
 )
@@ -21,6 +22,15 @@ from routers import (
 
 def create_app() -> FastAPI:
     settings = get_settings()
+
+    # Fail fast if a prod deploy ever boots with dev defaults — these would
+    # otherwise let any caller mint a valid JWT against the well-known dev
+    # secret. Restricted to AEC_ENV=production so local/staging keep booting.
+    if settings.environment == "production" and settings.supabase_jwt_secret == "dev-secret-change-me":
+        raise RuntimeError(
+            "AEC_ENV=production but SUPABASE_JWT_SECRET is the dev default — refusing to start"
+        )
+
     app = FastAPI(title="AEC Platform API", version="0.1.0")
 
     app.add_middleware(
@@ -43,6 +53,7 @@ def create_app() -> FastAPI:
     app.include_router(siteeye.router)
     app.include_router(handover.router)
     app.include_router(drawbridge.router)
+    app.include_router(schedulepilot.router)
     app.include_router(files.router)
 
     @app.get("/health")

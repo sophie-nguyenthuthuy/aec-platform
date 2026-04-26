@@ -31,8 +31,16 @@ MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 # Dev-only bypass: when AEC_PIPELINE_DEV_STUB=1, swap Claude for a canned-response
 # shim so the graph can be exercised end-to-end without ANTHROPIC_API_KEY. Intended
-# for local smoke tests only — never enable in staging/prod.
-PIPELINE_DEV_STUB = os.getenv("AEC_PIPELINE_DEV_STUB") == "1"
+# for local smoke tests only — hard-disabled when AEC_ENV=production so a stale
+# env-file or copy-paste mishap can't ship canned proposals to a real customer.
+_AEC_ENV = os.getenv("AEC_ENV", "development")
+_REQUEST_STUB = os.getenv("AEC_PIPELINE_DEV_STUB") == "1"
+PIPELINE_DEV_STUB = _REQUEST_STUB and _AEC_ENV != "production"
+if _REQUEST_STUB and not PIPELINE_DEV_STUB:
+    log.error(
+        "AEC_PIPELINE_DEV_STUB=1 ignored: refusing to stub LLM calls when AEC_ENV=%s",
+        _AEC_ENV,
+    )
 
 
 # ---------- Graph state ----------
