@@ -11,6 +11,7 @@
     "./projects": "./projects.ts",
     "./schedulepilot": "./schedulepilot.ts",
     "./submittals": "./submittals.ts",
-    "./dailylog": "./dailylog.ts"
+    "./dailylog": "./dailylog.ts",
+    "./changeorder": "./changeorder.ts"
   }
 }

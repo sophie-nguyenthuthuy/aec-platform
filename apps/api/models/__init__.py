@@ -7,6 +7,7 @@ def register_all() -> None:
     # Import inside function to avoid circulars during tooling
     from . import (
         bidradar,  # noqa: F401
+        changeorder,  # noqa: F401
         codeguard,  # noqa: F401
         core,  # noqa: F401
         costpulse,  # noqa: F401
