@@ -1,4 +1,17 @@
-.PHONY: seed-codeguard eval-codeguard test-api test-api-integration test-api-integration-up
+.PHONY: seed-codeguard eval-codeguard test test-api test-api-integration test-api-integration-up test-web hooks lint
+
+# Install local pre-commit hooks. Run once per clone. After this, every
+# `git commit` runs ruff check + ruff format + basic hygiene checks on
+# staged files. Skips bigger-but-slower gates (typecheck, pytest, build) —
+# those still run in CI.
+hooks:
+	pip install pre-commit
+	pre-commit install
+
+# Run all pre-commit hooks across the entire repo (not just staged files).
+# Useful right after a big rebase or before a release tag.
+lint:
+	pre-commit run --all-files
 
 # Runs the CODEGUARD ingest CLI against the committed QCVN excerpt so
 # /api/v1/codeguard/query works end-to-end in a fresh dev environment
@@ -37,8 +50,21 @@ eval-codeguard:
 	TEST_DATABASE_URL=$${TEST_DATABASE_URL:-postgresql+asyncpg://aec:aec@localhost:5438/aec} \
 		pytest apps/ml/tests/test_codeguard_quality_eval.py -v
 
+# Run every test in the repo: API unit lane + web Playwright. The
+# integration lane is intentionally NOT included — it requires the
+# docker-compose stack to be up. Run `make test-api-integration` for
+# that. Mirrors what CI does on every PR (see .github/workflows/ci.yml).
+#
+# `pnpm exec playwright install` ensures the chromium build is on the
+# machine; subsequent runs no-op when already installed.
+test: test-api test-web
+
 test-api:
 	cd apps/api && pytest -q
+
+test-web:
+	pnpm --filter @aec/web exec playwright install chromium
+	pnpm --filter @aec/web test:e2e
 
 # Integration lane: spins up Postgres + Redis, waits for both to be healthy,
 # applies migrations, and runs the `--integration`-tagged tests against them.

@@ -1,0 +1,57 @@
+# Pre-commit hooks for the AEC Platform monorepo.
+#
+# What this catches before push:
+#   - Python lint (ruff) and format (ruff-format) on staged Python files.
+#   - Trailing whitespace, missing newlines, broken YAML/TOML/JSON.
+#   - Accidentally committed secrets (basic regex sweep).
+#
+# What it deliberately does NOT run pre-commit (too slow, run pre-push or manually):
+#   - `pnpm -r typecheck` — 10-30s, blocks every commit
+#   - `pytest` — minutes
+#   - `next build` — minutes
+#
+# Setup (one time, per clone):
+#   pip install pre-commit
+#   pre-commit install
+#
+# Manual run across the whole repo:
+#   pre-commit run --all-files
+#
+# Bumping ruff version:
+#   - Update `rev:` below
+#   - Update `apps/api/requirements-dev.txt` to match (CI installs from there)
+#   - The two MUST stay in sync, otherwise local pre-commit fixes things CI
+#     still rejects (or vice versa). This was the root cause of one of the
+#     CI failures during the initial setup.
+
+repos:
+  # ---------- Python lint + format ---------------------------------------
+  # Pin to the same version as apps/api/requirements-dev.txt. New ruff rules
+  # default to "enabled" on minor bumps, so unpinning re-introduces the
+  # local-vs-CI drift this hook is supposed to prevent.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff
+        args: [--fix]
+        types_or: [python, pyi]
+      - id: ruff-format
+        types_or: [python, pyi]
+
+  # ---------- General hygiene --------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: \.md$  # markdown uses 2-space line breaks
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-json
+        # Next.js stores trailing-comma JSONC in tsconfig — let it through.
+        exclude: ^(.*tsconfig.*\.json|.*\.jsonc)$
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: detect-private-key
