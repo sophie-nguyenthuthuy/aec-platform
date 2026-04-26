@@ -15,6 +15,7 @@ import {
   usePackage,
   usePackageOmManuals,
   useProjectAsBuilts,
+  usePromoteDrawings,
   useUpdateCloseoutItem,
   useUpdateDefect,
   useUpdateWarranty,
@@ -75,7 +76,9 @@ export default function PackageDetailPage() {
         {tab === "checklist" && (
           <ChecklistTab packageId={pkg.id} items={pkg.closeout_items} />
         )}
-        {tab === "as-built" && <AsBuiltTab projectId={pkg.project_id} />}
+        {tab === "as-built" && (
+          <AsBuiltTab projectId={pkg.project_id} packageId={pkg.id} />
+        )}
         {tab === "om" && <OmTab packageId={pkg.id} />}
         {tab === "warranties" && (
           <WarrantiesTab projectId={pkg.project_id} packageId={pkg.id} />
@@ -109,10 +112,62 @@ function ChecklistTab({
   );
 }
 
-function AsBuiltTab({ projectId }: { projectId: string }) {
+function AsBuiltTab({
+  projectId,
+  packageId,
+}: {
+  projectId: string;
+  packageId: string;
+}) {
   const { data, isLoading } = useProjectAsBuilts(projectId);
+  const promote = usePromoteDrawings(packageId);
+  // The most recent run's summary lives on the mutation result; show a
+  // breakdown so the user can see what got created/versioned/skipped.
+  const summary = promote.data;
+
   if (isLoading) return <p className="text-sm text-slate-500">Đang tải...</p>;
-  return <AsBuiltList drawings={data ?? []} />;
+
+  const created = summary?.promoted.filter((p) => p.action === "created").length ?? 0;
+  const versioned = summary?.promoted.filter((p) => p.action === "versioned").length ?? 0;
+  const skipped = summary?.promoted.filter((p) => p.action === "skipped").length ?? 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+        <div className="text-xs text-blue-900">
+          <p className="font-semibold">Quét bản vẽ từ Drawbridge</p>
+          <p className="mt-0.5">
+            Lấy phiên bản mới nhất của mỗi <code>drawing_number</code> trong dự án
+            và đăng ký thành as-built. An toàn để chạy lại — bản vẽ đã ở phiên
+            bản hiện tại sẽ bị bỏ qua.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => promote.mutate({})}
+          disabled={promote.isPending}
+          className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {promote.isPending ? "Đang quét..." : "Quét Drawbridge"}
+        </button>
+      </div>
+
+      {promote.isError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800">
+          Quét thất bại: {(promote.error as Error)?.message ?? "lỗi không xác định"}
+        </div>
+      )}
+
+      {summary && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-900">
+          Đã xét {summary.documents_considered} tài liệu — tạo mới {created} ·
+          cập nhật phiên bản {versioned} · bỏ qua {skipped}.
+        </div>
+      )}
+
+      <AsBuiltList drawings={data ?? []} />
+    </div>
+  );
 }
 
 function OmTab({ packageId }: { packageId: string }) {

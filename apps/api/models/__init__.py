@@ -10,6 +10,7 @@ def register_all() -> None:
         codeguard,  # noqa: F401
         core,  # noqa: F401
         costpulse,  # noqa: F401
+        dailylog,  # noqa: F401
         drawbridge,  # noqa: F401
         handover,  # noqa: F401
         pulse,  # noqa: F401

@@ -5,4 +5,5 @@ export { ConfidenceMeter } from "./ConfidenceMeter";
 export { ExportBOQ } from "./ExportBOQ";
 export { DrawingUploader } from "./DrawingUploader";
 export type { UploadedDrawing, DrawingUploaderProps } from "./DrawingUploader";
+export { RfqResponsesPanel } from "./RfqResponsesPanel";
 export { formatNumber, formatPct, formatVnd } from "./formatters";

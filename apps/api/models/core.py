@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import CHAR, BigInteger, Date, DateTime, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import CHAR, BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -91,3 +91,63 @@ class File(Base):
     extracted_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ)
+
+
+class ProjectWatch(Base):
+    """Per-user "I want activity digests for this project" subscription.
+
+    Drives the `daily_activity_digest_cron`: only watched projects feed
+    into a user's morning email. The activity feed *page* remains
+    org-wide; watches are purely about who gets pushed out-of-band.
+
+    `(user_id, project_id)` is unique so a user can't double-watch the
+    same project. Tenant-scoped via `organization_id` (RLS-enforced) so
+    a misbehaving handler can't subscribe a user to another tenant's
+    project — the FK to projects already prevents that, but the org
+    column lines up with our standard RLS policy shape.
+    """
+
+    __tablename__ = "project_watches"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    organization_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(TZ)
+
+
+class ScraperRun(Base):
+    """Per-invocation telemetry row for `services.price_scrapers.run_scraper`.
+
+    Global ops data — no `organization_id`, no RLS. Persisted via
+    `AdminSessionFactory` (BYPASSRLS `aec` role). See migration
+    `0012_scraper_runs.py` for the schema rationale and the
+    `(slug, started_at DESC)` index supporting "last N runs for slug".
+    """
+
+    __tablename__ = "scraper_runs"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    slug: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(TZ)
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    scraped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    matched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unmatched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    written: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rule_hits: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    unmatched_sample: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)

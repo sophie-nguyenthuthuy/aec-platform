@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,6 +89,108 @@ async def codeguard_query(
 
     result.check_id = check.id
     return ok(result)
+
+
+@router.post("/query/stream")
+async def codeguard_query_stream(
+    payload: QueryRequest,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> StreamingResponse:
+    """SSE-streamed Q&A.
+
+    Wire format (matches the standard `text/event-stream` SSE shape):
+
+        event: token
+        data: {"delta": "<incremental text>"}
+
+        event: done
+        data: {"answer": "...", "confidence": 0.88, "citations": [...],
+               "related_questions": [...], "check_id": "<uuid>"}
+
+        event: error
+        data: {"message": "..."}
+
+    The frontend should treat `done` as terminal — the `check_id` is
+    only available there because it's set after the ComplianceCheck row
+    is persisted, which can't happen until the LLM has emitted the full
+    grounded response. `error` is also terminal; it does NOT preempt
+    `done` — once an error fires, no further events follow.
+
+    The non-streaming `/query` endpoint stays in place for clients that
+    don't want SSE complexity (and for the existing router-level mock
+    tests). Both code paths share `_hyde_expand`, `_hybrid_search`,
+    `_rerank`, `_ground_citations`, and `_abstain_response` — anything
+    you change in those flows for free into both surfaces.
+    """
+    from ml.pipelines.codeguard import answer_regulation_query_stream
+
+    async def sse_stream():
+        try:
+            response: QueryResponse | None = None
+            async for event_name, event_payload in answer_regulation_query_stream(
+                db=db,
+                question=payload.question,
+                language=payload.language,
+                jurisdiction=payload.jurisdiction,
+                categories=payload.categories,
+                top_k=payload.top_k,
+            ):
+                if event_name == "token":
+                    # `delta` is plain text; json.dumps escapes any
+                    # newlines or quotes that would otherwise break the
+                    # SSE framing (which is line-delimited).
+                    yield f"event: token\ndata: {json.dumps({'delta': event_payload})}\n\n"
+                elif event_name == "done":
+                    response = event_payload
+                elif event_name == "error":
+                    yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
+                    return
+
+            if response is None:
+                # Helper exited without emitting `done` or `error` —
+                # shouldn't happen, but defend rather than leaving the
+                # client hanging waiting for a terminal event.
+                yield ('event: error\ndata: {"message": "pipeline produced no terminal event"}\n\n')
+                return
+
+            # Persist the ComplianceCheck row before the terminal `done`
+            # event so the check_id we surface is committed audit state,
+            # not a hypothetical UUID. Same shape as the non-streaming
+            # /query endpoint — the audit trail is identical.
+            check = ComplianceCheckModel(
+                id=uuid4(),
+                organization_id=auth.organization_id,
+                project_id=payload.project_id,
+                check_type=CheckType.manual_query.value,
+                status=CheckStatus.completed.value,
+                input=payload.model_dump(mode="json"),
+                findings=response.model_dump(mode="json"),
+                regulations_referenced=[c.regulation_id for c in response.citations],
+                created_by=auth.user_id,
+                created_at=datetime.now(UTC),
+            )
+            db.add(check)
+            await db.flush()
+            await db.refresh(check)
+            response.check_id = check.id
+
+            yield f"event: done\ndata: {response.model_dump_json()}\n\n"
+        except Exception as exc:  # pragma: no cover — defensive catch
+            yield (f"event: error\ndata: {json.dumps({'message': f'Q&A pipeline failed: {exc}'})}\n\n")
+
+    return StreamingResponse(
+        sse_stream(),
+        media_type="text/event-stream",
+        headers={
+            # Prevent intermediate proxies from buffering the stream —
+            # nginx in particular needs `X-Accel-Buffering: no` to flush
+            # each chunk immediately. Without it the client gets the
+            # whole response in one go and the streaming UX collapses.
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ---------- Auto-scan ----------

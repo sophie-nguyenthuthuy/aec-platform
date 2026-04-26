@@ -30,7 +30,8 @@ export default function RFITrackerPage() {
     limit: 200,
   });
 
-  const list = data?.data ?? [];
+  // useMemo so identity is stable for the grouped useMemo below.
+  const list = useMemo(() => data?.data ?? [], [data]);
 
   const grouped = useMemo(() => {
     const g: Record<RfiStatus, Rfi[]> = { open: [], answered: [], closed: [] };

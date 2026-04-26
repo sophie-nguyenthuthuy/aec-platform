@@ -255,6 +255,25 @@ async def weekly_report_cron(ctx: dict) -> dict:
     return {"projects_queued": len(rows), "week_start": week_start.isoformat()}
 
 
+async def daily_activity_digest_cron(ctx: dict) -> dict:
+    """Send the per-user daily activity digest.
+
+    Cross-tenant by design — this enumerates every (user, organization)
+    pair that has any project_watches and dispatches one email each.
+    Runs under `AdminSessionFactory` (BYPASSRLS) for the same reason as
+    `weekly_report_cron`: under aec_app the discovery query would return
+    zero rows.
+
+    Empty-digest skip: a user with watches but zero events in the last
+    24h gets *no* email — better silence than spam.
+    """
+    from db.session import AdminSessionFactory
+    from services.notifications import dispatch_daily_digests
+
+    async with AdminSessionFactory() as session:
+        return await dispatch_daily_digests(session)
+
+
 # ---------- Worker settings ----------
 
 
@@ -278,6 +297,10 @@ class WorkerSettings:
         # published the prior month's bulletin by then. Fan-out enqueues
         # one `scrape_prices_job` per registered province.
         cron(scrape_all_prices_job, day=2, hour=1, minute=0),
+        # Every day 00:00 UTC (~07:00 ICT) — push activity digest emails
+        # to every user who has watched at least one project. Empty
+        # digests are skipped so a quiet day produces zero email noise.
+        cron(daily_activity_digest_cron, hour=0, minute=0),
     ]
     max_jobs = 8
     job_timeout = 900  # 15 min — weekly report with PDF rendering can be slow

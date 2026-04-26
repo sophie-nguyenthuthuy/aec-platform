@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeft,
+  Bell,
+  BellOff,
   CheckCircle2,
   ClipboardList,
   FileText,
@@ -15,6 +17,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { useIsWatching, useToggleWatch } from "@/hooks/notifications";
 import { useProject } from "@/hooks/projects";
 import type { ProjectDetail } from "@aec/types/projects";
 
@@ -88,13 +91,16 @@ export default function ProjectDetailPage() {
                 .join(", ") || "Chưa có địa chỉ"}
             </p>
           </div>
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              STATUS_BADGE[project.status] ?? "bg-slate-100 text-slate-700"
-            }`}
-          >
-            {project.status}
-          </span>
+          <div className="flex items-center gap-2">
+            <WatchToggle projectId={project.id} />
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-medium ${
+                STATUS_BADGE[project.status] ?? "bg-slate-100 text-slate-700"
+              }`}
+            >
+              {project.status}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -309,5 +315,42 @@ function RiskCard({ project }: { project: ProjectDetail }) {
         </ul>
       )}
     </div>
+  );
+}
+
+
+function WatchToggle({ projectId }: { projectId: string }) {
+  const watching = useIsWatching(projectId);
+  const { watch, unwatch } = useToggleWatch(projectId);
+  const pending = watch.isPending || unwatch.isPending;
+
+  const handleClick = () => {
+    if (pending) return;
+    if (watching) {
+      unwatch.mutate();
+    } else {
+      watch.mutate();
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={pending}
+      title={
+        watching
+          ? "Đang theo dõi — bấm để bỏ theo dõi"
+          : "Bấm để theo dõi và nhận digest hằng ngày"
+      }
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition disabled:opacity-50 ${
+        watching
+          ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+      }`}
+    >
+      {watching ? <Bell size={12} /> : <BellOff size={12} />}
+      <span>{watching ? "Đang theo dõi" : "Theo dõi"}</span>
+    </button>
   );
 }

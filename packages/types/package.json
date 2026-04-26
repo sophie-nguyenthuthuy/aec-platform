@@ -10,6 +10,7 @@
     "./winwork": "./winwork.ts",
     "./projects": "./projects.ts",
     "./schedulepilot": "./schedulepilot.ts",
-    "./submittals": "./submittals.ts"
+    "./submittals": "./submittals.ts",
+    "./dailylog": "./dailylog.ts"
   }
 }

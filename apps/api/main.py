@@ -11,6 +11,7 @@ from routers import (
     bidradar,
     codeguard,
     costpulse,
+    dailylog,
     drawbridge,
     files,
     handover,
@@ -65,6 +66,7 @@ def create_app() -> FastAPI:
     app.include_router(drawbridge.router)
     app.include_router(schedulepilot.router)
     app.include_router(submittals.router)
+    app.include_router(dailylog.router)
     app.include_router(files.router)
     # Public (no-auth) routers — token in the request *is* the auth.
     # Mounted last so any global middleware that runs `require_auth`

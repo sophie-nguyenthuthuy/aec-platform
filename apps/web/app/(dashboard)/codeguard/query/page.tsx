@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Send } from "lucide-react";
+import { Info, Send } from "lucide-react";
 import { CitationCard } from "@aec/ui/codeguard";
 import type { QueryResponse } from "@aec/ui/codeguard";
 import { useCodeguardQuery } from "@/hooks/codeguard";
@@ -17,10 +17,15 @@ export default function RegulationChatPage() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const mutation = useCodeguardQuery();
 
-  const submit = async () => {
-    const question = input.trim();
+  // Parameterised so it can be invoked both from the form and from a
+  // clicked "related question" suggestion. When called with no arg it
+  // consumes the current `input` state and clears the textbox; when
+  // called with `questionText` it leaves `input` alone (so the user
+  // doesn't lose anything they were typing).
+  const submit = async (questionText?: string) => {
+    const question = (questionText ?? input).trim();
     if (!question || mutation.isPending) return;
-    setInput("");
+    if (questionText === undefined) setInput("");
     setTurns((t) => [...t, { role: "user", text: question }]);
     try {
       const response = await mutation.mutateAsync({ question });
@@ -50,7 +55,7 @@ export default function RegulationChatPage() {
                     {t.text}
                   </div>
                 ) : (
-                  <AssistantTurn text={t.text} response={t.response} />
+                  <AssistantTurn text={t.text} response={t.response} onAskRelated={submit} />
                 )}
               </li>
             ))}
@@ -89,7 +94,38 @@ export default function RegulationChatPage() {
   );
 }
 
-function AssistantTurn({ text, response }: { text: string; response?: QueryResponse }) {
+function AssistantTurn({
+  text,
+  response,
+  onAskRelated,
+}: {
+  text: string;
+  response?: QueryResponse;
+  onAskRelated: (q: string) => void;
+}) {
+  // Backend abstain contract (see `_abstain_response` in
+  // apps/ml/pipelines/codeguard.py): when retrieval returns no chunks the
+  // pipeline skips the LLM entirely and returns confidence=0 with empty
+  // citations. Render this distinctly so users see "we couldn't answer"
+  // rather than mistaking it for a low-confidence answer — for a compliance
+  // tool the difference matters.
+  const isAbstain =
+    response !== undefined &&
+    response.confidence === 0 &&
+    response.citations.length === 0;
+
+  if (isAbstain) {
+    return (
+      <div className="inline-block max-w-full rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-amber-700">
+          <Info size={14} />
+          Không có kết quả phù hợp
+        </div>
+        <p className="whitespace-pre-wrap">{text}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="inline-block max-w-full rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-900">
       <p className="whitespace-pre-wrap">{text}</p>
@@ -112,8 +148,14 @@ function AssistantTurn({ text, response }: { text: string; response?: QueryRespo
           <div className="mb-1 text-xs font-medium text-slate-600">Câu hỏi liên quan</div>
           <ul className="space-y-1 text-xs">
             {response.related_questions.map((q, i) => (
-              <li key={i} className="text-blue-600 hover:underline">
-                {q}
+              <li key={i}>
+                <button
+                  type="button"
+                  onClick={() => onAskRelated(q)}
+                  className="rounded text-left text-blue-600 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+                  {q}
+                </button>
               </li>
             ))}
           </ul>

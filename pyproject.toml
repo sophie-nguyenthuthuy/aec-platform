@@ -14,8 +14,29 @@ select = [
 ]
 ignore = ["E501"]  # line length handled by formatter
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's whole point is parameter-default DI: `arg = Depends(...)` /
+# `arg = Query(...)` is the idiom, not an antipattern. Whitelist the
+# framework helpers so B008 stops flagging legitimate route signatures.
+extend-immutable-calls = [
+  "Depends", "fastapi.Depends",
+  "Query",   "fastapi.Query",
+  "Path",    "fastapi.Path",
+  "Body",    "fastapi.Body",
+  "Header",  "fastapi.Header",
+  "Cookie",  "fastapi.Cookie",
+  "File",    "fastapi.File",
+  "Form",    "fastapi.Form",
+  "Security","fastapi.Security",
+]
+
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["B011", "E731"]
+# `models/pulse.py` defines the timezone-aware DateTime alias *between*
+# imports so each Mapped[datetime] column reads naturally. Linear
+# top-of-file ordering would force every column to write
+# `DateTime(timezone=True)` inline.
+"apps/api/models/pulse.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.11"

@@ -31,3 +31,6 @@ playwright-report/
 # IDE
 .vscode/
 .idea/
+
+# Local persistence probes (created by ad-hoc db debug scripts)
+_persist_probe*

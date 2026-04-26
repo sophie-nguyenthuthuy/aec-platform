@@ -47,9 +47,38 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # Public-facing web URL — used to build supplier-portal links embedded
+    # in RFQ emails. Suppliers click these to land on the no-auth response
+    # page. In dev this matches the Next.js dev server; in prod set it to
+    # the customer-facing domain so the link works from a supplier's inbox.
+    public_web_url: str = "http://localhost:3000"
+
+    # Token validity window for RFQ supplier-portal links. Defaults to 60
+    # days, which covers the deadline (typically 7-30 days) plus grace for
+    # a late supplier. Tokens carry no DB row — they're stateless JWTs —
+    # so revocation is implicit-via-expiry.
+    rfq_token_ttl_seconds: int = 60 * 60 * 24 * 60
+
     # SiteEye Ray Serve (YOLOv8m safety model). Read by apps.ml.pipelines.siteeye.
     # Override via env `SITEEYE_RAY_SERVE_URL` in deployment manifests.
     siteeye_ray_serve_url: str = "http://siteeye-safety:8000"
+
+    # ---------- Observability ----------
+    #
+    # `log_level` is the floor (DEBUG/INFO/WARNING/ERROR). `log_format` is
+    # `pretty` for dev (single-line readable) or `json` for prod (one
+    # log-line-per-record, parseable by any log shipper). `slow_query_ms`
+    # logs a WARN when a single SQL statement exceeds the threshold —
+    # caught by the SQLAlchemy `before_cursor_execute` /
+    # `after_cursor_execute` listeners installed in `core.observability`.
+    log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
+    log_format: str = Field(default="pretty", validation_alias="LOG_FORMAT")
+    slow_query_ms: int = Field(default=500, validation_alias="SLOW_QUERY_MS")
+
+    # Sentry DSN. None disables Sentry entirely (no-op init, no SDK overhead
+    # beyond a `getenv`). Set in prod manifests; leave empty in dev.
+    sentry_dsn: str | None = Field(default=None, validation_alias="SENTRY_DSN")
+    sentry_traces_sample_rate: float = Field(default=0.1, validation_alias="SENTRY_TRACES_SAMPLE_RATE")
 
 
 @lru_cache

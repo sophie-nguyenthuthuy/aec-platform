@@ -20,6 +20,7 @@ The probe is intentionally *not* wired into the cron — it's a discovery
 tool, not a recurring monitor. Repeated probing across 53 gov sites
 would be rude (and give us nothing new once a URL is known).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -70,11 +71,7 @@ def candidate_urls(slug: str) -> list[str]:
     most slugs will short-circuit on the first or second hit.
     """
     domain = _slug_to_subdomain(slug)
-    return [
-        f"https://{prefix}.{domain}.gov.vn{path}"
-        for prefix in _SUBDOMAIN_PREFIXES
-        for path in _PATH_SUFFIXES
-    ]
+    return [f"https://{prefix}.{domain}.gov.vn{path}" for prefix in _SUBDOMAIN_PREFIXES for path in _PATH_SUFFIXES]
 
 
 # ---------- Probe one candidate ----------
@@ -162,10 +159,7 @@ async def probe_slug(slug: str, *, http_client) -> ProbeResult | None:
 async def _main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m services.price_scrapers.probe",
-        description=(
-            "Probe PENDING_URL provincial Departments of Construction "
-            "for their bulletin-listing URLs."
-        ),
+        description=("Probe PENDING_URL provincial Departments of Construction for their bulletin-listing URLs."),
     )
     parser.add_argument(
         "slugs",
@@ -185,11 +179,7 @@ async def _main(argv: list[str]) -> int:
     from .generic_province import PENDING_URL
     from .provinces import ALL
 
-    targets: list[str] = (
-        args.slugs
-        if args.slugs
-        else [c.slug for c in ALL if c.listing_url == PENDING_URL]
-    )
+    targets: list[str] = args.slugs if args.slugs else [c.slug for c in ALL if c.listing_url == PENDING_URL]
     print(f"# Probing {len(targets)} province(s)…", file=sys.stderr)
 
     results: list[dict] = []

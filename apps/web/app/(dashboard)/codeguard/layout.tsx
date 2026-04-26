@@ -8,6 +8,7 @@ const NAV = [
   { href: "/codeguard/scan", label: "Quét tuân thủ" },
   { href: "/codeguard/checklist", label: "Checklist cấp phép" },
   { href: "/codeguard/regulations", label: "Thư viện quy chuẩn" },
+  { href: "/codeguard/history", label: "Lịch sử kiểm tra" },
 ] as const;
 
 export default function CodeguardLayout({ children }: { children: ReactNode }) {

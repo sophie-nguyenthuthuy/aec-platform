@@ -134,21 +134,61 @@ def _match(raw_name: str) -> _Rule | None:
     return None
 
 
-def normalise(rows: list[ScrapedPrice]) -> tuple[list[NormalisedPrice], list[ScrapedPrice]]:
+@dataclass(frozen=True)
+class NormalisationResult:
+    """Structured output of `normalise()` — used for drift telemetry.
+
+    `rule_hits` maps `material_code` → number of rows that matched it
+    in this single normalisation pass. Codes that didn't match anything
+    are still listed at zero, so trend queries can spot a previously-
+    active rule going dark (the strongest drift signal).
+
+    For backward compatibility, this object unpacks as `(matched, unmatched)`
+    via `__iter__` so callers that only want the original tuple shape keep
+    working — but new code should reach for the named attributes.
+    """
+
+    matched: list[NormalisedPrice]
+    unmatched: list[ScrapedPrice]
+    rule_hits: dict[str, int]
+
+    def __iter__(self):
+        # 2-tuple unpacking — matches the historic return signature.
+        # `for x in result` is meaningless here; this is solely for
+        # `matched, unmatched = normalise(rows)` callers.
+        yield self.matched
+        yield self.unmatched
+
+
+# All known material_codes — pre-populated to zero per call so a code
+# that *should* fire but didn't this run is still in `rule_hits`.
+# Computed once at import.
+_ALL_CODES: tuple[str, ...] = tuple(rule.code for rule in _RULES)
+
+
+def normalise(rows: list[ScrapedPrice]) -> NormalisationResult:
     """Map each ScrapedPrice to our catalogue.
 
-    Returns (normalised, unmatched). Unmatched rows should be logged so
-    ops can either update `_RULES` or mark them as intentionally-ignored
-    (e.g. "Lao động phổ thông" — labour — doesn't belong in material_prices).
+    Returns a `NormalisationResult` with `matched`, `unmatched`, and
+    `rule_hits`. Two-tuple unpacking still works:
+
+        matched, unmatched = normalise(rows)
+
+    Unmatched rows should be logged so ops can either update `_RULES` or
+    mark them as intentionally-ignored (e.g. "Lao động phổ thông" —
+    labour — doesn't belong in material_prices).
     """
     normalised: list[NormalisedPrice] = []
     unmatched: list[ScrapedPrice] = []
+    hits: dict[str, int] = {code: 0 for code in _ALL_CODES}
 
     for row in rows:
         rule = _match(row.raw_name)
         if rule is None:
             unmatched.append(row)
             continue
+
+        hits[rule.code] = hits.get(rule.code, 0) + 1
 
         # Sanity-check the unit vs what the rule expects. We don't reject
         # mismatches — some provinces publish rebar by the tonne, others
@@ -182,4 +222,4 @@ def normalise(rows: list[ScrapedPrice]) -> tuple[list[NormalisedPrice], list[Scr
             len(rows),
         )
 
-    return normalised, unmatched
+    return NormalisationResult(matched=normalised, unmatched=unmatched, rule_hits=hits)

@@ -4,7 +4,14 @@ export type MaterialCategory = "concrete" | "steel" | "finishing" | "mep" | "tim
 export type EstimateStatus = "draft" | "approved" | "superseded";
 export type EstimateConfidence = "rough_order" | "preliminary" | "detailed";
 export type EstimateMethod = "ai_generated" | "manual" | "imported";
-export type RfqStatus = "draft" | "sent" | "responding" | "closed";
+export type RfqStatus = "draft" | "sent" | "responded" | "responding" | "closed";
+
+/** Supplier-side state for one (rfq, supplier) slot. Lives inside `Rfq.responses[]`. */
+export type RfqResponseStatus =
+  | "dispatched"  // email out, no quote yet
+  | "bounced"     // email send failed
+  | "skipped"     // no contact email / supplier hidden / not yet dispatched
+  | "responded";  // supplier submitted via the public portal
 export type PriceSource = "government" | "supplier" | "crowdsource";
 export type BoqItemSource = "ai_extracted" | "manual" | "price_db";
 export type QualityTier = "economy" | "standard" | "premium";
@@ -121,13 +128,56 @@ export interface Supplier {
   created_at: string;
 }
 
+/**
+ * One quote line as submitted by a supplier through the public portal.
+ *
+ * Mirrors `apps/api/schemas/public_rfq.py::PublicRfqQuoteLine`. Numeric
+ * fields land here as strings because the buyer-side surface ingests
+ * them via Pydantic Decimal serialisation, which is JSON-serialised as
+ * strings to avoid float drift.
+ */
+export interface RfqQuoteLine {
+  material_code: string | null;
+  description: string;
+  quantity: number | null;
+  unit: string | null;
+  unit_price_vnd: string | null;
+}
+
+export interface RfqQuote {
+  total_vnd: string | null;
+  lead_time_days: number | null;
+  valid_until: ISODate | null;
+  notes: string | null;
+  line_items: RfqQuoteLine[];
+}
+
+/** One per-supplier slot inside `Rfq.responses[]`. */
+export interface RfqResponseEntry {
+  supplier_id: UUID;
+  status: RfqResponseStatus;
+  /** Set when the dispatcher email-out happened. */
+  dispatched_at?: string | null;
+  /** Set when the supplier submitted through the public portal. */
+  responded_at?: string | null;
+  /** Email-transport bookkeeping written by `services.rfq_dispatch`. */
+  delivery?: {
+    to?: string;
+    subject?: string;
+    delivered: boolean;
+    reason?: string | null;
+  } | null;
+  /** Null until the supplier submits a quote. */
+  quote: RfqQuote | null;
+}
+
 export interface Rfq {
   id: UUID;
   project_id: UUID | null;
   estimate_id: UUID | null;
   status: RfqStatus;
   sent_to: UUID[];
-  responses: Record<string, unknown>[];
+  responses: RfqResponseEntry[];
   deadline: ISODate | null;
   created_at: string;
 }

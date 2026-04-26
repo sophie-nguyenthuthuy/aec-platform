@@ -37,6 +37,10 @@ def paginated(items: list[Any], page: int, per_page: int, total: int) -> dict[st
 
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    # `exc.headers` is set by callers that want to surface response headers
+    # like `Retry-After` on a 429 or `WWW-Authenticate` on a 401. Forward
+    # them verbatim — not doing so silently breaks rate-limit clients that
+    # back off based on the header.
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -44,6 +48,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
             "meta": None,
             "errors": [{"code": str(exc.status_code), "message": str(exc.detail), "field": None}],
         },
+        headers=exc.headers,
     )
 
 

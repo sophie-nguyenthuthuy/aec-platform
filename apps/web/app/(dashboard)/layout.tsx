@@ -3,6 +3,8 @@ import type { Route } from "next";
 import type { ReactNode } from "react";
 
 const NAV: Array<{ href: Route; label: string; section?: string }> = [
+  { section: "Tổng quan", href: "/projects", label: "Dự án" },
+  { href: "/activity", label: "Hoạt động" },
   { section: "Giai đoạn thiết kế", href: "/codeguard", label: "CodeGuard" },
   { href: "/drawbridge", label: "Drawbridge" },
   { section: "Giai đoạn đấu thầu", href: "/bidradar", label: "BidRadar" },

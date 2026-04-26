@@ -15,8 +15,17 @@ export type {
   CreateCloseoutItemRequest,
   UpdateCloseoutItemRequest,
 } from "./useCloseout";
-export { useProjectAsBuilts, useRegisterAsBuilt } from "./useAsBuilts";
-export type { RegisterAsBuiltRequest } from "./useAsBuilts";
+export {
+  useProjectAsBuilts,
+  useRegisterAsBuilt,
+  usePromoteDrawings,
+} from "./useAsBuilts";
+export type {
+  RegisterAsBuiltRequest,
+  PromoteDrawingsRequest,
+  PromoteDrawingsResponse,
+  PromotedDrawingSummary,
+} from "./useAsBuilts";
 export { usePackageOmManuals, useGenerateOmManual } from "./useOmManual";
 export type { GenerateOmManualRequest } from "./useOmManual";
 export {

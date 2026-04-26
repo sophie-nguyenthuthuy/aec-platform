@@ -498,14 +498,17 @@ async def test_run_scraper_aggregates_summary_counts(monkeypatch):
 
     summary = await run_scraper(_FakeScraper())
 
-    assert summary == {
-        "slug": "fake",
-        "ok": True,
-        "scraped": 2,
-        "matched": 1,
-        "unmatched": 1,
-        "written": 1,
-    }
+    # Core counts are the contract.
+    assert summary["slug"] == "fake"
+    assert summary["ok"] is True
+    assert summary["scraped"] == 2
+    assert summary["matched"] == 1
+    assert summary["unmatched"] == 1
+    assert summary["written"] == 1
+    # Drift telemetry (B.2) is also part of the contract.
+    assert summary["rule_hits"]["CONC_C30"] == 1
+    assert summary["rule_hits"]["REBAR_CB500"] == 0
+    assert summary["unmatched_sample"] == ["Lao động không xác định"]
 
 
 @pytest.mark.asyncio
@@ -525,6 +528,230 @@ async def test_run_scraper_catches_scrape_errors(monkeypatch):
     assert summary["error"] == "upstream 500"
     assert summary["scraped"] == 0
     assert summary["written"] == 0
+
+
+# ---------- Drift monitoring (B.2) ----------
+
+
+@pytest.mark.asyncio
+async def test_run_scraper_logs_drift_warning_above_threshold(monkeypatch, caplog):
+    """High unmatched ratio must surface a `scraper.drift[...]` WARN."""
+    import logging
+
+    from services import price_scrapers
+    from services.price_scrapers import base
+
+    class _DriftyScraper(base.BaseScraper):
+        slug = "drifty-province"
+        province = "Drifty"
+
+        async def scrape(self):
+            # 4 unparseable + 1 known = 80% unmatched, well over 30%.
+            return [
+                ScrapedPrice("Đèn LED Philips A19", "cái", Decimal("85000"), date(2026, 3, 1), "Drifty"),
+                ScrapedPrice("Cửa nhôm Xingfa hệ 55", "m2", Decimal("950000"), date(2026, 3, 1), "Drifty"),
+                ScrapedPrice("Lavabo TOTO LW210", "cái", Decimal("1200000"), date(2026, 3, 1), "Drifty"),
+                ScrapedPrice("Đầu nối ống PPR D25", "cái", Decimal("8500"), date(2026, 3, 1), "Drifty"),
+                ScrapedPrice("Bê tông C30", "m3", Decimal("2000000"), date(2026, 3, 1), "Drifty"),
+            ]
+
+    async def _fake_write(rows):
+        return {"inserted_or_updated": len(rows)}
+
+    monkeypatch.setattr(price_scrapers, "write_prices", _fake_write)
+
+    with caplog.at_level(logging.WARNING, logger="services.price_scrapers"):
+        summary = await run_scraper(_DriftyScraper())
+
+    assert summary["matched"] == 1
+    assert summary["unmatched"] == 4
+    drift_records = [r for r in caplog.records if "scraper.drift[drifty-province]" in r.getMessage()]
+    assert len(drift_records) == 1
+    assert "4/5 (80%)" in drift_records[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_run_scraper_does_not_log_drift_when_under_threshold(monkeypatch, caplog):
+    """Below the 30% threshold, no `scraper.drift[...]` warning at all."""
+    import logging
+
+    from services import price_scrapers
+    from services.price_scrapers import base
+
+    class _CleanScraper(base.BaseScraper):
+        slug = "clean-province"
+        province = "Clean"
+
+        async def scrape(self):
+            return [
+                ScrapedPrice("Bê tông C30", "m3", Decimal("2000000"), date(2026, 3, 1), "Clean"),
+                ScrapedPrice("Bê tông C25", "m3", Decimal("1700000"), date(2026, 3, 1), "Clean"),
+                ScrapedPrice("Thép CB500", "kg", Decimal("20500"), date(2026, 3, 1), "Clean"),
+                ScrapedPrice("Gạch đỏ tuynel", "viên", Decimal("1200"), date(2026, 3, 1), "Clean"),
+                ScrapedPrice("Some weird thing", "cái", Decimal("100"), date(2026, 3, 1), "Clean"),
+            ]
+
+    async def _fake_write(rows):
+        return {"inserted_or_updated": len(rows)}
+
+    monkeypatch.setattr(price_scrapers, "write_prices", _fake_write)
+
+    with caplog.at_level(logging.WARNING, logger="services.price_scrapers"):
+        await run_scraper(_CleanScraper())
+
+    drift_records = [r for r in caplog.records if "scraper.drift[" in r.getMessage()]
+    assert drift_records == []
+
+
+@pytest.mark.asyncio
+async def test_run_scraper_persists_telemetry_row_on_success(monkeypatch):
+    """A successful run must add a ScraperRun row via AdminSessionFactory."""
+    from services import price_scrapers
+    from services.price_scrapers import base
+
+    class _OkScraper(base.BaseScraper):
+        slug = "telemetry-test"
+        province = "Telemetryland"
+
+        async def scrape(self):
+            return [
+                ScrapedPrice("Bê tông C30", "m3", Decimal("2000000"), date(2026, 3, 1), "Telemetryland"),
+                ScrapedPrice("Lao động phổ thông", "công", Decimal("350000"), date(2026, 3, 1), "Telemetryland"),
+            ]
+
+    async def _fake_write(rows):
+        return {"inserted_or_updated": len(rows)}
+
+    monkeypatch.setattr(price_scrapers, "write_prices", _fake_write)
+
+    captured = _install_admin_session_capture(monkeypatch)
+    summary = await run_scraper(_OkScraper())
+    assert summary["ok"] is True
+
+    assert len(captured["added"]) == 1
+    row = captured["added"][0]
+    assert row.slug == "telemetry-test"
+    assert row.ok is True
+    assert row.error is None
+    assert row.scraped == 2
+    assert row.matched == 1
+    assert row.unmatched == 1
+    assert row.written == 1
+    assert row.rule_hits["CONC_C30"] == 1
+    assert row.unmatched_sample == ["Lao động phổ thông"]
+    assert row.started_at is not None
+    assert row.finished_at is not None
+    assert row.finished_at >= row.started_at
+    assert captured["committed"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_scraper_persists_telemetry_row_on_scrape_error(monkeypatch):
+    """A ScrapeError run must still write a row, with ok=False + error set."""
+    from services.price_scrapers import base
+
+    class _BrokenScraper(base.BaseScraper):
+        slug = "telemetry-error"
+        province = "Errorland"
+
+        async def scrape(self):
+            raise base.ScrapeError("upstream 500")
+
+    captured = _install_admin_session_capture(monkeypatch)
+    summary = await run_scraper(_BrokenScraper())
+    assert summary["ok"] is False
+
+    assert len(captured["added"]) == 1
+    row = captured["added"][0]
+    assert row.slug == "telemetry-error"
+    assert row.ok is False
+    assert row.error == "upstream 500"
+    assert row.scraped == 0
+    assert row.matched == 0
+
+
+@pytest.mark.asyncio
+async def test_run_scraper_swallows_telemetry_persist_failures(monkeypatch, caplog):
+    """A DB failure during telemetry persist must not propagate."""
+    import logging
+
+    from services import price_scrapers
+    from services.price_scrapers import base
+
+    class _OkScraper(base.BaseScraper):
+        slug = "telemetry-survives"
+        province = "Survival"
+
+        async def scrape(self):
+            return [
+                ScrapedPrice("Bê tông C30", "m3", Decimal("2000000"), date(2026, 3, 1), "Survival"),
+            ]
+
+    async def _fake_write(rows):
+        return {"inserted_or_updated": len(rows)}
+
+    monkeypatch.setattr(price_scrapers, "write_prices", _fake_write)
+
+    import db.session as db_session
+
+    class _BoomSession:
+        def add(self, *a, **k):
+            pass
+
+        async def commit(self):
+            raise RuntimeError("simulated DB outage")
+
+    class _BoomFactory:
+        def __call__(self):
+            return self
+
+        async def __aenter__(self):
+            return _BoomSession()
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(db_session, "AdminSessionFactory", _BoomFactory())
+
+    with caplog.at_level(logging.WARNING, logger="services.price_scrapers"):
+        summary = await run_scraper(_OkScraper())
+
+    assert summary["ok"] is True  # scrape succeeded; telemetry failure swallowed
+    persist_records = [r for r in caplog.records if "scraper.persist_run" in r.getMessage()]
+    assert len(persist_records) == 1
+    assert "simulated DB outage" in persist_records[0].getMessage()
+
+
+def _install_admin_session_capture(monkeypatch):
+    """Replace `db.session.AdminSessionFactory` with a capturing fake.
+
+    Returns a dict that gets `added` (model instances passed to
+    `session.add`) and `committed` (bool) populated as `run_scraper`
+    persists telemetry. Used instead of a live DB.
+    """
+    import db.session as db_session
+
+    captured: dict = {"added": [], "committed": False}
+
+    class _CaptureSession:
+        def add(self, instance):
+            captured["added"].append(instance)
+
+        async def commit(self):
+            captured["committed"] = True
+
+    class _CaptureFactory:
+        def __call__(self):
+            return self
+
+        async def __aenter__(self):
+            return _CaptureSession()
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(db_session, "AdminSessionFactory", _CaptureFactory())
+    return captured
 
 
 # ---------- helpers ----------
@@ -746,3 +973,200 @@ class TestExtractEffectiveDate:
     def test_returns_none_for_empty_string(self):
         assert extract_effective_date("") is None
         assert extract_effective_date(None) is None  # type: ignore[arg-type]
+
+
+# ---------- PENDING-URL probe (B.3) ----------
+#
+# The probe tool is operator-run from a network that can reach .gov.vn,
+# so we don't make real HTTP calls in tests. We unit-test the URL
+# generation + the result-interpretation logic, and exercise probe_slug
+# through a fake http_client.
+
+
+from services.price_scrapers.probe import (
+    ProbeResult,
+    _slug_to_subdomain,
+    candidate_urls,
+    probe_slug,
+    probe_url,
+)
+
+
+class TestCandidateUrls:
+    """URL-template generation for PENDING_URL province probing."""
+
+    def test_simple_slug_strips_hyphens_for_subdomain(self):
+        urls = candidate_urls("ha-giang")
+        # Every candidate must use `hagiang` as the domain segment.
+        assert all("hagiang.gov.vn" in u for u in urls)
+        assert not any("ha-giang.gov.vn" in u for u in urls)
+
+    def test_multi_part_slug_joins_all_segments(self):
+        # ba-ria-vung-tau → bariavungtau, no dots.
+        assert _slug_to_subdomain("ba-ria-vung-tau") == "bariavungtau"
+        urls = candidate_urls("ba-ria-vung-tau")
+        assert all("bariavungtau.gov.vn" in u for u in urls)
+
+    def test_candidate_count_is_prefix_x_path(self):
+        # 2 prefixes × 5 paths = 10 candidates. If we add a prefix or path,
+        # this test will fail loudly so the operator notices the probe
+        # traffic budget changed.
+        assert len(candidate_urls("ha-giang")) == 10
+
+    def test_first_candidate_uses_most_common_pattern(self):
+        # Most verified provinces use `sxd.<slug>.gov.vn/thong-bao-gia-vat-lieu`,
+        # so that's what we should try first to short-circuit on the common
+        # case before probing more rarely-used patterns.
+        first = candidate_urls("ha-giang")[0]
+        assert first == "https://sxd.hagiang.gov.vn/thong-bao-gia-vat-lieu"
+
+
+class TestProbeResultInterpretation:
+    """`ProbeResult.is_match` is the contract — pin its boundaries."""
+
+    def test_200_with_bulletin_link_is_match(self):
+        result = ProbeResult(
+            slug="x",
+            url="https://x",
+            status=200,
+            has_bulletin_link=True,
+            error=None,
+            elapsed_ms=10,
+        )
+        assert result.is_match is True
+
+    def test_200_without_bulletin_link_is_not_match(self):
+        # We landed on the DOC home page or a generic news index.
+        result = ProbeResult(
+            slug="x",
+            url="https://x",
+            status=200,
+            has_bulletin_link=False,
+            error=None,
+            elapsed_ms=10,
+        )
+        assert result.is_match is False
+
+    def test_404_is_not_match(self):
+        result = ProbeResult(
+            slug="x",
+            url="https://x",
+            status=404,
+            has_bulletin_link=False,
+            error=None,
+            elapsed_ms=10,
+        )
+        assert result.is_match is False
+
+    def test_transport_failure_is_not_match(self):
+        # DNS / TLS / timeout — no HTTP status at all.
+        result = ProbeResult(
+            slug="x",
+            url="https://x",
+            status=None,
+            has_bulletin_link=False,
+            error="DNSError: NXDOMAIN",
+            elapsed_ms=10,
+        )
+        assert result.is_match is False
+
+
+class TestProbeUrl:
+    """`probe_url` must turn http_client outcomes into ProbeResult shapes."""
+
+    @pytest.mark.asyncio
+    async def test_200_with_bulletin_href_in_body(self):
+        client = MagicMock()
+        client.get = AsyncMock(
+            return_value=_probe_response(
+                200,
+                'irrelevant text <a href="/cong-bo-gia/2026-q1">Q1</a> more text',
+            )
+        )
+        result = await probe_url("ha-giang", "https://sxd.hagiang.gov.vn/x", http_client=client)
+        assert result.status == 200
+        assert result.has_bulletin_link is True
+        assert result.is_match is True
+        assert result.error is None
+
+    @pytest.mark.asyncio
+    async def test_200_without_bulletin_href(self):
+        client = MagicMock()
+        client.get = AsyncMock(
+            return_value=_probe_response(
+                200,
+                "<html><body><p>welcome</p></body></html>",
+            )
+        )
+        result = await probe_url("x", "https://x", http_client=client)
+        assert result.status == 200
+        assert result.has_bulletin_link is False
+        assert result.is_match is False
+
+    @pytest.mark.asyncio
+    async def test_404(self):
+        client = MagicMock()
+        client.get = AsyncMock(return_value=_probe_response(404, "not found"))
+        result = await probe_url("x", "https://x", http_client=client)
+        assert result.status == 404
+        assert result.is_match is False
+
+    @pytest.mark.asyncio
+    async def test_transport_failure_is_caught(self):
+        client = MagicMock()
+        client.get = AsyncMock(side_effect=RuntimeError("simulated DNS"))
+        result = await probe_url("x", "https://x", http_client=client)
+        assert result.status is None
+        assert result.error is not None
+        assert "simulated DNS" in result.error
+        assert result.is_match is False
+
+
+class TestProbeSlug:
+    """`probe_slug` should short-circuit on the first matching candidate."""
+
+    @pytest.mark.asyncio
+    async def test_returns_first_match_and_stops(self):
+        # Set up a client that:
+        #   - 404s the first candidate
+        #   - 200s with no bulletin link on the second
+        #   - 200s WITH a bulletin link on the third
+        # `probe_slug` must return the third result and NOT call the client
+        # any more after that.
+        candidates = candidate_urls("ha-giang")
+        responses = {
+            candidates[0]: _probe_response(404, ""),
+            candidates[1]: _probe_response(200, "<p>news</p>"),
+            candidates[2]: _probe_response(200, '<a href="/thong-bao-gia/x">x</a>'),
+        }
+        seen_calls: list[str] = []
+
+        async def _get(url, *a, **k):
+            seen_calls.append(url)
+            if url in responses:
+                return responses[url]
+            return _probe_response(404, "")
+
+        client = MagicMock()
+        client.get = AsyncMock(side_effect=_get)
+        result = await probe_slug("ha-giang", http_client=client)
+
+        assert result is not None
+        assert result.url == candidates[2]
+        assert result.is_match is True
+        # Did NOT probe any candidates after the matching one.
+        assert seen_calls == candidates[:3]
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_every_candidate_fails(self):
+        # Universal 404 → no match → None.
+        client = MagicMock()
+        client.get = AsyncMock(return_value=_probe_response(404, ""))
+        assert await probe_slug("ha-giang", http_client=client) is None
+
+
+def _probe_response(status_code: int, text: str):
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.text = text
+    return resp

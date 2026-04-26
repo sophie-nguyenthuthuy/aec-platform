@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -27,7 +27,7 @@ class Supplier(Base):
     contact: Mapped[dict] = mapped_column(JSONB, default=dict)
     verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     rating: Mapped[Decimal | None] = mapped_column(Numeric)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class MaterialPrice(Base):
@@ -65,7 +65,7 @@ class Estimate(Base):
     method: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     approved_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class BoqItem(Base):
@@ -103,7 +103,7 @@ class Rfq(Base):
     sent_to: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID(as_uuid=True)), default=list)
     responses: Mapped[list] = mapped_column(JSONB, default=list)
     deadline: Mapped[date | None] = mapped_column(Date)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class PriceAlert(Base):
@@ -119,4 +119,4 @@ class PriceAlert(Base):
     province: Mapped[str | None] = mapped_column(Text)
     threshold_pct: Mapped[Decimal] = mapped_column(Numeric, default=Decimal("5"))
     last_price_vnd: Mapped[Decimal | None] = mapped_column(Numeric)
-    created_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())

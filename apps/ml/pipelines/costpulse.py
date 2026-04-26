@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 from datetime import date
 from decimal import Decimal
 from typing import Any, TypedDict
@@ -65,7 +66,70 @@ WASTE_FACTOR: dict[str, Decimal] = {
 }
 
 
-def _vision_llm() -> ChatOpenAI:
+# Dev-only bypass: when AEC_PIPELINE_DEV_STUB=1 (and AEC_ENV != "production"),
+# swap OpenAI for a canned-response shim so the graph runs end-to-end without
+# OPENAI_API_KEY. Mirrors apps/ml/pipelines/winwork.py — single env var gates
+# every pipeline.
+_AEC_ENV = os.getenv("AEC_ENV", "development")
+_REQUEST_STUB = os.getenv("AEC_PIPELINE_DEV_STUB") == "1"
+PIPELINE_DEV_STUB = _REQUEST_STUB and _AEC_ENV != "production"
+if _REQUEST_STUB and not PIPELINE_DEV_STUB:
+    logger.error(
+        "AEC_PIPELINE_DEV_STUB=1 ignored: refusing to stub LLM calls when AEC_ENV=%s",
+        _AEC_ENV,
+    )
+
+
+class _StubLLMResponse:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+class _StubLLM:
+    """Offline shim used when AEC_PIPELINE_DEV_STUB=1.
+
+    Returns a 3-element BOQ skeleton matching brief_generator_node's expected
+    JSON contract (elements with material_code/quantity/unit/category). Only
+    enough data to make the round-trip concrete; pricing and assembly happen
+    downstream against the real material_prices table.
+    """
+
+    async def ainvoke(self, _messages: list[Any]) -> _StubLLMResponse:
+        payload = {
+            "elements": [
+                {
+                    "material_code": "CONC_C30",
+                    "quantity": 120.0,
+                    "unit": "m3",
+                    "category": "concrete",
+                    "section_code": "04",
+                    "description": "[DEV STUB] Bê tông cấu kiện C30",
+                },
+                {
+                    "material_code": "STEEL_REBAR",
+                    "quantity": 8500.0,
+                    "unit": "kg",
+                    "category": "steel",
+                    "section_code": "04",
+                    "description": "[DEV STUB] Thép cốt bê tông",
+                },
+                {
+                    "material_code": "PAINT_EMULSION",
+                    "quantity": 1800.0,
+                    "unit": "m2",
+                    "category": "finishing",
+                    "section_code": "06",
+                    "description": "[DEV STUB] Sơn nội thất",
+                },
+            ]
+        }
+        return _StubLLMResponse(json.dumps(payload, ensure_ascii=False))
+
+
+def _vision_llm() -> ChatOpenAI | _StubLLM:
+    if PIPELINE_DEV_STUB:
+        logger.warning("CostPulse vision pipeline running with AEC_PIPELINE_DEV_STUB=1")
+        return _StubLLM()
     return ChatOpenAI(
         model="gpt-4o",
         api_key=_settings.openai_api_key,
@@ -74,7 +138,10 @@ def _vision_llm() -> ChatOpenAI:
     )
 
 
-def _text_llm() -> ChatOpenAI:
+def _text_llm() -> ChatOpenAI | _StubLLM:
+    if PIPELINE_DEV_STUB:
+        logger.warning("CostPulse text pipeline running with AEC_PIPELINE_DEV_STUB=1")
+        return _StubLLM()
     return ChatOpenAI(
         model="gpt-4o-mini",
         api_key=_settings.openai_api_key,

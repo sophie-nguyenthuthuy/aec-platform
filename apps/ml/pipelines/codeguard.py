@@ -528,6 +528,134 @@ async def answer_regulation_query(
     return result
 
 
+# ---------- Streaming Q&A ------------------------------------------------
+
+# Event tuple shape: (event_name, payload). Defined as `tuple[str, Any]`
+# so the SSE adapter in the route layer can pattern-match on the name
+# without importing this module's types.
+StreamEvent = tuple[str, Any]
+
+
+async def answer_regulation_query_stream(
+    db: AsyncSession,
+    question: str,
+    language: str | None,
+    jurisdiction: str | None,
+    categories: list[RegulationCategory] | None,
+    top_k: int,
+):
+    """Streaming variant of `answer_regulation_query`.
+
+    Yields a sequence of `(event_name, payload)` tuples:
+      ("token", str)            — incremental answer-text deltas as the LLM
+                                  generates. Concatenating all deltas gives
+                                  the final `answer` string.
+      ("done", QueryResponse)   — terminal event with the fully-grounded
+                                  response. Always emitted exactly once on
+                                  the success path (including abstain).
+      ("error", str)            — terminal event on pipeline failure. The
+                                  message is intended for UX surface; it
+                                  does NOT include a stack trace.
+
+    Architecture note: we deliberately do NOT plumb streaming through the
+    LangGraph state machine used by `answer_regulation_query`. The
+    expand/retrieve nodes have nothing meaningful to stream (they're a
+    single HyDE call + a SQL query), and integrating astream() through a
+    StateGraph adds significant complexity without payoff. Instead this
+    function reimplements the same three phases procedurally so the
+    generation phase can use `chain.astream()` directly.
+
+    The retrieval + abstain semantics are kept identical to the
+    non-streaming path: same `_hybrid_search`, same `_rerank`, same
+    `_ground_citations`, same `_abstain_response`. If you change those,
+    both paths get the change for free.
+    """
+    lang = language or _detect_language(question)
+
+    try:
+        # Phase 1 — HyDE + retrieval. Not streamed (single HyDE call +
+        # one DB query); streaming wouldn't help latency here.
+        hyde_text = await _hyde_expand(question, lang)
+        query_text = f"{question}\n{hyde_text}"
+        fused = await _hybrid_search(
+            db,
+            query_text,
+            categories=categories,
+            jurisdiction=jurisdiction,
+            top_k=top_k,
+            sparse_query=question,
+        )
+        candidates = await _rerank(question, fused, top_k)
+
+        # Same zero-retrieval guard as `node_generate`. We emit only the
+        # `done` event — there are no tokens to stream because the LLM
+        # is never invoked. Frontend should render the abstain card the
+        # moment it receives `done` with confidence=0 + empty citations.
+        if not candidates:
+            logger.info(
+                "codeguard: streaming query — zero retrieval candidates "
+                "for question=%r lang=%s — emitting abstain",
+                question[:80],
+                lang,
+            )
+            yield ("done", _abstain_response(lang))
+            return
+
+        # Phase 2 — stream generation. JsonOutputParser.astream() yields
+        # successive partial dicts as the JSON is parsed; the `answer`
+        # field grows monotonically (single string field; no key swaps),
+        # so a simple prefix-delta is sufficient.
+        prompt = ChatPromptTemplate.from_messages([("system", _QA_SYSTEM), ("human", _QA_USER)])
+        chain = prompt | _llm(temperature=0.1) | JsonOutputParser()
+
+        prev_answer = ""
+        last_partial: dict[str, Any] | None = None
+        async for partial in chain.astream(
+            {
+                "language": lang,
+                "question": question,
+                "context": _format_context(candidates),
+            }
+        ):
+            if not isinstance(partial, dict):
+                continue
+            last_partial = partial
+            cur = partial.get("answer", "")
+            if not isinstance(cur, str) or cur == prev_answer:
+                continue
+            # Emit only the delta. In normal LLM streaming `cur` always
+            # extends `prev_answer`, but defend against a parser
+            # regenerating the prefix by falling back to the full string
+            # when the prefix invariant is broken.
+            if cur.startswith(prev_answer):
+                delta = cur[len(prev_answer) :]
+            else:
+                delta = cur
+            prev_answer = cur
+            if delta:
+                yield ("token", delta)
+
+        if last_partial is None:
+            yield ("error", "LLM produced no output")
+            return
+
+        # Phase 3 — ground citations + emit final response. Same pipeline
+        # as the non-streaming path; the grounding guard is the single
+        # choke point against hallucinated section refs (see §5.1 of
+        # docs/codeguard.md).
+        citations = _ground_citations(last_partial.get("citations", []) or [], candidates)
+        response = QueryResponse(
+            answer=last_partial.get("answer", "") or "",
+            confidence=float(last_partial.get("confidence", 0.5)),
+            citations=citations,
+            related_questions=(last_partial.get("related_questions", []) or [])[:3],
+        )
+        yield ("done", response)
+    except Exception as exc:  # pragma: no cover — defensive catch-all
+        logger.exception("codeguard: streaming query failed")
+        yield ("error", str(exc))
+
+
 # ---------- Auto-scan ----------
 
 _SCAN_SYSTEM = """You are CODEGUARD, auditing a project against Vietnamese building codes.

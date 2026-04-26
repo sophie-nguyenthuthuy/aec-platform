@@ -9,6 +9,7 @@ Two surfaces under the same prefix:
 
 Auth via require_auth + tenant via TenantAwareSession (RLS-enforced).
 """
+
 from __future__ import annotations
 
 import json
@@ -90,9 +91,7 @@ async def create_submittal(
                     "type": payload.submittal_type.value,
                     "spec": payload.spec_section,
                     "csi": payload.csi_division,
-                    "contractor": (
-                        str(payload.contractor_id) if payload.contractor_id else None
-                    ),
+                    "contractor": (str(payload.contractor_id) if payload.contractor_id else None),
                     "submitted_by": str(auth.user_id),
                     "due": payload.due_date,
                     "notes": payload.notes,
@@ -168,12 +167,8 @@ async def list_submittals(
             )
         ).all()
 
-    items = [
-        Submittal.model_validate(_row_to_dict(r)).model_dump(mode="json") for r in rows
-    ]
-    return paginated(
-        items, page=offset // limit + 1, per_page=limit, total=int(total or 0)
-    )
+    items = [Submittal.model_validate(_row_to_dict(r)).model_dump(mode="json") for r in rows]
+    return paginated(items, page=offset // limit + 1, per_page=limit, total=int(total or 0))
 
 
 @router.get("/{submittal_id}")
@@ -205,9 +200,7 @@ async def get_submittal(
 
     detail = SubmittalDetail(
         submittal=Submittal.model_validate(_row_to_dict(sub)),
-        revisions=[
-            SubmittalRevision.model_validate(_row_to_dict(r)) for r in revs
-        ],
+        revisions=[SubmittalRevision.model_validate(_row_to_dict(r)) for r in revs],
     )
     return ok(detail.model_dump(mode="json"))
 
@@ -247,9 +240,7 @@ async def update_submittal(
     return ok(Submittal.model_validate(_row_to_dict(row)).model_dump(mode="json"))
 
 
-@router.post(
-    "/{submittal_id}/revisions", status_code=status.HTTP_201_CREATED
-)
+@router.post("/{submittal_id}/revisions", status_code=status.HTTP_201_CREATED)
 async def create_revision(
     submittal_id: UUID,
     payload: SubmittalRevisionCreate,
@@ -288,9 +279,7 @@ async def create_revision(
                     "org": str(auth.organization_id),
                     "sid": str(submittal_id),
                     "n": next_n,
-                    "file_id": (
-                        str(payload.file_id) if payload.file_id else None
-                    ),
+                    "file_id": (str(payload.file_id) if payload.file_id else None),
                     "annotations": json.dumps(payload.annotations),
                 },
             )
@@ -311,9 +300,7 @@ async def create_revision(
         )
         await session.commit()
 
-    return ok(
-        SubmittalRevision.model_validate(_row_to_dict(rev)).model_dump(mode="json")
-    )
+    return ok(SubmittalRevision.model_validate(_row_to_dict(rev)).model_dump(mode="json"))
 
 
 @router.post("/revisions/{revision_id}/review")
@@ -335,10 +322,12 @@ async def review_revision(
     if payload.annotations is not None:
         fields["annotations"] = json.dumps(payload.annotations)
 
-    set_clauses = ["review_status = :review_status",
-                   "reviewer_notes = :reviewer_notes",
-                   "reviewer_id = :reviewer_id",
-                   "reviewed_at = NOW()"]
+    set_clauses = [
+        "review_status = :review_status",
+        "reviewer_notes = :reviewer_notes",
+        "reviewer_id = :reviewer_id",
+        "reviewed_at = NOW()",
+    ]
     params: dict[str, Any] = {
         "id": str(revision_id),
         "review_status": fields["review_status"],
@@ -353,10 +342,7 @@ async def review_revision(
     async with TenantAwareSession(auth.organization_id) as session:
         rev = (
             await session.execute(
-                text(
-                    f"UPDATE submittal_revisions SET {set_sql} "
-                    "WHERE id = :id RETURNING *"
-                ),
+                text(f"UPDATE submittal_revisions SET {set_sql} WHERE id = :id RETURNING *"),
                 params,
             )
         ).one_or_none()
@@ -364,9 +350,7 @@ async def review_revision(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Revision not found")
         rev_d = _row_to_dict(rev)
 
-        new_sub_status, new_bic = _verdict_to_submittal_state(
-            payload.review_status.value
-        )
+        new_sub_status, new_bic = _verdict_to_submittal_state(payload.review_status.value)
         await session.execute(
             text(
                 """
@@ -387,9 +371,7 @@ async def review_revision(
         )
         await session.commit()
 
-    return ok(
-        SubmittalRevision.model_validate(rev_d).model_dump(mode="json")
-    )
+    return ok(SubmittalRevision.model_validate(rev_d).model_dump(mode="json"))
 
 
 def _verdict_to_submittal_state(verdict: str) -> tuple[str, str]:
@@ -434,9 +416,7 @@ async def find_similar_rfis_endpoint(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "RFI not found")
         emb = (
             await session.execute(
-                text(
-                    "SELECT model_version FROM rfi_embeddings WHERE rfi_id = :id"
-                ),
+                text("SELECT model_version FROM rfi_embeddings WHERE rfi_id = :id"),
                 {"id": str(rfi_id)},
             )
         ).one_or_none()
@@ -521,11 +501,7 @@ async def draft_rfi_response_endpoint(
                 )
             ).one_or_none()
             if cached:
-                return ok(
-                    RfiResponseDraft.model_validate(_row_to_dict(cached)).model_dump(
-                        mode="json"
-                    )
-                )
+                return ok(RfiResponseDraft.model_validate(_row_to_dict(cached)).model_dump(mode="json"))
 
         rfi = (
             await session.execute(
@@ -542,9 +518,7 @@ async def draft_rfi_response_endpoint(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "RFI not found")
         rfi_d = _row_to_dict(rfi)
 
-        result = await draft_rfi_response(
-            session, rfi=rfi_d, retrieval_k=payload.retrieval_k
-        )
+        result = await draft_rfi_response(session, rfi=rfi_d, retrieval_k=payload.retrieval_k)
 
         row = (
             await session.execute(
@@ -568,9 +542,7 @@ async def draft_rfi_response_endpoint(
         ).one()
         await session.commit()
 
-    return ok(
-        RfiResponseDraft.model_validate(_row_to_dict(row)).model_dump(mode="json")
-    )
+    return ok(RfiResponseDraft.model_validate(_row_to_dict(row)).model_dump(mode="json"))
 
 
 @router.post("/drafts/{draft_id}/accept")
@@ -613,9 +585,7 @@ async def accept_draft(
             {"response": draft_d["draft_text"], "rfi_id": str(draft_d["rfi_id"])},
         )
         await session.commit()
-    return ok(
-        RfiResponseDraft.model_validate(draft_d).model_dump(mode="json")
-    )
+    return ok(RfiResponseDraft.model_validate(draft_d).model_dump(mode="json"))
 
 
 # ---------- Helpers ----------

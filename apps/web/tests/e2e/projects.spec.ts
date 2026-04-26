@@ -212,7 +212,13 @@ test.describe("Projects / hub", () => {
       "SiteEye",
       "CodeGuard",
     ]) {
-      await expect(page.getByRole("heading", { name: mod })).toBeVisible();
+      // `exact: true` prevents the substring match — without it,
+      // `name: "Pulse"` resolves both <h3>Pulse</h3> AND <h3>CostPulse</h3>
+      // (and similarly Drawbridge would conflict with anything containing
+      // "bridge"). Strict mode flags those as multi-match violations.
+      await expect(
+        page.getByRole("heading", { name: mod, exact: true }),
+      ).toBeVisible();
     }
 
     await expect(page.getByText("4 / 6 / 22")).toBeVisible();

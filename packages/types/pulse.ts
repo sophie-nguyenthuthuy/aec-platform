@@ -5,7 +5,15 @@ export type Priority = "low" | "normal" | "high" | "urgent";
 export type Phase = "design" | "permit" | "construction" | "closeout";
 export type MilestoneStatus = "upcoming" | "achieved" | "missed";
 export type ChangeOrderStatus = "draft" | "submitted" | "approved" | "rejected";
-export type ChangeOrderInitiator = "client" | "contractor" | "designer";
+export type ChangeOrderInitiator =
+  | "client"
+  | "contractor"
+  | "designer"
+  /** Auto-emitted by COSTPULSE when an approved estimate's total deviates
+   *  >2% from the project's prior approved baseline. The accompanying
+   *  `ai_analysis` carries `{ source: "costpulse.estimate_approved",
+   *  prior_estimate_id, new_estimate_id, variance_pct, ... }`. */
+  | "costpulse";
 export type ReportStatus = "draft" | "sent" | "archived";
 export type RAG = "green" | "amber" | "red";
 
@@ -80,6 +88,29 @@ export interface ChangeOrderAIAnalysis {
   confidence: number;
 }
 
+/** Provenance payload for change orders auto-emitted by COSTPULSE when an
+ *  approved estimate's total deviates from the project's prior approved
+ *  baseline. Discriminated from the AI-analysis shape via `source`. */
+export interface CostpulseVarianceAnalysis {
+  source: "costpulse.estimate_approved";
+  prior_estimate_id: UUID;
+  new_estimate_id: UUID;
+  prior_total_vnd: number;
+  new_total_vnd: number;
+  delta_vnd: number;
+  variance_pct: number;
+}
+
+export type ChangeOrderAnalysis =
+  | ChangeOrderAIAnalysis
+  | CostpulseVarianceAnalysis;
+
+export function isCostpulseVariance(
+  a: ChangeOrderAnalysis | null | undefined,
+): a is CostpulseVarianceAnalysis {
+  return !!a && (a as CostpulseVarianceAnalysis).source === "costpulse.estimate_approved";
+}
+
 export interface ChangeOrder {
   id: UUID;
   organization_id: UUID;
@@ -91,7 +122,7 @@ export interface ChangeOrder {
   initiator: ChangeOrderInitiator | null;
   cost_impact_vnd: number | null;
   schedule_impact_days: number | null;
-  ai_analysis: ChangeOrderAIAnalysis | null;
+  ai_analysis: ChangeOrderAnalysis | null;
   submitted_at: string | null;
   approved_at: string | null;
   approved_by: UUID | null;

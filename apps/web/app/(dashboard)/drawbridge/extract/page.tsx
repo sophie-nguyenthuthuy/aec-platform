@@ -38,7 +38,10 @@ export default function ScheduleExtractorPage() {
     doc_type: "drawing",
     limit: 100,
   });
-  const docs = docData?.data ?? [];
+  // useMemo so identity is stable across renders — feeds the find() below
+  // and keeps it from recomputing every render when react-query returns
+  // structurally-equal arrays.
+  const docs = useMemo(() => docData?.data ?? [], [docData]);
   const selectedDoc = useMemo(
     () => docs.find((d) => d.id === selectedId) ?? null,
     [docs, selectedId],

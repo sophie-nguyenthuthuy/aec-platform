@@ -37,6 +37,20 @@ export default function ProposalDetailPage() {
           </Link>
         </div>
       ) : null}
+      {/* When `mark_outcome("won")` lands, the API seeds a `projects` row and
+          stamps `proposal.project_id`. Surface it so the user can jump
+          straight into the project hub instead of hunting it down. */}
+      {data.project_id ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900">
+          🎉 Đề xuất đã trúng — đã tự động tạo dự án.{" "}
+          <Link
+            href={`/projects/${data.project_id}`}
+            className="font-medium underline"
+          >
+            Mở dự án →
+          </Link>
+        </div>
+      ) : null}
       <ProposalEditor
         proposal={data}
         saving={update.isPending}

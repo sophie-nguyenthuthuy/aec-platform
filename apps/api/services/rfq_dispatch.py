@@ -25,6 +25,7 @@ from sqlalchemy import select
 from db.session import TenantAwareSession
 from models.costpulse import BoqItem, Estimate, Rfq, Supplier
 from services.mailer import send_mail
+from services.rfq_tokens import build_response_url
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,14 @@ async def dispatch_rfq(*, organization_id: UUID, rfq_id: UUID) -> dict:
                 skipped += 1
                 continue
 
-            subject, body = _render(rfq=rfq, estimate=estimate, supplier=supplier, boq_digest=boq_digest)
+            response_url = build_response_url(rfq_id=rfq.id, supplier_id=supplier.id)
+            subject, body = _render(
+                rfq=rfq,
+                estimate=estimate,
+                supplier=supplier,
+                boq_digest=boq_digest,
+                response_url=response_url,
+            )
             delivery = await send_mail(to=email, subject=subject, text_body=body)
             entry.update(
                 {
@@ -158,7 +166,14 @@ def _format_boq_digest(items: list[BoqItem]) -> str:
     return "\n".join(lines)
 
 
-def _render(*, rfq: Rfq, estimate: Estimate | None, supplier: Supplier, boq_digest: str) -> tuple[str, str]:
+def _render(
+    *,
+    rfq: Rfq,
+    estimate: Estimate | None,
+    supplier: Supplier,
+    boq_digest: str,
+    response_url: str,
+) -> tuple[str, str]:
     deadline = rfq.deadline.isoformat() if rfq.deadline else "at your earliest convenience"
     estimate_name = estimate.name if estimate else "(no linked estimate)"
     subject = f"RFQ — {estimate_name} (deadline {deadline})"
@@ -169,8 +184,10 @@ def _render(*, rfq: Rfq, estimate: Estimate | None, supplier: Supplier, boq_dige
         f"RFQ ID:   {rfq.id}\n"
         f"Deadline: {deadline}\n\n"
         f"Indicative scope:\n{boq_digest}\n\n"
-        f"Please reply to this email with your unit prices and lead times. "
-        f"Full BOQ is available on request.\n\n"
+        f"To submit your quote, please use the secure response form:\n"
+        f"{response_url}\n\n"
+        f"The link is unique to your company and expires after the deadline. "
+        f"You can also reply to this email if you prefer.\n\n"
         f"Thank you,\nAEC Platform — RFQ Bot\n"
     )
     return subject, body
