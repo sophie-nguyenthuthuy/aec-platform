@@ -14,6 +14,7 @@ from routers import (
     drawbridge,
     files,
     handover,
+    notifications,
     projects,
     public_rfq,
     pulse,
@@ -53,6 +54,7 @@ def create_app() -> FastAPI:
 
     app.include_router(projects.router)
     app.include_router(activity.router)
+    app.include_router(notifications.router)
     app.include_router(winwork.router)
     app.include_router(pulse.router)
     app.include_router(bidradar.router)

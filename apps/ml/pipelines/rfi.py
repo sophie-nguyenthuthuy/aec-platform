@@ -19,12 +19,12 @@ Two LLM-flavoured operations:
 Both paths are defensively graceful: missing API keys → deterministic
 fallback so the rest of the system keeps working in tests/dev.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import os
-from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -285,9 +285,7 @@ async def draft_rfi_response(
     retrieval_k: int = 6,
 ) -> dict[str, Any]:
     """RAG over the project's drawings/specs, return a draft + citations."""
-    query = _format_rfi_for_embedding(
-        rfi.get("subject", ""), rfi.get("description")
-    )
+    query = _format_rfi_for_embedding(rfi.get("subject", ""), rfi.get("description"))
     chunks = await _retrieve_grounding_chunks(
         session,
         project_id=rfi.get("project_id"),
@@ -328,8 +326,10 @@ async def draft_rfi_response(
         for c in chunks
     ]
     payload = json.dumps(
-        {"rfi": {"subject": rfi.get("subject"), "description": rfi.get("description")},
-         "chunks": chunk_payload},
+        {
+            "rfi": {"subject": rfi.get("subject"), "description": rfi.get("description")},
+            "chunks": chunk_payload,
+        },
         ensure_ascii=False,
     )
     prompt = ChatPromptTemplate.from_messages(
@@ -366,9 +366,7 @@ async def draft_rfi_response(
     }
 
 
-def _heuristic_draft(
-    rfi: dict[str, Any], chunks: list[dict[str, Any]]
-) -> dict[str, Any]:
+def _heuristic_draft(rfi: dict[str, Any], chunks: list[dict[str, Any]]) -> dict[str, Any]:
     """No-LLM fallback: stitch together the top chunks as a draft so the
     user sees *something* and can edit. Preserves citation structure."""
     if not chunks:
@@ -388,6 +386,7 @@ def _heuristic_draft(
         }
         for c in chunks[:3]
     ]
+
     def _ref_label(c: dict[str, Any]) -> str:
         head = c.get("drawing_number") or str(c["document_id"])
         page = c.get("page_number")
@@ -406,8 +405,8 @@ def _heuristic_draft(
 
 
 __all__ = [
-    "embed_text",
-    "upsert_rfi_embedding",
-    "find_similar_rfis",
     "draft_rfi_response",
+    "embed_text",
+    "find_similar_rfis",
+    "upsert_rfi_embedding",
 ]

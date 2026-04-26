@@ -4,6 +4,7 @@ Same pattern as the schedulepilot tests: TenantAwareSession is replaced
 with a queued-result session, and `ml.pipelines.rfi` is stubbed at the
 sys.modules level so we don't need openai/langchain installed.
 """
+
 from __future__ import annotations
 
 import sys
@@ -122,9 +123,7 @@ def app(patch_session) -> FastAPI:
     from middleware.auth import AuthContext, require_auth
     from routers import submittals as router_mod
 
-    auth = AuthContext(
-        user_id=USER_ID, organization_id=ORG_ID, role="admin", email="t@example.com"
-    )
+    auth = AuthContext(user_id=USER_ID, organization_id=ORG_ID, role="admin", email="t@example.com")
     a = FastAPI()
     a.add_exception_handler(HTTPException, http_exception_handler)
     a.add_exception_handler(Exception, unhandled_exception_handler)
@@ -135,9 +134,7 @@ def app(patch_session) -> FastAPI:
 
 @pytest.fixture
 async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 
 
@@ -173,9 +170,7 @@ def _submittal_row(**overrides: Any) -> SimpleNamespace:
 # =============================================================================
 
 
-async def test_create_submittal_auto_assigns_number_and_seeds_revision(
-    client, patch_session
-):
+async def test_create_submittal_auto_assigns_number_and_seeds_revision(client, patch_session):
     # 1: SELECT for next package_number → 1; 2: INSERT submittal RETURNING; 3: INSERT first revision
     patch_session.queue(_scalar(1))
     patch_session.queue(_result(_submittal_row(package_number="S-001")))
@@ -217,8 +212,8 @@ async def test_review_revision_propagates_to_parent_state(client, patch_session)
         annotations=[],
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
-    patch_session.queue(_result(rev))    # UPDATE rev RETURNING
-    patch_session.queue(_result(None))   # UPDATE submittal
+    patch_session.queue(_result(rev))  # UPDATE rev RETURNING
+    patch_session.queue(_result(None))  # UPDATE submittal
 
     resp = await client.post(
         f"/api/v1/submittals/revisions/{rev_id}/review",
@@ -250,9 +245,7 @@ async def test_similar_rfis_requires_existing_embedding(client, patch_session):
     assert "embedded" in resp.json()["errors"][0]["message"].lower()
 
 
-async def test_similar_rfis_returns_pipeline_results(
-    client, patch_session, patch_pipeline
-):
+async def test_similar_rfis_returns_pipeline_results(client, patch_session, patch_pipeline):
     rid = uuid4()
     other = uuid4()
     patch_pipeline.find_similar_rfis.return_value = [
@@ -266,9 +259,7 @@ async def test_similar_rfis_returns_pipeline_results(
         }
     ]
     patch_session.queue(_result(_make_row(id=rid, project_id=PROJECT_ID)))
-    patch_session.queue(
-        _result(_make_row(model_version="openai/text-embedding-3-large"))
-    )
+    patch_session.queue(_result(_make_row(model_version="openai/text-embedding-3-large")))
 
     resp = await client.post(
         f"/api/v1/submittals/rfis/{rid}/similar",
@@ -282,9 +273,7 @@ async def test_similar_rfis_returns_pipeline_results(
     assert body["results"][0]["distance"] == pytest.approx(0.21)
 
 
-async def test_draft_rfi_response_persists_draft_with_citations(
-    client, patch_session, patch_pipeline
-):
+async def test_draft_rfi_response_persists_draft_with_citations(client, patch_session, patch_pipeline):
     rid = uuid4()
     # cache_minutes=0 so the cache-lookup branch is skipped:
     # 1: SELECT rfi; 2: INSERT draft RETURNING
@@ -306,9 +295,16 @@ async def test_draft_rfi_response_persists_draft_with_citations(
                 organization_id=ORG_ID,
                 rfi_id=rid,
                 draft_text="Vui lòng tham khảo bản vẽ A-101.",
-                citations=[{"chunk_id": str(uuid4()), "document_id": str(uuid4()),
-                            "page_number": 1, "snippet": "Door schedule",
-                            "drawing_number": "A-101", "discipline": "architectural"}],
+                citations=[
+                    {
+                        "chunk_id": str(uuid4()),
+                        "document_id": str(uuid4()),
+                        "page_number": 1,
+                        "snippet": "Door schedule",
+                        "drawing_number": "A-101",
+                        "discipline": "architectural",
+                    }
+                ],
                 model_version="rfi-draft/test",
                 generated_at=datetime(2026, 4, 26, 12, 0, tzinfo=UTC),
                 accepted_at=None,
@@ -318,9 +314,7 @@ async def test_draft_rfi_response_persists_draft_with_citations(
         )
     )
 
-    resp = await client.post(
-        f"/api/v1/submittals/rfis/{rid}/draft", json={"cache_minutes": 0}
-    )
+    resp = await client.post(f"/api/v1/submittals/rfis/{rid}/draft", json={"cache_minutes": 0})
     assert resp.status_code == 201, resp.text
     body = resp.json()["data"]
     assert "A-101" in body["draft_text"]
@@ -328,9 +322,7 @@ async def test_draft_rfi_response_persists_draft_with_citations(
     patch_pipeline.draft_rfi_response.assert_awaited_once()
 
 
-async def test_draft_uses_cache_when_recent(
-    client, patch_session, patch_pipeline
-):
+async def test_draft_uses_cache_when_recent(client, patch_session, patch_pipeline):
     rid = uuid4()
     # Cache hit on the first execute — no LLM, no insert.
     cached = _make_row(
@@ -347,9 +339,7 @@ async def test_draft_uses_cache_when_recent(
     )
     patch_session.queue(_result(cached))
 
-    resp = await client.post(
-        f"/api/v1/submittals/rfis/{rid}/draft", json={"cache_minutes": 60}
-    )
+    resp = await client.post(f"/api/v1/submittals/rfis/{rid}/draft", json={"cache_minutes": 60})
     # Endpoint is declared with status_code=201; FastAPI uses that even on
     # cache hit (the body still contains the cached draft).
     assert resp.status_code == 201
@@ -372,8 +362,8 @@ async def test_accept_draft_promotes_text_to_rfi(client, patch_session):
         accepted_by=USER_ID,
         notes="LGTM",
     )
-    patch_session.queue(_result(draft))   # UPDATE draft RETURNING
-    patch_session.queue(_result(None))    # UPDATE rfis
+    patch_session.queue(_result(draft))  # UPDATE draft RETURNING
+    patch_session.queue(_result(None))  # UPDATE rfis
 
     resp = await client.post(
         f"/api/v1/submittals/drafts/{did}/accept",

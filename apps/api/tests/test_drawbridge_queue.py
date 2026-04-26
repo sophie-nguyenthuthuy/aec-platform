@@ -121,8 +121,9 @@ async def test_enqueue_ingest_document_falls_back_when_pool_unavailable(monkeypa
     # different module objects. Pre-this-fix the test passed by accident
     # (real Redis was unreachable, so the un-patched get_pool raised
     # anyway); under CI's running Redis it would no-op into the wrong path.
-    from workers import queue
     from apps.ml.pipelines import drawbridge as pipeline
+
+    from workers import queue
 
     monkeypatch.setattr(queue, "get_pool", AsyncMock(side_effect=RuntimeError("redis down")))
 
@@ -142,6 +143,12 @@ async def test_enqueue_ingest_document_falls_back_when_pool_unavailable(monkeypa
             def done(self):
                 return True
 
+            # The pipeline registers a `discard` callback to keep background
+            # tasks from being garbage-collected mid-flight; the stub has
+            # to accept it (a no-op is fine — we already closed the coro).
+            def add_done_callback(self, _cb):
+                return None
+
         return _Task()
 
     monkeypatch.setattr(pipeline.asyncio, "create_task", fake_create_task)
@@ -160,8 +167,9 @@ async def test_enqueue_ingest_document_falls_back_when_pool_unavailable(monkeypa
 @asyncio_test
 async def test_enqueue_ingest_document_uses_arq_when_available(fake_pool, monkeypatch):
     # Patch the bare-package module — see the falls-back test for why.
-    from workers import queue
     from apps.ml.pipelines import drawbridge as pipeline
+
+    from workers import queue
 
     monkeypatch.setattr(queue, "get_pool", AsyncMock(return_value=fake_pool))
 

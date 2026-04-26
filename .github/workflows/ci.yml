@@ -41,6 +41,42 @@ jobs:
           NEXT_PUBLIC_API_BASE: http://localhost:8000
           NEXT_PUBLIC_SUPABASE_URL: http://localhost
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+          # apps/web/app/layout.tsx hard-fails in prod (which `next build`
+          # counts as during prerender) unless these are set. Placeholder
+          # values are fine here — the build artefact isn't deployed from CI.
+          AEC_DEV_SESSION_TOKEN: ci-build-placeholder
+          AEC_DEV_SESSION_ORG_ID: 00000000-0000-0000-0000-000000000000
+          AEC_DEV_SESSION_USER_ID: 00000000-0000-0000-0000-000000000000
+
+      # ---- Playwright E2E ----
+      # Tests live in apps/web/tests/e2e/*.spec.ts. The Playwright config
+      # boots `next dev --port 3101` itself (webServer block) and intercepts
+      # API calls via `page.route()` — no real backend or DB required.
+      #
+      # `--with-deps` installs the OS-level libs Chromium needs on Ubuntu
+      # runners (libgbm, libnss3, etc.). Install only chromium because the
+      # config pins `channel: "chromium"`, no other browsers needed.
+      - name: Install Playwright browsers
+        run: pnpm --filter @aec/web exec playwright install --with-deps chromium
+
+      - name: Playwright (web E2E)
+        run: pnpm --filter @aec/web test:e2e
+        env:
+          # `process.env.CI` flips Playwright into CI mode (forbid `.only`,
+          # 2 retries, single worker, github reporter). pnpm normally
+          # forwards CI=true automatically, but be explicit.
+          CI: "true"
+
+      # Upload `test-results/` (traces + screenshots from retries, only
+      # populated when something failed) so debugging a CI-only flake
+      # doesn't require a re-run with extra logging.
+      - name: Upload Playwright trace artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: apps/web/test-results/
+          retention-days: 7
 
   python-api:
     name: Python — API lint + test
@@ -66,12 +102,30 @@ jobs:
           --health-interval 5s
           --health-retries 10
     env:
+      # Default app DB URL — this matches what apps/api/db/session.py reads
+      # for `SessionFactory`. Using `aec` (superuser) here keeps the
+      # router-level unit tests behaving identically to local dev; the
+      # integration suite below explicitly tests the aec_app NOBYPASSRLS
+      # path via COSTPULSE_RLS_APP_URL.
       DATABASE_URL: postgresql+asyncpg://aec:aec@localhost:5432/aec_test
       DATABASE_URL_SYNC: postgresql://aec:aec@localhost:5432/aec_test
+      # AdminSessionFactory destination; identical to DATABASE_URL since
+      # `aec` is already the superuser. test_admin_session_factory.py
+      # asserts the two factories return *different* visibility, so the
+      # integration suite swaps to aec_app for the request-scoped factory
+      # via COSTPULSE_RLS_APP_URL below.
+      DATABASE_URL_ADMIN: postgresql+asyncpg://aec:aec@localhost:5432/aec_test
       REDIS_URL: redis://localhost:6379/0
       SUPABASE_JWT_SECRET: ci-test-secret
       ANTHROPIC_API_KEY: ci-placeholder
       OPENAI_API_KEY: ci-placeholder
+      # ---- Integration lane ----
+      # Provisioned by migration 0010_app_role with the dev-default password
+      # (the role name itself; see migration docstring). All five integration
+      # test modules read these.
+      COSTPULSE_RLS_DB_URL: postgresql+asyncpg://aec:aec@localhost:5432/aec_test
+      COSTPULSE_RLS_APP_URL: postgresql+asyncpg://aec_app:aec_app@localhost:5432/aec_test
+      COSTPULSE_RLS_ADMIN_URL: postgresql+asyncpg://aec:aec@localhost:5432/aec_test
     steps:
       - uses: actions/checkout@v4
 
@@ -84,8 +138,11 @@ jobs:
         working-directory: apps/api
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install ruff mypy pytest pytest-asyncio
+          # requirements-dev.txt pulls in requirements.txt + pinned dev tools
+          # (ruff, mypy, pytest). Pinning ruff here is critical — unpinned,
+          # CI drifts to whatever ruff release ships next and silently
+          # breaks the lint gate when new rules turn on by default.
+          pip install -r requirements-dev.txt
 
       - name: Ruff
         run: ruff check apps/api apps/worker apps/ml
@@ -97,9 +154,14 @@ jobs:
         working-directory: apps/api
         run: alembic upgrade head
 
-      - name: Pytest
+      - name: Pytest (unit + integration)
         working-directory: apps/api
-        run: pytest -q
+        # `--integration` opts the 12 lane-tagged tests into the run. The lane
+        # is wired by apps/api/tests/conftest.py — without the flag those
+        # tests are deselected (not skipped). The Postgres + Redis service
+        # containers above plus the alembic step (which provisions aec_app)
+        # satisfy every requirement.
+        run: pytest --integration -q
 
   terraform:
     name: Terraform — fmt + validate

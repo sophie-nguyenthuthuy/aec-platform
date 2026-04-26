@@ -274,7 +274,7 @@ async def test_create_task_rejects_bad_phase(client):
     )
     assert res.status_code == 422
     # Error shape: either FastAPI's default {"detail": [...]} or the envelope.
-    body = res.json()
+    res.json()
     assert "phase" in res.text
 
 
