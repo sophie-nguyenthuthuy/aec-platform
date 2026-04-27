@@ -311,6 +311,9 @@ async def test_get_project_detail_rolls_up_all_modules(client, fake_db):
         _one(open=5, high=2),  # 24 observation counts
         _one(total=6, open=2, approved=3, cost=120_000_000, days=8),  # 25 change orders
         _scalar(1),  # 26 pending candidates
+        # Punch list (27-28)
+        _one(total=2, open_lists=1, signed_off=1),  # 27 list counts
+        _one(total_items=14, open_items=3, verified=10, high_open=1),  # 28 item counts
     ]:
         fake_db.push_execute(r)
 
@@ -407,6 +410,9 @@ async def test_get_project_detail_handles_empty_modules(client, fake_db):
         # ChangeOrder
         _one(total=0, open=0, approved=0, cost=0, days=0),
         _scalar(0),
+        # Punch list
+        _one(total=0, open_lists=0, signed_off=0),
+        _one(total_items=0, open_items=0, verified=0, high_open=0),
     ]:
         fake_db.push_execute(r)
 

@@ -95,6 +95,16 @@ class ChangeorderStatus(BaseModel):
     total_schedule_impact_days: int = 0
 
 
+class PunchlistStatus(BaseModel):
+    list_count: int = 0
+    open_list_count: int = 0
+    signed_off_list_count: int = 0
+    total_items: int = 0
+    open_items: int = 0
+    verified_items: int = 0
+    high_severity_open_items: int = 0
+
+
 # ---------- Aggregate project views ----------
 
 
@@ -148,3 +158,4 @@ class ProjectDetail(BaseModel):
     submittals: SubmittalsStatus = Field(default_factory=SubmittalsStatus)
     dailylog: DailylogStatus = Field(default_factory=DailylogStatus)
     changeorder: ChangeorderStatus = Field(default_factory=ChangeorderStatus)
+    punchlist: PunchlistStatus = Field(default_factory=PunchlistStatus)

@@ -7,6 +7,7 @@ import { ArrowLeft, FileSignature, Plus } from "lucide-react";
 
 import {
   useAddPunchItem,
+  usePhotoHints,
   usePunchList,
   useSignOffPunchList,
   useUpdatePunchItem,
@@ -237,7 +238,12 @@ function AddItemDialog({
   const [trade, setTrade] = useState("architectural");
   const [severity, setSeverity] = useState("medium");
   const [dueDate, setDueDate] = useState("");
+  const [photoId, setPhotoId] = useState<string | undefined>(undefined);
   const add = useAddPunchItem(listId);
+  // SiteEye photos taken near the walkthrough — surface as one-click attach
+  // chips so the supervisor doesn't have to re-upload an image they already
+  // captured during the walkthrough.
+  const hints = usePhotoHints(listId);
 
   const onSubmit = async () => {
     if (!description.trim()) return;
@@ -247,6 +253,7 @@ function AddItemDialog({
       trade: trade as Parameters<typeof add.mutateAsync>[0]["trade"],
       severity: severity as Parameters<typeof add.mutateAsync>[0]["severity"],
       due_date: dueDate || undefined,
+      photo_id: photoId,
     });
     onClose();
   };
@@ -316,6 +323,57 @@ function AddItemDialog({
             </select>
           </label>
         </div>
+
+        {hints.data && hints.data.results.length > 0 && (
+          <div className="mt-4 rounded-md border border-blue-200 bg-blue-50/50 p-3">
+            <p className="mb-2 text-xs font-medium text-blue-900">
+              Ảnh từ SiteEye (chụp gần ngày khảo sát)
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {hints.data.results.slice(0, 6).map((p) => {
+                const selected = photoId === p.photo_id;
+                return (
+                  <button
+                    key={p.photo_id}
+                    type="button"
+                    onClick={() =>
+                      setPhotoId(selected ? undefined : p.photo_id)
+                    }
+                    className={`relative aspect-square overflow-hidden rounded border-2 ${
+                      selected
+                        ? "border-blue-600 ring-2 ring-blue-300"
+                        : "border-slate-200 hover:border-blue-300"
+                    }`}
+                    title={
+                      p.taken_at
+                        ? new Date(p.taken_at).toLocaleString("vi-VN")
+                        : undefined
+                    }
+                  >
+                    {p.thumbnail_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={p.thumbnail_url}
+                        alt={p.tags.join(", ") || "site photo"}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-slate-100 text-[10px] text-slate-500">
+                        no preview
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {photoId && (
+              <p className="mt-2 text-[11px] text-blue-700">
+                Đã chọn 1 ảnh — sẽ đính kèm với item.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="mt-6 flex justify-end gap-2">
           <button
             type="button"

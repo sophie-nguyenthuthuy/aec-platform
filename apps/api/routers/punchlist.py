@@ -29,6 +29,8 @@ from core.envelope import ok, paginated
 from db.session import TenantAwareSession
 from middleware.auth import AuthContext, require_auth
 from schemas.punchlist import (
+    PhotoHint,
+    PhotoHintsResponse,
     PunchItem,
     PunchItemCreate,
     PunchItemStatus,
@@ -386,3 +388,107 @@ async def delete_item(
         if result.rowcount == 0:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Punch item not found")
         await session.commit()
+
+
+# ---------- SiteEye photo hints ----------
+
+
+@router.get("/lists/{list_id}/photo-hints")
+async def photo_hints(
+    list_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    window_days: int = Query(default=2, ge=0, le=14),
+    limit: int = Query(default=12, ge=1, le=50),
+):
+    """SiteEye photos taken on the project around the walkthrough date.
+
+    The supervisor uses these as candidates to attach to new punch items —
+    in real walkthroughs, the owner (or supervisor) is also taking photos
+    on a phone-connected camera that hits SiteEye, so the photos and the
+    findings co-occur. We surface the recent ones as one-click "attach
+    this" chips on the add-item dialog.
+
+    `window_days` covers a few days on either side of the walkthrough so a
+    list created the morning after a walkthrough still finds the photos.
+    """
+    async with TenantAwareSession(auth.organization_id) as session:
+        list_row = (
+            await session.execute(
+                text("SELECT project_id, walkthrough_date FROM punch_lists WHERE id = :id"),
+                {"id": str(list_id)},
+            )
+        ).one_or_none()
+        if list_row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Punch list not found")
+        ld = _row_to_dict(list_row)
+        rows = (
+            await session.execute(
+                text(
+                    """
+                SELECT id AS photo_id, file_id, taken_at, thumbnail_url,
+                       safety_status, tags
+                FROM site_photos
+                WHERE project_id = :pid
+                  AND taken_at IS NOT NULL
+                  AND taken_at::date BETWEEN :from_d AND :to_d
+                ORDER BY taken_at DESC
+                LIMIT :limit
+                """
+                ),
+                {
+                    "pid": str(ld["project_id"]),
+                    "from_d": ld["walkthrough_date"],
+                    "to_d": ld["walkthrough_date"],
+                    # Postgres doesn't accept named-param arithmetic in BETWEEN —
+                    # widen via SQL interval below.
+                    "limit": limit,
+                },
+            )
+        ).all()
+        # If the strict same-day query found nothing, broaden the window.
+        if not rows and window_days > 0:
+            rows = (
+                await session.execute(
+                    text(
+                        """
+                    SELECT id AS photo_id, file_id, taken_at, thumbnail_url,
+                           safety_status, tags
+                    FROM site_photos
+                    WHERE project_id = :pid
+                      AND taken_at IS NOT NULL
+                      AND taken_at::date BETWEEN
+                          (:walkthrough_date::date - (:window_days || ' days')::interval)
+                          AND
+                          (:walkthrough_date::date + (:window_days || ' days')::interval)
+                    ORDER BY taken_at DESC
+                    LIMIT :limit
+                    """
+                    ),
+                    {
+                        "pid": str(ld["project_id"]),
+                        "walkthrough_date": ld["walkthrough_date"],
+                        "window_days": window_days,
+                        "limit": limit,
+                    },
+                )
+            ).all()
+
+    hints = [
+        PhotoHint(
+            photo_id=r._mapping["photo_id"],
+            file_id=r._mapping.get("file_id"),
+            taken_at=r._mapping.get("taken_at"),
+            thumbnail_url=r._mapping.get("thumbnail_url"),
+            safety_status=r._mapping.get("safety_status"),
+            tags=list(r._mapping.get("tags") or []),
+        )
+        for r in rows
+    ]
+    return ok(
+        PhotoHintsResponse(
+            list_id=list_id,
+            walkthrough_date=ld["walkthrough_date"],
+            window_days=window_days,
+            results=hints,
+        ).model_dump(mode="json")
+    )

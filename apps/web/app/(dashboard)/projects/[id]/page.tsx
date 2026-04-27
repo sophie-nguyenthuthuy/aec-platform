@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   ClipboardList,
+  FileSignature,
   FileText,
   HardHat,
   ListChecks,
@@ -282,6 +283,26 @@ export default function ProjectDetailPage() {
             ],
           ]}
         />
+        <ModuleCard
+          title="Punch list"
+          icon={<FileSignature size={16} />}
+          href="/punchlist"
+          tone="rose"
+          rows={[
+            [
+              "Lists (mở / đã ký)",
+              `${project.punchlist.open_list_count} / ${project.punchlist.signed_off_list_count}`,
+            ],
+            [
+              "Items (mở / đã xác minh)",
+              `${project.punchlist.open_items} / ${project.punchlist.verified_items}`,
+            ],
+            [
+              "Mức độ cao chưa xử lý",
+              project.punchlist.high_severity_open_items.toString(),
+            ],
+          ]}
+        />
         <RiskCard project={project} />
       </div>
 
@@ -406,6 +427,18 @@ function RiskCard({ project }: { project: ProjectDetail }) {
     risks.push({
       icon: <AlertTriangle size={14} className="text-amber-600" />,
       label: `${project.changeorder.pending_candidates} đề xuất CO từ AI chờ duyệt`,
+    });
+  }
+  if (project.punchlist.high_severity_open_items > 0) {
+    risks.push({
+      icon: <AlertTriangle size={14} className="text-red-600" />,
+      label: `${project.punchlist.high_severity_open_items} punch item nghiêm trọng chưa xử lý`,
+    });
+  }
+  if (project.punchlist.open_list_count > 0 && project.handover.package_count > 0) {
+    risks.push({
+      icon: <AlertTriangle size={14} className="text-amber-600" />,
+      label: `${project.punchlist.open_list_count} punch list chưa ký — chặn bàn giao`,
     });
   }
 

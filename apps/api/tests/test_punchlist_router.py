@@ -279,3 +279,43 @@ async def test_delete_item_404_when_missing(client, patch_session):
     # rowcount=0 on the default branch
     resp = await client.delete(f"/api/v1/punchlist/items/{uuid4()}")
     assert resp.status_code == 404
+
+
+async def test_photo_hints_returns_same_day_photos(client, patch_session):
+    """Same-day SiteEye photos surface as attach candidates without
+    triggering the broader-window fallback query."""
+    list_id = uuid4()
+    photo_id = uuid4()
+    file_id = uuid4()
+    # 1: SELECT list project_id + walkthrough_date
+    patch_session.queue(_result(_make_row(project_id=PROJECT_ID, walkthrough_date=date(2026, 5, 1))))
+    # 2: SELECT site_photos same-day → 1 row → no fallback
+    patch_session.queue(
+        _result(
+            _make_row(
+                photo_id=photo_id,
+                file_id=file_id,
+                taken_at=datetime(2026, 5, 1, 10, 30, tzinfo=UTC),
+                thumbnail_url="https://cdn.test/thumbs/lobby.jpg",
+                safety_status="clear",
+                tags=["lobby", "paint"],
+            )
+        )
+    )
+
+    resp = await client.get(f"/api/v1/punchlist/lists/{list_id}/photo-hints")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()["data"]
+    assert body["walkthrough_date"] == "2026-05-01"
+    assert body["window_days"] == 2  # default
+    assert len(body["results"]) == 1
+    hint = body["results"][0]
+    assert hint["photo_id"] == str(photo_id)
+    assert hint["thumbnail_url"].endswith("lobby.jpg")
+    assert hint["tags"] == ["lobby", "paint"]
+
+
+async def test_photo_hints_404_when_list_missing(client, patch_session):
+    patch_session.queue(_result(None))
+    resp = await client.get(f"/api/v1/punchlist/lists/{uuid4()}/photo-hints")
+    assert resp.status_code == 404

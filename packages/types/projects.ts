@@ -107,6 +107,16 @@ export interface ChangeorderStatus {
   total_schedule_impact_days: number;
 }
 
+export interface PunchlistStatus {
+  list_count: number;
+  open_list_count: number;
+  signed_off_list_count: number;
+  total_items: number;
+  open_items: number;
+  verified_items: number;
+  high_severity_open_items: number;
+}
+
 // ---- Aggregate views ----
 
 export interface ProjectSummary {
@@ -152,4 +162,5 @@ export interface ProjectDetail {
   submittals: SubmittalsStatus;
   dailylog: DailylogStatus;
   changeorder: ChangeorderStatus;
+  punchlist: PunchlistStatus;
 }

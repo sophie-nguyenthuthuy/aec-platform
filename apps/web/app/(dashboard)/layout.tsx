@@ -19,6 +19,7 @@ const NAV: Array<{ href: Route; label: string; section?: string }> = [
   { href: "/dailylog", label: "Nhật ký" },
   { href: "/changeorder", label: "Change orders" },
   { section: "Bàn giao", href: "/handover", label: "Handover" },
+  { href: "/punchlist", label: "Punch list" },
   { section: "Cài đặt", href: "/settings/members", label: "Thành viên" },
 ];
 

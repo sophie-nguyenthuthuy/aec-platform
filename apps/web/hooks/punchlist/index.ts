@@ -6,6 +6,7 @@ export {
   useAddPunchItem,
   useUpdatePunchItem,
   useSignOffPunchList,
+  usePhotoHints,
 } from "./usePunchList";
 export type {
   PunchListListFilters,
@@ -15,4 +16,6 @@ export type {
   PunchList,
   PunchListDetail,
   PunchItem,
+  PhotoHint,
+  PhotoHintsResponse,
 } from "./usePunchList";

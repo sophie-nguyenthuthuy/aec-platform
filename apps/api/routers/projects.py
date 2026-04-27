@@ -31,6 +31,7 @@ from models.dailylog import DailyLog, DailyLogObservation
 from models.drawbridge import Conflict, Document, Rfi
 from models.handover import Defect, HandoverPackage, WarrantyItem
 from models.pulse import ChangeOrder, Milestone, Task
+from models.punchlist import PunchItem, PunchList
 from models.schedulepilot import Activity as ScheduleActivity
 from models.schedulepilot import (
     Schedule,
@@ -49,6 +50,7 @@ from schemas.projects import (
     ProjectDetail,
     ProjectSummary,
     PulseStatus,
+    PunchlistStatus,
     SchedulepilotStatus,
     SiteeyeStatus,
     SubmittalsStatus,
@@ -200,6 +202,7 @@ async def get_project_detail(
         submittals,
         dailylog,
         changeorder,
+        punchlist,
     ) = await asyncio.gather(
         _run(_winwork_status, project_id),
         _run(_costpulse_status, project_id),
@@ -212,6 +215,7 @@ async def get_project_detail(
         _run(_submittals_status, project_id),
         _run(_dailylog_status, project_id),
         _run(_changeorder_status, project_id),
+        _run(_punchlist_status, project_id),
     )
     detail.winwork = winwork
     detail.costpulse = costpulse
@@ -224,6 +228,7 @@ async def get_project_detail(
     detail.submittals = submittals
     detail.dailylog = dailylog
     detail.changeorder = changeorder
+    detail.punchlist = punchlist
 
     return ok(detail.model_dump(mode="json"))
 
@@ -560,4 +565,51 @@ async def _changeorder_status(db: AsyncSession, project_id: UUID) -> Changeorder
         pending_candidates=int(pending_candidates or 0),
         total_cost_impact_vnd=int(co_row.cost or 0),
         total_schedule_impact_days=int(co_row.days or 0),
+    )
+
+
+async def _punchlist_status(db: AsyncSession, project_id: UUID) -> PunchlistStatus:
+    """Punch list roll-up — counts of lists by status + per-item severity totals.
+
+    `high_severity_open_items` is a key surface signal for owners since a
+    single high-severity finding can block sign-off; we want it visible
+    on the project hub without drilling into each list.
+    """
+    list_counts = (
+        await db.execute(
+            select(
+                func.count().label("total"),
+                func.count().filter(PunchList.status.in_(["open", "in_review"])).label("open_lists"),
+                func.count().filter(PunchList.status == "signed_off").label("signed_off"),
+            ).where(PunchList.project_id == project_id)
+        )
+    ).one()
+
+    item_counts = (
+        await db.execute(
+            select(
+                func.count().label("total_items"),
+                func.count().filter(PunchItem.status.in_(["open", "in_progress"])).label("open_items"),
+                func.count().filter(PunchItem.status == "verified").label("verified"),
+                func.count()
+                .filter(
+                    PunchItem.severity == "high",
+                    PunchItem.status.in_(["open", "in_progress"]),
+                )
+                .label("high_open"),
+            )
+            .select_from(PunchItem)
+            .join(PunchList, PunchList.id == PunchItem.list_id)
+            .where(PunchList.project_id == project_id)
+        )
+    ).one()
+
+    return PunchlistStatus(
+        list_count=int(list_counts.total or 0),
+        open_list_count=int(list_counts.open_lists or 0),
+        signed_off_list_count=int(list_counts.signed_off or 0),
+        total_items=int(item_counts.total_items or 0),
+        open_items=int(item_counts.open_items or 0),
+        verified_items=int(item_counts.verified or 0),
+        high_severity_open_items=int(item_counts.high_open or 0),
     )

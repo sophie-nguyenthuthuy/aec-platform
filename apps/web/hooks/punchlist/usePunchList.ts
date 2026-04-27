@@ -44,6 +44,7 @@ export interface AddPunchItemRequest {
   due_date?: string;
   notes?: string;
   assigned_user_id?: string;
+  photo_id?: string;
 }
 
 export interface UpdatePunchItemRequest {
@@ -146,6 +147,41 @@ export function useUpdatePunchItem(listId: string) {
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: punchListKeys.detail(listId) }),
+  });
+}
+
+export interface PhotoHint {
+  photo_id: string;
+  file_id?: string | null;
+  taken_at?: string | null;
+  thumbnail_url?: string | null;
+  safety_status?: string | null;
+  tags: string[];
+}
+
+export interface PhotoHintsResponse {
+  list_id: string;
+  walkthrough_date: string;
+  window_days: number;
+  results: PhotoHint[];
+}
+
+/** SiteEye photos taken near the walkthrough day, for one-click attach. */
+export function usePhotoHints(listId: string | undefined) {
+  const { token, orgId } = useSession();
+  return useQuery({
+    enabled: Boolean(listId),
+    queryKey: listId
+      ? (["punchlist", "photo-hints", listId] as const)
+      : (["punchlist", "photo-hints", "noop"] as const),
+    staleTime: 30_000,
+    queryFn: async () => {
+      const res = await apiFetch<PhotoHintsResponse>(
+        `/api/v1/punchlist/lists/${listId}/photo-hints`,
+        { method: "GET", token, orgId },
+      );
+      return res.data as PhotoHintsResponse;
+    },
   });
 }
 

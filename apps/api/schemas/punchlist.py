@@ -137,3 +137,28 @@ class PunchListDetail(BaseModel):
 
 class SignOffRequest(BaseModel):
     notes: str | None = None
+
+
+class PhotoHint(BaseModel):
+    """A SiteEye photo candidate to attach to a punch item.
+
+    Returned by GET /lists/{id}/photo-hints — site photos taken on the
+    same project around the walkthrough date are likely the source of
+    walkthrough findings (the owner snapped a photo when they noticed
+    the issue). The UI surfaces these so the supervisor can one-click
+    attach an existing photo instead of re-uploading.
+    """
+
+    photo_id: UUID
+    file_id: UUID | None = None
+    taken_at: datetime | None = None
+    thumbnail_url: str | None = None
+    safety_status: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class PhotoHintsResponse(BaseModel):
+    list_id: UUID
+    walkthrough_date: date
+    window_days: int
+    results: list[PhotoHint] = Field(default_factory=list)
