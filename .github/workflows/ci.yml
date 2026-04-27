@@ -40,7 +40,7 @@ jobs:
       # No `version:` here — the action reads `packageManager` from
       # package.json (currently "pnpm@9.0.0"). Specifying both errors out
       # with ERR_PNPM_BAD_PM_VERSION.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v4
         with:
@@ -269,7 +269,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version: 20
