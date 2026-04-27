@@ -90,7 +90,7 @@ jobs:
       # doesn't require a re-run with extra logging.
       - name: Upload Playwright trace artifacts (on failure)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-traces
           path: apps/web/test-results/
@@ -218,7 +218,7 @@ jobs:
       # usage bounded; 7 days is enough to triage.
       - name: Upload pytest results (on failure)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pytest-results
           path: apps/api/test-results/
@@ -298,7 +298,7 @@ jobs:
 
       - name: Upload audit reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-audit
           path: audit/
