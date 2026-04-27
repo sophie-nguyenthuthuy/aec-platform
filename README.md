@@ -103,6 +103,31 @@ pnpm lint
 - **Migrations**: Alembic linear history with a periodic merge-heads commit when
   modules grow in parallel
 
+### Pre-push checklist
+
+CI gates every push on lint + format + typecheck + tests. To avoid bouncing
+off CI, run the **same** checks locally before pushing:
+
+```bash
+make hooks                                     # one-time: install pre-commit
+ruff check apps/api apps/worker apps/ml        # lint
+ruff format --check apps/api apps/worker apps/ml  # format
+pnpm --filter @aec/web typecheck                # web typecheck
+```
+
+The `make hooks` install adds a git pre-commit hook that runs ruff +
+ruff-format + basic file hygiene on every commit automatically — that
+covers ~90% of the gates above without you having to remember.
+
+For the remaining 10% (TypeScript, Playwright, pytest), run them
+manually before push if you've changed anything in their territory.
+
+> **Why this matters**: ruff and ruff-format are pinned in
+> `apps/api/requirements-dev.txt` and `.pre-commit-config.yaml` to the
+> same version CI installs. Skipping the hook locally means your push
+> can land lint that CI rejects — and because CI's lint gate runs *before*
+> the heavyweight test gates, you'll wait for the queue twice.
+
 ## License
 
 [GNU AGPL-3.0](./LICENSE). You're free to read, fork, modify, and self-host this

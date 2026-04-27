@@ -11,6 +11,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Fast gate — runs ruff, ruff-format, and basic file-hygiene hooks
+  # against every file in the repo. Catches the kind of drift that
+  # used to slip past local commits (forgotten `ruff format`, trailing
+  # whitespace, etc.) without paying for the full Postgres + Playwright
+  # job-graph below. Mirrors what `make hooks` enforces locally.
+  #
+  # Independent job (not a step) so it runs in parallel with the other
+  # gates and surfaces its own failure rather than blocking them — a
+  # broken hygiene check shouldn't hide an unrelated typecheck regression.
+  pre-commit:
+    name: Pre-commit hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: pre-commit/action@v3.0.1
+
   node:
     name: Node — typecheck + lint + web build
     runs-on: ubuntu-latest
