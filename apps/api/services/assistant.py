@@ -207,17 +207,158 @@ def _format_history(history: list) -> list[dict[str, str]]:
     return [{"role": t.role, "content": t.content} for t in history]
 
 
+async def ask_stream(
+    session: AsyncSession,
+    *,
+    organization_id: UUID,
+    project_id: UUID,
+    user_id: UUID,
+    request: AskRequest,
+):
+    """Streaming variant of `ask()`. Yields SSE-shaped strings:
+
+      event: meta\\ndata: {"thread_id": "..."}\\n\\n  (sent first)
+      event: token\\ndata: {"text": "..."}\\n\\n     (zero or more)
+      event: done\\ndata: {"sources": [...], "context_token_estimate": N}\\n\\n
+
+    The router wraps this in a `StreamingResponse(media_type="text/event-stream")`.
+    Errors are emitted as `event: error` instead of raising — the
+    EventSource API on the frontend doesn't surface HTTP errors well
+    once the stream has started, so we keep error handling in-band.
+
+    Falls back to a single-shot stub-emit when no Anthropic key is
+    configured, mirroring the same fallback as `ask()`.
+    """
+
+    context = await build_project_context(session, organization_id=organization_id, project_id=project_id)
+    if not context:
+        yield _sse("error", {"message": "Project not found"})
+        return
+
+    thread, prior_messages = await _resolve_thread(
+        session,
+        organization_id=organization_id,
+        project_id=project_id,
+        user_id=user_id,
+        thread_id=request.thread_id,
+        first_question=request.question,
+    )
+    yield _sse("meta", {"thread_id": str(thread.id)})
+
+    settings = get_settings()
+    context_json = _safe_json_dumps(context)
+    token_estimate = len(context_json) // 4
+    sources = _default_sources(project_id, context)
+
+    if not settings.anthropic_api_key:
+        # Stub path: emit the whole stub answer as a single token event
+        # so the client's stream consumer doesn't need a special-case.
+        stub = _stub_answer(request.question, context)
+        yield _sse("token", {"text": stub})
+        await _persist_exchange(
+            session,
+            thread=thread,
+            question=request.question,
+            answer=stub,
+            sources=sources,
+            token_estimate=token_estimate,
+        )
+        yield _sse(
+            "done",
+            {
+                "sources": [s.model_dump(mode="json") for s in sources],
+                "context_token_estimate": token_estimate,
+            },
+        )
+        return
+
+    try:
+        from langchain_anthropic import ChatAnthropic
+        from langchain_core.messages import HumanMessage, SystemMessage
+    except ImportError:  # pragma: no cover — packaging issue
+        yield _sse("error", {"message": "langchain-anthropic not installed"})
+        return
+
+    llm = ChatAnthropic(
+        model=settings.anthropic_model,
+        anthropic_api_key=settings.anthropic_api_key,
+        temperature=0.2,
+        max_tokens=1024,
+        streaming=True,
+    )
+
+    history = (
+        [ChatTurnInternal(role=m.role, content=m.content) for m in prior_messages]
+        if prior_messages
+        else [ChatTurnInternal(role=t.role, content=t.content) for t in request.history]
+    )[-20:]
+
+    messages: list = [SystemMessage(content=_SYSTEM_TEMPLATE.format(context_json=context_json))]
+    for turn in history:
+        if turn.role == "user":
+            messages.append(HumanMessage(content=turn.content))
+        else:
+            messages.append(SystemMessage(content=f"Previous answer: {turn.content}"))
+    messages.append(HumanMessage(content=request.question))
+
+    full_answer_chunks: list[str] = []
+    try:
+        async for chunk in llm.astream(messages):
+            piece = chunk.content if isinstance(chunk.content, str) else str(chunk.content)
+            if not piece:
+                continue
+            full_answer_chunks.append(piece)
+            yield _sse("token", {"text": piece})
+    except Exception as exc:  # pragma: no cover — network / API
+        logger.exception("assistant.ask_stream failed for project=%s", project_id)
+        yield _sse(
+            "error",
+            {"message": f"AI assistant error: {type(exc).__name__}"},
+        )
+        return
+
+    answer = "".join(full_answer_chunks)
+    await _persist_exchange(
+        session,
+        thread=thread,
+        question=request.question,
+        answer=answer,
+        sources=sources,
+        token_estimate=token_estimate,
+    )
+    yield _sse(
+        "done",
+        {
+            "sources": [s.model_dump(mode="json") for s in sources],
+            "context_token_estimate": token_estimate,
+        },
+    )
+
+
+def _sse(event: str, data: dict) -> str:
+    """Server-Sent Events frame: `event: name\\ndata: {json}\\n\\n`."""
+    import json as _json
+
+    return f"event: {event}\ndata: {_json.dumps(data, ensure_ascii=False)}\n\n"
+
+
 async def ask(
     session: AsyncSession,
     *,
     organization_id: UUID,
     project_id: UUID,
+    user_id: UUID,
     request: AskRequest,
 ) -> AssistantResponse:
-    """Build context, call Claude, return shaped response.
+    """Build context, call Claude, persist the exchange, return the answer.
 
-    Falls back to a deterministic stub when no API key is configured —
-    keeps `pytest`, dev-server, and CI green without burning API credits.
+    Thread handling:
+      * If `request.thread_id` is provided, load prior messages from the DB
+        (the DB is authoritative — `request.history` is ignored).
+      * If `request.thread_id` is None, auto-create a new thread titled
+        from the first ~80 chars of the question.
+
+    Falls back to a deterministic stub when no API key is configured.
     """
     context = await build_project_context(session, organization_id=organization_id, project_id=project_id)
     if not context:
@@ -230,6 +371,19 @@ async def ask(
             context_token_estimate=0,
         )
 
+    # Resolve / create the thread + load prior messages.
+    thread, prior_messages = await _resolve_thread(
+        session,
+        organization_id=organization_id,
+        project_id=project_id,
+        user_id=user_id,
+        thread_id=request.thread_id,
+        first_question=request.question,
+    )
+    # Convert ORM messages to ChatTurn so the rest of the function can
+    # treat the source uniformly.
+    history_from_db = [ChatTurnInternal(role=m.role, content=m.content) for m in prior_messages]
+
     settings = get_settings()
     context_json = _safe_json_dumps(context)
     token_estimate = len(context_json) // 4  # ~4 chars per token rule of thumb
@@ -239,10 +393,20 @@ async def ask(
         # the real path, deterministic content. Mentions a couple of
         # the most informative context numbers so it's not a useless reply.
         stub_answer = _stub_answer(request.question, context)
+        sources = _default_sources(project_id, context)
+        await _persist_exchange(
+            session,
+            thread=thread,
+            question=request.question,
+            answer=stub_answer,
+            sources=sources,
+            token_estimate=token_estimate,
+        )
         return AssistantResponse(
             project_id=project_id,
+            thread_id=thread.id,
             answer=stub_answer,
-            sources=_default_sources(project_id, context),
+            sources=sources,
             context_token_estimate=token_estimate,
         )
 
@@ -264,17 +428,28 @@ async def ask(
         max_tokens=1024,
     )
 
+    # Authoritative history comes from the DB when a thread is loaded;
+    # legacy clients passing `request.history` only see effect when
+    # there's no `thread_id` (i.e. their first turn before the DB has
+    # anything). Cap at 20 turns either way to bound the prompt size.
+    history = (
+        history_from_db
+        if history_from_db
+        else [ChatTurnInternal(role=t.role, content=t.content) for t in request.history]
+    )
+    history = history[-20:]
+
     messages: list = [SystemMessage(content=_SYSTEM_TEMPLATE.format(context_json=context_json))]
-    for turn in _format_history(request.history):
-        if turn["role"] == "user":
-            messages.append(HumanMessage(content=turn["content"]))
+    for turn in history:
+        if turn.role == "user":
+            messages.append(HumanMessage(content=turn.content))
         else:
             # langchain-anthropic doesn't expose a separate AIMessage
             # constructor in our pinned version — fall back to a plain
             # string in the SystemMessage chain. Acceptable trade-off
             # given chat history is just there for short context, not
             # for the model to deeply reason over.
-            messages.append(SystemMessage(content=f"Previous answer: {turn['content']}"))
+            messages.append(SystemMessage(content=f"Previous answer: {turn.content}"))
     messages.append(HumanMessage(content=request.question))
 
     try:
@@ -284,12 +459,146 @@ async def ask(
         logger.exception("assistant.ask failed for project=%s", project_id)
         answer = f"Xin lỗi, AI assistant đang gặp sự cố — vui lòng thử lại sau. (Lỗi: {type(exc).__name__})"
 
+    sources = _default_sources(project_id, context)
+    await _persist_exchange(
+        session,
+        thread=thread,
+        question=request.question,
+        answer=answer,
+        sources=sources,
+        token_estimate=token_estimate,
+    )
     return AssistantResponse(
         project_id=project_id,
+        thread_id=thread.id,
         answer=answer,
-        sources=_default_sources(project_id, context),
+        sources=sources,
         context_token_estimate=token_estimate,
     )
+
+
+# ---------- Thread persistence ----------
+
+
+from dataclasses import dataclass  # noqa: E402 — keep helper-imports near use site
+from uuid import uuid4  # noqa: E402
+
+from models.assistant import AssistantMessage, AssistantThread  # noqa: E402
+
+
+@dataclass
+class ChatTurnInternal:
+    """In-process representation of a chat turn. Distinct from the
+    `schemas.assistant.ChatTurn` Pydantic model so we can construct it
+    from either an ORM message or a request body without going through
+    Pydantic validation each time."""
+
+    role: str
+    content: str
+
+
+async def _resolve_thread(
+    session: AsyncSession,
+    *,
+    organization_id: UUID,
+    project_id: UUID,
+    user_id: UUID,
+    thread_id: UUID | None,
+    first_question: str,
+) -> tuple[AssistantThread, list[AssistantMessage]]:
+    """Load an existing thread (with its messages) or create a fresh one.
+
+    When `thread_id` is provided but doesn't match the caller's project +
+    user, we silently fall through to creating a new thread instead of
+    raising — the user is allowed to start a new conversation, just not
+    impersonate an existing one. The auth context already established
+    that org/user/project are legit.
+    """
+    if thread_id is not None:
+        existing = (
+            await session.execute(
+                select(AssistantThread).where(
+                    AssistantThread.id == thread_id,
+                    AssistantThread.organization_id == organization_id,
+                    AssistantThread.project_id == project_id,
+                    AssistantThread.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            messages = (
+                (
+                    await session.execute(
+                        select(AssistantMessage)
+                        .where(AssistantMessage.thread_id == existing.id)
+                        .order_by(AssistantMessage.created_at)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            return existing, list(messages)
+
+    # Fresh thread — title derived from first question, capped at 80 chars
+    # so the sidebar renders a meaningful but bounded label.
+    title = first_question.strip().splitlines()[0] if first_question.strip() else "Cuộc trò chuyện"
+    title = title[:80].rstrip() or "Cuộc trò chuyện"
+
+    now = datetime.now(UTC)
+    thread = AssistantThread(
+        id=uuid4(),
+        organization_id=organization_id,
+        project_id=project_id,
+        user_id=user_id,
+        title=title,
+        last_message_at=now,
+        created_at=now,
+    )
+    session.add(thread)
+    await session.flush()
+    return thread, []
+
+
+async def _persist_exchange(
+    session: AsyncSession,
+    *,
+    thread: AssistantThread,
+    question: str,
+    answer: str,
+    sources: list[AssistantSource],
+    token_estimate: int,
+) -> None:
+    """Insert the user question + assistant answer; bump the thread's
+    `last_message_at` so the sidebar re-orders correctly."""
+    now = datetime.now(UTC)
+    sources_payload = [s.model_dump(mode="json") for s in sources]
+
+    session.add(
+        AssistantMessage(
+            id=uuid4(),
+            thread_id=thread.id,
+            role="user",
+            content=question,
+            sources=[],
+            tool_calls=[],
+            context_token_estimate=None,
+            created_at=now,
+        )
+    )
+    session.add(
+        AssistantMessage(
+            id=uuid4(),
+            thread_id=thread.id,
+            role="assistant",
+            content=answer,
+            sources=sources_payload,
+            tool_calls=[],
+            context_token_estimate=token_estimate,
+            created_at=now,
+        )
+    )
+    thread.last_message_at = now
+    await session.commit()
 
 
 # ---------- Helpers ----------

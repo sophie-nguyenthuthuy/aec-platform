@@ -382,6 +382,19 @@ async def test_get_project_detail_handles_empty_modules(client, fake_db):
         _scalar(0),
         _scalar(0),
         _scalar(0),
+        # SchedulePilot
+        _scalar(0),
+        _one(activity_count=0, avg_pct=Decimal("0"), behind=0),
+        _one(slip=0),
+        _scalar(0),
+        # Submittals
+        _one(open=0, revise=0, approved=0, designer=0, contractor=0),
+        # DailyLog
+        _one(log_count=0, last_log_date=None),
+        _one(open=0, high=0),
+        # ChangeOrder
+        _one(total=0, open=0, approved=0, cost=0, days=0),
+        _scalar(0),
     ]:
         fake_db.push_execute(r)
 

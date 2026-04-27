@@ -1,10 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Info } from "lucide-react";
+import { CheckCircle2, Info, Loader2 } from "lucide-react";
 import { ComplianceScore, FindingItem } from "@aec/ui/codeguard";
-import type { ScanResponse, RegulationCategory } from "@aec/ui/codeguard";
-import { useCodeguardScan, type ProjectParameters } from "@/hooks/codeguard";
+import type { Finding, RegulationCategory } from "@aec/ui/codeguard";
+import {
+  useCodeguardScanStream,
+  type ProjectParameters,
+  type ScanDonePayload,
+} from "@/hooks/codeguard";
 
 const CATEGORIES: Array<{ value: RegulationCategory; label: string }> = [
   { value: "fire_safety", label: "PCCC" },
@@ -23,27 +27,57 @@ export default function ComplianceScanWizardPage() {
   const [categories, setCategories] = useState<RegulationCategory[]>(
     CATEGORIES.map((c) => c.value),
   );
-  const [result, setResult] = useState<ScanResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const scan = useCodeguardScan();
+  // Streaming-aware state. Findings accumulate as `category_done` events
+  // arrive; `done` carries the aggregate counts that drive the donut.
+  // Per-category status drives the in-flight progress list.
+  const [streaming, setStreaming] = useState(false);
+  const [findings, setFindings] = useState<Finding[]>([]);
+  const [done, setDone] = useState<ScanDonePayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [categoryStatus, setCategoryStatus] = useState<
+    Record<string, "pending" | "in_progress" | "done">
+  >({});
+
+  const startStream = useCodeguardScanStream();
 
   const runScan = async () => {
     if (!projectId) return;
-    // Mirror the query page's error-handling shape: catch the rejection,
-    // store the message, and still advance to the results step so the
-    // user sees feedback instead of being stranded in the review step
-    // with isPending=false and no signal that anything happened.
+
+    // Reset accumulated state so a re-run from "Quét lại" starts clean.
+    setFindings([]);
+    setDone(null);
     setError(null);
-    try {
-      const res = await scan.mutateAsync({ project_id: projectId, parameters: params, categories });
-      setResult(res);
-      setStep("results");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Đã xảy ra lỗi";
-      setError(message);
-      setStep("results");
-    }
+    // Seed every selected category as `pending` so the progress list
+    // shows the full slate immediately — categories flip to in_progress
+    // and then done as their events arrive.
+    setCategoryStatus(
+      Object.fromEntries(categories.map((c) => [c, "pending" as const])),
+    );
+    setStreaming(true);
+    setStep("results");
+
+    await startStream(
+      { project_id: projectId, parameters: params, categories },
+      {
+        onCategoryStart: (cat) => {
+          setCategoryStatus((s) => ({ ...s, [cat]: "in_progress" }));
+        },
+        onCategoryDone: (payload) => {
+          setCategoryStatus((s) => ({ ...s, [payload.category]: "done" }));
+          if (payload.findings.length > 0) {
+            setFindings((curr) => [...curr, ...payload.findings]);
+          }
+        },
+        onDone: (payload) => {
+          setDone(payload);
+        },
+        onError: (message) => {
+          setError(message);
+        },
+      },
+    );
+    setStreaming(false);
   };
 
   return (
@@ -158,10 +192,10 @@ export default function ComplianceScanWizardPage() {
             <button
               type="button"
               onClick={runScan}
-              disabled={scan.isPending}
+              disabled={streaming}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {scan.isPending ? "Đang quét..." : "Bắt đầu quét"}
+              {streaming ? "Đang quét..." : "Bắt đầu quét"}
             </button>
           </div>
         </div>
@@ -174,24 +208,46 @@ export default function ComplianceScanWizardPage() {
               <div className="mb-1 font-medium">Lỗi khi quét tuân thủ</div>
               <p>{error}</p>
             </div>
-          ) : result ? (
+          ) : (
             <>
-              <div className="rounded-xl border border-slate-200 bg-white p-6">
-                <h3 className="mb-4 font-semibold">Kết quả tổng hợp</h3>
-                <ComplianceScore pass={result.pass_count} warn={result.warn_count} fail={result.fail_count} />
-              </div>
+              {/*
+                Per-category progress strip. Always rendered — during the
+                stream it shows the live status, and after `done` it
+                stays as a record of which categories actually got
+                scanned (useful when one or more had no retrieval).
+              */}
+              <CategoryProgress status={categoryStatus} />
+
+              {/*
+                Aggregate ComplianceScore donut. Renders only after the
+                terminal `done` event arrives because it needs aggregate
+                counts (pass/warn/fail). During streaming the per-finding
+                cards below give the user incremental feedback.
+              */}
+              {done && (
+                <div className="rounded-xl border border-slate-200 bg-white p-6">
+                  <h3 className="mb-4 font-semibold">Kết quả tổng hợp</h3>
+                  <ComplianceScore
+                    pass={done.pass_count}
+                    warn={done.warn_count}
+                    fail={done.fail_count}
+                  />
+                </div>
+              )}
+
               <div className="space-y-3">
                 {/*
-                  Empty-findings disambiguation: total === 0 means the
-                  scan returned zero findings — could be (a) the LLM had
-                  nothing to flag (clean scan) OR (b) retrieval surfaced
-                  no relevant chunks for the chosen categories. We can't
-                  distinguish from the response shape alone, so we use
-                  the same amber "advisory" treatment as the query
-                  page's abstain card rather than a bland slate "all
-                  clear" message that could mislead the user.
+                  During streaming, render findings as they arrive.
+                  After the terminal `done`, we know whether the empty-
+                  findings advisory is the correct treatment (total ===
+                  0). While streaming we deliberately don't show the
+                  advisory yet — categories that haven't reported in
+                  could still produce findings.
                 */}
-                {result.findings.length === 0 ? (
+                {findings.map((f, i) => (
+                  <FindingItem key={i} finding={f} />
+                ))}
+                {done && findings.length === 0 && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
                     <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-amber-700">
                       <Info size={14} />
@@ -202,25 +258,66 @@ export default function ComplianceScanWizardPage() {
                       Hãy kiểm tra xem các quy chuẩn liên quan đã được nạp vào CODEGUARD chưa.
                     </p>
                   </div>
-                ) : (
-                  result.findings.map((f, i) => <FindingItem key={i} finding={f} />)
                 )}
               </div>
             </>
-          ) : null}
+          )}
           <button
             type="button"
             onClick={() => {
               setStep("params");
-              setResult(null);
+              setFindings([]);
+              setDone(null);
               setError(null);
+              setCategoryStatus({});
             }}
-            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm"
+            disabled={streaming}
+            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm disabled:opacity-50"
           >
             Quét lại
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function CategoryProgress({
+  status,
+}: {
+  status: Record<string, "pending" | "in_progress" | "done">;
+}) {
+  // Render in the same order CATEGORIES is declared so the strip's
+  // visual order matches the user's selection UI from the params step.
+  const rows = CATEGORIES.filter((c) => status[c.value] !== undefined);
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <ol className="divide-y divide-slate-100">
+        {rows.map((c) => {
+          const s = status[c.value];
+          return (
+            <li
+              key={c.value}
+              data-testid={`category-status-${c.value}`}
+              className="flex items-center gap-3 py-2 text-sm"
+            >
+              {s === "done" ? (
+                <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+              ) : s === "in_progress" ? (
+                <Loader2 size={16} className="shrink-0 animate-spin text-blue-600" />
+              ) : (
+                <span className="inline-block h-3 w-3 shrink-0 rounded-full border border-slate-300" />
+              )}
+              <span className="flex-1 text-slate-700">{c.label}</span>
+              <span className="text-xs text-slate-500">
+                {s === "done" ? "Xong" : s === "in_progress" ? "Đang quét" : "Chờ"}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

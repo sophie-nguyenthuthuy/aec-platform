@@ -12,10 +12,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.envelope import ok
-from db.deps import get_db
+from db.session import AdminSessionFactory
 from middleware.auth import UserContext, require_user
 
 router = APIRouter(prefix="/api/v1/me", tags=["me"])
@@ -24,7 +23,6 @@ router = APIRouter(prefix="/api/v1/me", tags=["me"])
 @router.get("/orgs")
 async def list_my_orgs(
     user: Annotated[UserContext, Depends(require_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
     """Every org this user is a member of, with their role.
 
@@ -35,36 +33,39 @@ async def list_my_orgs(
     invitation-driven); without a grant, this endpoint returns an empty
     list and the UI shows an "ask an admin to invite you" empty state.
     """
-    # Ensure a local users row exists. No-op if already seeded.
-    await db.execute(
-        text(
-            """
-            INSERT INTO users (id, email)
-            VALUES (:uid, :email)
-            ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email
-            """
-        ),
-        {"uid": str(user.user_id), "email": user.email},
-    )
-    await db.commit()
-
-    rows = (
-        (
-            await db.execute(
-                text(
-                    """
-                SELECT o.id::text AS id, o.name, m.role
-                FROM org_members m
-                JOIN organizations o ON o.id = m.organization_id
-                WHERE m.user_id = :uid
-                ORDER BY o.name
+    # AdminSessionFactory bypasses RLS — necessary because (a) we need to
+    # write to `users` regardless of the future tenant scope, and (b) the
+    # `org_members` query runs without an `app.current_org_id` GUC pin.
+    async with AdminSessionFactory() as db:
+        await db.execute(
+            text(
                 """
-                ),
-                {"uid": str(user.user_id)},
-            )
+                INSERT INTO users (id, email)
+                VALUES (:uid, :email)
+                ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email
+                """
+            ),
+            {"uid": str(user.user_id), "email": user.email},
         )
-        .mappings()
-        .all()
-    )
+        await db.commit()
+
+        rows = (
+            (
+                await db.execute(
+                    text(
+                        """
+                    SELECT o.id::text AS id, o.name, m.role
+                    FROM org_members m
+                    JOIN organizations o ON o.id = m.organization_id
+                    WHERE m.user_id = :uid
+                    ORDER BY o.name
+                    """
+                    ),
+                    {"uid": str(user.user_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
 
     return ok([dict(r) for r in rows])

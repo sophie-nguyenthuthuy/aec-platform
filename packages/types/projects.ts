@@ -74,6 +74,39 @@ export interface CodeguardStatus {
   permit_checklist_count: number;
 }
 
+export interface SchedulepilotStatus {
+  schedule_count: number;
+  activity_count: number;
+  behind_schedule_count: number;
+  on_critical_path_count: number;
+  overall_slip_days: number;
+  percent_complete: number;
+}
+
+export interface SubmittalsStatus {
+  open_count: number;
+  revise_resubmit_count: number;
+  approved_count: number;
+  designer_court_count: number;
+  contractor_court_count: number;
+}
+
+export interface DailylogStatus {
+  log_count: number;
+  open_observation_count: number;
+  high_severity_observation_count: number;
+  last_log_date?: ISODate | null;
+}
+
+export interface ChangeorderStatus {
+  total_count: number;
+  open_count: number;
+  approved_count: number;
+  pending_candidates: number;
+  total_cost_impact_vnd: number;
+  total_schedule_impact_days: number;
+}
+
 // ---- Aggregate views ----
 
 export interface ProjectSummary {
@@ -115,4 +148,8 @@ export interface ProjectDetail {
   handover: HandoverStatus;
   siteeye: SiteeyeStatus;
   codeguard: CodeguardStatus;
+  schedulepilot: SchedulepilotStatus;
+  submittals: SubmittalsStatus;
+  dailylog: DailylogStatus;
+  changeorder: ChangeorderStatus;
 }

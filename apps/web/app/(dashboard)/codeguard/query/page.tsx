@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Info, Send } from "lucide-react";
-import { CitationCard } from "@aec/ui/codeguard";
+import { AnswerWithCitations, CitationCard } from "@aec/ui/codeguard";
 import type { QueryResponse } from "@aec/ui/codeguard";
 import { useCodeguardQueryStream } from "@/hooks/codeguard";
 
@@ -191,7 +191,20 @@ function AssistantTurn({
           first token arrives. */}
       {streaming && text.length === 0 ? (
         <p className="text-slate-500">Đang tra cứu quy chuẩn...</p>
+      ) : response && !streaming ? (
+        // Settled answer: parse `[N]` markers into hover-expanded
+        // citation chips inline. Falls back to plain text when no
+        // markers are present (parser is a no-op on un-marked text).
+        <AnswerWithCitations
+          text={text}
+          citations={response.citations}
+          className="whitespace-pre-wrap"
+        />
       ) : (
+        // Mid-stream: render plain text with the animated cursor —
+        // marker substitution is delayed until `done` arrives so we
+        // don't show a popover whose target citation hasn't been
+        // finalized yet.
         <p className="whitespace-pre-wrap">
           {text}
           {streaming && (

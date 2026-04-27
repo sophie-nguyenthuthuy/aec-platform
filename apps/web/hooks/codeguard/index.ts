@@ -8,6 +8,13 @@ export type {
 } from "./useQueryStream";
 export { useCodeguardScan, useProjectChecks } from "./useScan";
 export type { ScanRequest, ProjectParameters, ComplianceCheck } from "./useScan";
+export { useCodeguardScanStream } from "./useScanStream";
+export type {
+  ScanStreamRequest,
+  ScanStreamHandlers,
+  ScanCategoryDonePayload,
+  ScanDonePayload,
+} from "./useScanStream";
 export { useGeneratePermitChecklist, useMarkChecklistItem } from "./useChecklist";
 export type { PermitChecklistRequest, MarkItemRequest } from "./useChecklist";
 export { useRegulations, useRegulation } from "./useRegulations";

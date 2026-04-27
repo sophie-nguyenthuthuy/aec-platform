@@ -235,7 +235,10 @@ function parseFilenameFromContentDisposition(
   if (!header) return fallback;
   // Tolerant match: `attachment; filename="foo.xlsx"` or unquoted.
   const match = header.match(/filename\*?=(?:"([^"]+)"|([^;]+))/i);
-  return match ? (match[1] ?? match[2]).trim() : fallback;
+  if (!match) return fallback;
+  // One of the two capture groups will be set, never both.
+  const captured = match[1] ?? match[2];
+  return captured ? captured.trim() : fallback;
 }
 
 export function useApproveEstimate(estimateId: UUID) {

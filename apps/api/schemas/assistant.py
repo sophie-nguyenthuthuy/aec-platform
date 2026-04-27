@@ -47,8 +47,7 @@ class AssistantResponse(BaseModel):
     project_id: UUID
     thread_id: UUID | None = Field(
         default=None,
-        description="ID of the thread this turn was appended to. Clients "
-        "should round-trip this on follow-up turns.",
+        description="ID of the thread this turn was appended to. Clients should round-trip this on follow-up turns.",
     )
     answer: str
     sources: list[AssistantSource] = Field(default_factory=list)

@@ -332,6 +332,16 @@ Rules:
 - If the context is insufficient, say so and set confidence low.
 - Respond in the user's language: {language}.
 
+Inline citation markers:
+- In the `answer` text, place a marker like `[1]`, `[2]` immediately after each
+  factual claim. Marker N (1-indexed) refers to the N-th entry of the
+  `citations` array — so `[1]` points to citations[0], `[2]` to citations[1],
+  and so on.
+- Reuse the same marker number when citing the same source again rather than
+  duplicating the citation entry.
+- Do NOT use any other bracket notation (e.g. `[Article 3.2]`) — only `[N]`
+  where N is a citation index.
+
 Output MUST be valid JSON matching:
 {{
   "answer": string,

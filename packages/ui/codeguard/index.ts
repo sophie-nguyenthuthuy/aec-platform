@@ -1,4 +1,5 @@
 export { CitationCard } from "./CitationCard";
+export { AnswerWithCitations, CitationMarker } from "./AnswerWithCitations";
 export { FindingItem } from "./FindingItem";
 export { ComplianceScore } from "./ComplianceScore";
 export { RegulationSearch } from "./RegulationSearch";

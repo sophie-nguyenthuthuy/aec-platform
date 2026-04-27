@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { Route } from "next";
 import type { ReactNode } from "react";
 
+import { OrgSwitcher } from "./_components/OrgSwitcher";
+
 const NAV: Array<{ href: Route; label: string; section?: string }> = [
   { section: "Tổng quan", href: "/projects", label: "Dự án" },
   { href: "/activity", label: "Hoạt động" },
@@ -22,9 +24,9 @@ const NAV: Array<{ href: Route; label: string; section?: string }> = [
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen">
-      <aside className="w-60 border-r bg-muted/30 p-4">
+      <aside className="flex w-60 flex-col border-r bg-muted/30 p-4">
         <div className="mb-6 text-lg font-semibold">AEC Platform</div>
-        <nav className="flex flex-col gap-1">
+        <nav className="flex flex-1 flex-col gap-1 overflow-y-auto">
           {NAV.map((item) => (
             <div key={item.href}>
               {item.section && (
@@ -41,6 +43,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             </div>
           ))}
         </nav>
+        <OrgSwitcher />
       </aside>
       <main className="flex-1 p-8">{children}</main>
     </div>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -590,6 +591,16 @@ async def create_rfi(
     db.add(row)
     await db.commit()
     await db.refresh(row)
+    # Best-effort: write the rfi_embedding so similar-RFI search picks this up.
+    # Failures here (no API key, missing pgvector, embedding service down) MUST
+    # NOT fail the create — the embedding can be backfilled by /embed later.
+    await _safe_upsert_rfi_embedding(
+        db,
+        organization_id=auth.organization_id,
+        rfi_id=row.id,
+        subject=row.subject,
+        description=row.description,
+    )
     return ok(Rfi.model_validate(row).model_dump(mode="json"))
 
 
@@ -615,6 +626,16 @@ async def update_rfi(
 
     await db.commit()
     await db.refresh(row)
+    # Re-embed when subject/description changed so similarity search stays
+    # accurate. The pipeline upserts on rfi_id so re-running is idempotent.
+    if "subject" in data or "description" in data:
+        await _safe_upsert_rfi_embedding(
+            db,
+            organization_id=auth.organization_id,
+            rfi_id=row.id,
+            subject=row.subject,
+            description=row.description,
+        )
     return ok(Rfi.model_validate(row).model_dump(mode="json"))
 
 
@@ -683,3 +704,47 @@ async def _next_rfi_number(db: AsyncSession, org_id: UUID, project_id: UUID | No
     )
     current = (await db.execute(stmt)).scalar_one() or 0
     return f"RFI-{current + 1:04d}"
+
+
+async def _safe_upsert_rfi_embedding(
+    db: AsyncSession,
+    *,
+    organization_id: UUID,
+    rfi_id: UUID,
+    subject: str,
+    description: str | None,
+) -> None:
+    """Fire-and-forget embedding upsert with full error containment.
+
+    The submittals module owns the rfi_embeddings table + pgvector index, but
+    the drawbridge RFI lifecycle is the natural insertion point so similarity
+    search Just Works after `POST /rfis`. Any failure (missing migration,
+    network error to the embedding service, pgvector not installed) is logged
+    and swallowed — the RFI itself was already committed and a later
+    `/api/v1/submittals/rfis/{id}/embed` call can backfill.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+    try:
+        from ml.pipelines.rfi import upsert_rfi_embedding
+
+        await upsert_rfi_embedding(
+            db,
+            organization_id=organization_id,
+            rfi_id=rfi_id,
+            subject=subject,
+            description=description,
+        )
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001 — best-effort by design
+        log.info(
+            "drawbridge.rfi_embed: best-effort upsert failed for rfi_id=%s: %s",
+            rfi_id,
+            exc,
+        )
+        # Don't propagate; caller already committed the RFI.
+        # Rollback noise we don't care about — if rollback also fails the
+        # connection is shot but the request succeeded, so swallow.
+        with contextlib.suppress(Exception):  # pragma: no cover
+            await db.rollback()

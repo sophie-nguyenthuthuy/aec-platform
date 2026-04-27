@@ -7,11 +7,15 @@ import {
   ArrowLeft,
   Bell,
   BellOff,
+  CalendarRange,
   CheckCircle2,
+  ClipboardCheck,
   ClipboardList,
   FileText,
   HardHat,
   ListChecks,
+  Notebook,
+  Replace,
   ShieldCheck,
   Wallet,
 } from "lucide-react";
@@ -196,6 +200,88 @@ export default function ProjectDetailPage() {
             ["Permit checklist", project.codeguard.permit_checklist_count.toString()],
           ]}
         />
+        <ModuleCard
+          title="SchedulePilot"
+          icon={<CalendarRange size={16} />}
+          href="/schedule"
+          tone="indigo"
+          rows={[
+            ["Lịch / hoạt động",
+              `${project.schedulepilot.schedule_count} / ${project.schedulepilot.activity_count}`,
+            ],
+            ["Trễ tiến độ", project.schedulepilot.behind_schedule_count.toString()],
+            ["Trên CPM", project.schedulepilot.on_critical_path_count.toString()],
+            [
+              "Trễ dự kiến",
+              project.schedulepilot.overall_slip_days > 0
+                ? `+${project.schedulepilot.overall_slip_days} ngày`
+                : "Đúng tiến độ",
+            ],
+          ]}
+        />
+        <ModuleCard
+          title="Submittals"
+          icon={<ClipboardCheck size={16} />}
+          href="/submittals"
+          tone="purple"
+          rows={[
+            ["Đang mở", project.submittals.open_count.toString()],
+            ["Sửa & nộp lại", project.submittals.revise_resubmit_count.toString()],
+            ["Đã duyệt", project.submittals.approved_count.toString()],
+            [
+              "Bóng (TK / NT)",
+              `${project.submittals.designer_court_count} / ${project.submittals.contractor_court_count}`,
+            ],
+          ]}
+        />
+        <ModuleCard
+          title="Nhật ký công trường"
+          icon={<Notebook size={16} />}
+          href="/dailylog"
+          tone="blue"
+          rows={[
+            ["Số nhật ký", project.dailylog.log_count.toString()],
+            ["Vấn đề mở", project.dailylog.open_observation_count.toString()],
+            [
+              "Nghiêm trọng",
+              project.dailylog.high_severity_observation_count.toString(),
+            ],
+            [
+              "Nhật ký gần nhất",
+              project.dailylog.last_log_date
+                ? new Date(project.dailylog.last_log_date).toLocaleDateString("vi-VN")
+                : "—",
+            ],
+          ]}
+        />
+        <ModuleCard
+          title="Change orders"
+          icon={<Replace size={16} />}
+          href="/changeorder"
+          tone="amber"
+          rows={[
+            [
+              "Tổng / mở / duyệt",
+              `${project.changeorder.total_count} / ${project.changeorder.open_count} / ${project.changeorder.approved_count}`,
+            ],
+            ["Đề xuất AI chờ", project.changeorder.pending_candidates.toString()],
+            [
+              "Tổng chi phí",
+              project.changeorder.total_cost_impact_vnd > 0
+                ? new Intl.NumberFormat("vi-VN", {
+                    notation: "compact",
+                    maximumFractionDigits: 1,
+                  }).format(project.changeorder.total_cost_impact_vnd) + " ₫"
+                : "—",
+            ],
+            [
+              "Tổng trễ",
+              project.changeorder.total_schedule_impact_days > 0
+                ? `${project.changeorder.total_schedule_impact_days} ngày`
+                : "—",
+            ],
+          ]}
+        />
         <RiskCard project={project} />
       </div>
 
@@ -296,6 +382,30 @@ function RiskCard({ project }: { project: ProjectDetail }) {
     risks.push({
       icon: <AlertTriangle size={14} className="text-amber-600" />,
       label: `${project.pulse.open_change_orders} change order mở`,
+    });
+  }
+  if (project.schedulepilot.overall_slip_days > 0) {
+    risks.push({
+      icon: <AlertTriangle size={14} className="text-red-600" />,
+      label: `Tiến độ trễ +${project.schedulepilot.overall_slip_days} ngày trên CPM`,
+    });
+  }
+  if (project.dailylog.high_severity_observation_count > 0) {
+    risks.push({
+      icon: <AlertTriangle size={14} className="text-red-600" />,
+      label: `${project.dailylog.high_severity_observation_count} vấn đề công trường nghiêm trọng`,
+    });
+  }
+  if (project.submittals.revise_resubmit_count > 0) {
+    risks.push({
+      icon: <AlertTriangle size={14} className="text-amber-600" />,
+      label: `${project.submittals.revise_resubmit_count} submittal cần sửa & nộp lại`,
+    });
+  }
+  if (project.changeorder.pending_candidates > 0) {
+    risks.push({
+      icon: <AlertTriangle size={14} className="text-amber-600" />,
+      label: `${project.changeorder.pending_candidates} đề xuất CO từ AI chờ duyệt`,
     });
   }
 

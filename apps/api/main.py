@@ -19,6 +19,7 @@ _register_all_models()
 
 from routers import (  # noqa: E402
     activity,
+    admin,
     assistant,
     bidradar,
     changeorder,
@@ -30,6 +31,7 @@ from routers import (  # noqa: E402
     me,
     notifications,
     projects,
+    public_rfq,
     pulse,
     schedulepilot,
     siteeye,
@@ -80,6 +82,12 @@ def create_app() -> FastAPI:
     app.include_router(schedulepilot.router)
     app.include_router(changeorder.router)
     app.include_router(files.router)
+    # Cross-module admin / ops endpoints (gated by `admin` role).
+    app.include_router(admin.router)
+    # Public (no-auth) routers — token in the request *is* the auth.
+    # Mounted last so any global middleware that runs `require_auth`
+    # by default can be selectively bypassed by path prefix.
+    app.include_router(public_rfq.router)
 
     @app.get("/health")
     async def health() -> dict:
