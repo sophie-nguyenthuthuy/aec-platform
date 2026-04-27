@@ -1,0 +1,59 @@
+name: Dependabot auto-merge
+
+# Auto-merges Dependabot PRs that are demonstrably low-risk:
+#   * patch-level updates from any ecosystem
+#   * GitHub Actions minor bumps (the action ecosystem treats minor as
+#     compatible by convention)
+#
+# Everything else still needs a human (majors are already filtered out
+# by .github/dependabot.yml; minor *library* bumps occasionally ship
+# behavior changes worth a glance).
+#
+# The merge happens via `gh pr merge --auto`, which queues the merge
+# until all required status checks pass — so a Dependabot patch PR with
+# a failing test won't merge despite this workflow firing. That's the
+# safety net; the workflow's job is to remove the human-in-the-loop for
+# the green ones.
+#
+# Permissions are scoped to the minimum: read code + write to PRs and
+# their checks. Trigger is `pull_request_target` on Dependabot PRs so
+# the workflow runs in the base repo's context (with secrets), as
+# required by `gh pr merge --auto`.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Auto-merge low-risk Dependabot PRs
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      # Reads update-type + dependency-name from the PR's commits so the
+      # rules below can branch on `version-update:semver-patch` etc.
+      - name: Inspect Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for patch updates
+        if: steps.meta.outputs.update-type == 'version-update:semver-patch'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for GitHub Actions minor bumps
+        if: |
+          steps.meta.outputs.update-type == 'version-update:semver-minor' &&
+          steps.meta.outputs.package-ecosystem == 'github_actions'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

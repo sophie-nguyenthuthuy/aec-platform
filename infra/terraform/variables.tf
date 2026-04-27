@@ -58,3 +58,24 @@ variable "domain_name" {
   type        = string
   description = "Apex domain, e.g. aec-platform.vn"
 }
+
+# GitHub Actions OIDC — used by `github_oidc.tf` to scope the trust policy
+# to a single repo (and optionally branch) so a leaked workflow file in a
+# fork can't assume the deploy role.
+variable "github_owner" {
+  type        = string
+  default     = "sophie-nguyenthuthuy"
+  description = "GitHub user/org that owns the repo allowed to assume AWS."
+}
+
+variable "github_repo" {
+  type        = string
+  default     = "aec-platform"
+  description = "GitHub repo allowed to assume AWS via OIDC."
+}
+
+variable "github_oidc_branch" {
+  type        = string
+  default     = "main"
+  description = "Branch ref allowed to deploy. Use '*' to allow all refs."
+}

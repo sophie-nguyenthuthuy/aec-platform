@@ -1,5 +1,16 @@
 name: Deploy
 
+# Hosted-environment deploy via GitHub OIDC → AWS IAM. Gated on secrets:
+#   - AWS_ACCOUNT_ID
+#   - AWS_DEPLOY_ROLE_ARN
+# Provisioned via `infra/terraform/github_oidc.tf`. Until both secrets
+# are set, every job in this file is skipped (the `precheck` job's
+# output is the gate). That means dropping this file into the repo before
+# AWS is wired up doesn't break CI — the workflow runs, sees the missing
+# secret, and exits cleanly. Once `terraform apply` lands and the secrets
+# are populated (`gh secret set ...`), deploys begin happening on every
+# push to main with no further config changes.
+
 on:
   push:
     branches: [main]
@@ -25,8 +36,29 @@ env:
   IMAGE_TAG: ${{ github.sha }}
 
 jobs:
+  # Gate: skip the whole pipeline cleanly when AWS secrets aren't set.
+  # Without this, the configure-aws-credentials step would fail with
+  # 'Could not load credentials' and red-flag the run.
+  precheck:
+    name: Check AWS secrets are configured
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        run: |
+          if [ -n "${{ secrets.AWS_DEPLOY_ROLE_ARN }}" ] && [ -n "${{ secrets.AWS_ACCOUNT_ID }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "✓ AWS OIDC secrets present — deploy will proceed."
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::AWS_DEPLOY_ROLE_ARN / AWS_ACCOUNT_ID not set — deploy skipped. Run terraform in infra/terraform/ then 'gh secret set' the outputs."
+          fi
+
   build-push:
     name: Build & push images
+    needs: precheck
+    if: needs.precheck.outputs.configured == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
