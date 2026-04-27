@@ -12,6 +12,7 @@
     "./schedulepilot": "./schedulepilot.ts",
     "./submittals": "./submittals.ts",
     "./dailylog": "./dailylog.ts",
-    "./changeorder": "./changeorder.ts"
+    "./changeorder": "./changeorder.ts",
+    "./punchlist": "./punchlist.ts"
   }
 }

@@ -36,6 +36,7 @@ from routers import (  # noqa: E402
     projects,
     public_rfq,
     pulse,
+    punchlist,
     schedulepilot,
     siteeye,
     submittals,
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(submittals.router)
     app.include_router(dailylog.router)
     app.include_router(changeorder.router)
+    app.include_router(punchlist.router)
     app.include_router(files.router)
     # Cross-module admin / ops endpoints (gated by `admin` role).
     app.include_router(admin.router)
@@ -101,6 +103,23 @@ def create_app() -> FastAPI:
     async def health() -> dict:
         """Liveness probe — process is up. Cheap, never touches DB/Redis."""
         return {"data": {"status": "ok"}, "meta": None, "errors": None}
+
+    @app.get("/metrics")
+    async def metrics():
+        """Prometheus exposition. Public endpoint by convention —
+        scrapers run without auth and require network-level allowlisting
+        at the LB. The arq queue-depth gauge is sampled lazily on each
+        scrape so the value reflects the moment of read, not a stale
+        cron snapshot."""
+        from fastapi.responses import PlainTextResponse
+
+        from core.metrics import _sample_queue_depth, render
+
+        await _sample_queue_depth()
+        return PlainTextResponse(
+            render(),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
 
     @app.get("/health/ready")
     async def health_ready():
