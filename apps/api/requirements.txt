@@ -18,7 +18,7 @@ Pillow==10.4.0
 weasyprint==62.3
 email-validator==2.2.0
 pgvector==0.3.5
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 # cachetools — used by ml.pipelines.codeguard for memoizing JWKS-style
 # lookups; pinned here (not via a transitive dep) so the lock pin is stable
 # across langchain bumps.
