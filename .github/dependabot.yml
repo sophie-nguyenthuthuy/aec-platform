@@ -1,4 +1,25 @@
 version: 2
+
+# Strategy notes
+# --------------
+# Dependabot runs weekly across npm + pip + GH Actions + Docker + Terraform.
+# Two key knobs prevent today's noise (auto-opening PRs that need human
+# migration work and then sitting red in CI):
+#
+# 1. `groups.minor-patch` rolls all minor/patch bumps into one PR per
+#    ecosystem instead of N separate PRs. Easier to review, easier to merge.
+#
+# 2. `ignore: update-types: [version-update:semver-major]` for the
+#    frameworks where a major bump is *always* a planned migration project,
+#    not a routine update. When you're ready to tackle the migration, bump
+#    the package manually in package.json / requirements.txt and let
+#    Dependabot resume tracking from the new floor.
+#
+#    Frameworks listed below all have major releases with known painful
+#    breaking changes (App Router rewrites, async APIs, flat config
+#    migrations, pydantic v1→v2, sqlalchemy 1.x→2.x, etc.). Adding to
+#    this list is fine; removing requires a deliberate decision.
+
 updates:
   - package-ecosystem: npm
     directory: "/"
@@ -7,15 +28,57 @@ updates:
     groups:
       minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # Next.js majors (14 → 15 → 16) require App Router migration work.
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint-config-next"
+        update-types: ["version-update:semver-major"]
+      # React 19 has its own RC migration plan (Server Components, hooks).
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      # Tailwind 4 ships a new engine + CSS-first config.
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+      # ESLint 8 → 9 requires flat-config migration.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: pip
     directory: "/apps/api"
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    ignore:
+      # Pydantic v1 → v2 was a full-codebase rewrite; v2 → v3 will be similar.
+      - dependency-name: "pydantic"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pydantic-settings"
+        update-types: ["version-update:semver-major"]
+      # SQLAlchemy 2.x → 3.x will require another Mapped[] / select() pass
+      # (we just finished the 1.x → 2.x migration).
+      - dependency-name: "sqlalchemy"
+        update-types: ["version-update:semver-major"]
+      # LangChain ships majors aggressively with import-path moves and
+      # graph-API churn. Take them deliberately, not on a Sunday at 3am.
+      - dependency-name: "langchain"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "langgraph"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: pip
     directory: "/apps/worker"
     schedule: { interval: weekly }
+    ignore:
+      - dependency-name: "pydantic"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "sqlalchemy"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
