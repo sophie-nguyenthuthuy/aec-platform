@@ -24,7 +24,7 @@ jobs:
     name: Pre-commit hooks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -35,7 +35,7 @@ jobs:
     name: Node — typecheck + lint + web build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # No `version:` here — the action reads `packageManager` from
       # package.json (currently "pnpm@9.0.0"). Specifying both errors out
@@ -151,7 +151,7 @@ jobs:
       COSTPULSE_RLS_APP_URL: postgresql+asyncpg://aec_app:aec_app@localhost:5432/aec_test
       COSTPULSE_RLS_ADMIN_URL: postgresql+asyncpg://aec:aec@localhost:5432/aec_test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-python@v5
         with:
@@ -234,7 +234,7 @@ jobs:
     name: Terraform — fmt + validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.9.8"
@@ -267,7 +267,7 @@ jobs:
     # job until the gate is ratcheted up.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
