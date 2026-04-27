@@ -941,3 +941,119 @@ async def test_aggregate_report_inputs_without_sibling_data_returns_nulls(fake_d
     assert aggregated["progress"] is None
     assert aggregated["photos"] == []
     assert aggregated["budget"] is None
+    # New-module sections must not 5xx when their tables are empty / absent.
+    # FakeAsyncSession's default MagicMock returns truthy values for
+    # `scalar_one()` (MagicMock's __int__ defaults to 1), so the helpers
+    # surface dict-shaped placeholders rather than None — the LLM template
+    # tolerates either, and the helper's try/except guards real DB errors.
+    # Just verify each section is a dict OR None — i.e. doesn't blow up.
+    for key in ("schedule_slip", "submittals", "dailylog", "changeorder_extended"):
+        assert aggregated[key] is None or isinstance(aggregated[key], dict)
+    # changeorder_extended is dict-shaped even with empty open_cos —
+    # executed_count is 0 because the open_cos list it was passed is [].
+    assert aggregated["changeorder_extended"]["executed_count"] == 0
+
+
+async def test_aggregate_report_inputs_includes_new_module_rollups(fake_db, fake_auth):
+    """The 4 new sections (schedule_slip, submittals, dailylog,
+    changeorder_extended) populate when each module returns data.
+
+    Layered onto the same query order as
+    `test_aggregate_report_inputs_with_siteeye_and_costpulse` (6 base
+    queries) — the helpers fire after `_project_budget_summary`, in this
+    order:
+       7. SchedulePilot: schedule count
+       8. SchedulePilot: activity stats
+       9. SchedulePilot: max slip
+      10. Submittals: counts row
+      11. DailyLog: log_count in window
+      12. DailyLog: observation counts
+      13. ChangeOrder candidates: pending count
+    """
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+    from decimal import Decimal as _Dec
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from uuid import uuid4 as _uuid4
+
+    from routers.pulse import _aggregate_report_inputs
+
+    project_id = _uuid4()
+
+    # 1-6: same as the existing test but minimal.
+    def _scalars_all(rows):
+        m = MagicMock()
+        m.scalars.return_value.all.return_value = rows
+        return m
+
+    def _scalar_one_or_none(value):
+        m = MagicMock()
+        m.scalar_one_or_none.return_value = value
+        return m
+
+    def _scalar_one(value):
+        m = MagicMock()
+        m.scalar_one.return_value = value
+        return m
+
+    def _one(**fields):
+        m = MagicMock()
+        m.one.return_value = SimpleNamespace(**fields)
+        return m
+
+    fake_db.set_execute_result(_scalars_all([]))  # 1 completed tasks
+    fake_db.set_execute_result(_scalars_all([]))  # 2 milestones
+    fake_db.set_execute_result(_scalars_all([]))  # 3 open COs
+    fake_db.set_execute_result(_scalar_one_or_none(None))  # 4 progress
+    fake_db.set_execute_result(_scalars_all([]))  # 5 photos
+    fake_db.set_execute_result(_scalar_one_or_none(None))  # 6 estimate
+
+    # 7-9: SchedulePilot
+    fake_db.set_execute_result(_scalar_one(2))  # schedule count
+    fake_db.set_execute_result(_one(activity_count=15, avg_pct=_Dec("47.5"), behind=4))
+    fake_db.set_execute_result(_scalar_one(7))  # max slip days
+
+    # 10: Submittals
+    fake_db.set_execute_result(_one(open=3, revise=1, approved=10, designer=2, contractor=2))
+
+    # 11-12: DailyLog
+    fake_db.set_execute_result(_scalar_one(20))  # log_count
+    fake_db.set_execute_result(_one(open=5, high=2))  # observation counts
+
+    # 13: ChangeOrder candidates
+    fake_db.set_execute_result(_scalar_one(3))  # pending candidates
+
+    aggregated = await _aggregate_report_inputs(
+        fake_db,
+        project_id=project_id,
+        date_from=date(2026, 4, 1),
+        date_to=date(2026, 4, 26),
+    )
+
+    sched = aggregated["schedule_slip"]
+    assert sched is not None
+    assert sched["schedule_count"] == 2
+    assert sched["activity_count"] == 15
+    assert sched["behind_schedule_count"] == 4
+    assert sched["overall_slip_days"] == 7
+    assert sched["avg_percent_complete"] == 47.5
+
+    sub = aggregated["submittals"]
+    assert sub is not None
+    assert sub["open_count"] == 3
+    assert sub["approved_count"] == 10
+    assert sub["revise_resubmit_count"] == 1
+
+    dl = aggregated["dailylog"]
+    assert dl is not None
+    assert dl["log_count"] == 20
+    assert dl["open_observation_count"] == 5
+    assert dl["high_severity_observation_count"] == 2
+
+    ce = aggregated["changeorder_extended"]
+    assert ce is not None
+    assert ce["pending_candidates"] == 3
+    assert ce["executed_count"] == 0  # no executed COs in the open_cos list
+    # Avoid pyflakes "imported but unused" on test-only conveniences.
+    _ = (_dt, _tz)

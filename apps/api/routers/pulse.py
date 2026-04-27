@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -691,6 +691,14 @@ async def _aggregate_report_inputs(
     photos = await _recent_site_photos(db, project_id, date_from, date_to)
     budget = await _project_budget_summary(db, project_id, approved_co_cost)
 
+    # New-module roll-ups for the client report. Each helper is best-effort:
+    # missing tables / empty modules return None so the LLM prompt simply
+    # omits that section (the template tolerates absence).
+    schedule_slip = await _schedule_slip_summary(db, project_id)
+    submittals_summary = await _submittals_summary(db, project_id)
+    dailylog_patterns = await _dailylog_patterns_summary(db, project_id, date_from, date_to)
+    co_extended = await _changeorder_extended_summary(db, project_id, open_cos)
+
     return {
         "completed_tasks": [
             {"id": str(t.id), "title": t.title, "completed_at": t.completed_at, "phase": t.phase}
@@ -714,6 +722,196 @@ async def _aggregate_report_inputs(
         "progress": progress,
         "photos": photos,
         "budget": budget,
+        # New-module sections — LLM template tolerates None/absent.
+        "schedule_slip": schedule_slip,
+        "submittals": submittals_summary,
+        "dailylog": dailylog_patterns,
+        "changeorder_extended": co_extended,
+    }
+
+
+# ---------- New-module roll-up helpers (best-effort) ----------
+
+
+async def _schedule_slip_summary(db: AsyncSession, project_id: UUID) -> dict | None:
+    """SchedulePilot critical-path slip + counters for the client report.
+
+    Pulls from `schedules` + `schedule_activities` + the most recent
+    `schedule_risk_assessments` per schedule. Returns None if the
+    SchedulePilot tables don't exist (older deployments) or no schedule is
+    associated with this project.
+    """
+    try:
+        from models.schedulepilot import (
+            Activity as ScheduleActivity,
+        )
+        from models.schedulepilot import (
+            Schedule,
+            ScheduleRiskAssessment,
+        )
+    except ImportError:
+        return None
+
+    try:
+        sched_count = (await db.execute(select(func.count()).where(Schedule.project_id == project_id))).scalar_one()
+        if not sched_count:
+            return None
+
+        activity_row = (
+            await db.execute(
+                select(
+                    func.count().label("activity_count"),
+                    func.coalesce(func.avg(ScheduleActivity.percent_complete), 0).label("avg_pct"),
+                    func.count()
+                    .filter(
+                        ScheduleActivity.baseline_finish.is_not(None),
+                        ScheduleActivity.planned_finish > ScheduleActivity.baseline_finish,
+                    )
+                    .label("behind"),
+                )
+                .select_from(ScheduleActivity)
+                .join(Schedule, Schedule.id == ScheduleActivity.schedule_id)
+                .where(Schedule.project_id == project_id)
+            )
+        ).one()
+        max_slip = (
+            await db.execute(
+                select(func.coalesce(func.max(ScheduleRiskAssessment.overall_slip_days), 0))
+                .select_from(ScheduleRiskAssessment)
+                .join(Schedule, Schedule.id == ScheduleRiskAssessment.schedule_id)
+                .where(Schedule.project_id == project_id)
+            )
+        ).scalar_one()
+    except Exception:
+        return None
+
+    return {
+        "schedule_count": int(sched_count or 0),
+        "activity_count": int(activity_row.activity_count or 0),
+        "behind_schedule_count": int(activity_row.behind or 0),
+        "overall_slip_days": int(max_slip or 0),
+        "avg_percent_complete": float(activity_row.avg_pct or 0),
+    }
+
+
+async def _submittals_summary(db: AsyncSession, project_id: UUID) -> dict | None:
+    """Submittal status + ball-in-court counters."""
+    try:
+        from models.submittals import Submittal
+    except ImportError:
+        return None
+
+    try:
+        row = (
+            await db.execute(
+                select(
+                    func.count()
+                    .filter(Submittal.status.in_(["pending_review", "under_review", "revise_resubmit"]))
+                    .label("open"),
+                    func.count().filter(Submittal.status == "revise_resubmit").label("revise"),
+                    func.count().filter(Submittal.status == "approved").label("approved"),
+                    func.count().filter(Submittal.ball_in_court == "designer").label("designer"),
+                    func.count().filter(Submittal.ball_in_court == "contractor").label("contractor"),
+                ).where(Submittal.project_id == project_id)
+            )
+        ).one()
+    except Exception:
+        return None
+
+    if not (row.open or row.approved or row.revise):
+        return None
+
+    return {
+        "open_count": int(row.open or 0),
+        "revise_resubmit_count": int(row.revise or 0),
+        "approved_count": int(row.approved or 0),
+        "designer_court_count": int(row.designer or 0),
+        "contractor_court_count": int(row.contractor or 0),
+    }
+
+
+async def _dailylog_patterns_summary(
+    db: AsyncSession, project_id: UUID, date_from: date | None, date_to: date | None
+) -> dict | None:
+    """Daily-log issue counts in the report window (or last 30 days if window is open)."""
+    try:
+        from models.dailylog import DailyLog, DailyLogObservation
+    except ImportError:
+        return None
+
+    # Default window: trailing 30 days ending today, so an open-ended report
+    # gets a meaningful issue snapshot rather than the entire project history.
+    today = date.today()
+    df = date_from or (today - timedelta(days=30))
+    dt = date_to or today
+
+    try:
+        log_count = (
+            await db.execute(
+                select(func.count())
+                .where(DailyLog.project_id == project_id)
+                .where(DailyLog.log_date >= df)
+                .where(DailyLog.log_date <= dt)
+            )
+        ).scalar_one()
+        if not log_count:
+            return None
+
+        obs_row = (
+            await db.execute(
+                select(
+                    func.count().filter(DailyLogObservation.status.in_(["open", "in_progress"])).label("open"),
+                    func.count().filter(DailyLogObservation.severity.in_(["high", "critical"])).label("high"),
+                )
+                .select_from(DailyLogObservation)
+                .join(DailyLog, DailyLog.id == DailyLogObservation.log_id)
+                .where(DailyLog.project_id == project_id)
+                .where(DailyLog.log_date >= df)
+                .where(DailyLog.log_date <= dt)
+            )
+        ).one()
+    except Exception:
+        return None
+
+    return {
+        "window": {"from": df, "to": dt},
+        "log_count": int(log_count or 0),
+        "open_observation_count": int(obs_row.open or 0),
+        "high_severity_observation_count": int(obs_row.high or 0),
+    }
+
+
+async def _changeorder_extended_summary(db: AsyncSession, project_id: UUID, open_cos: list) -> dict | None:
+    """Extra CO context: pending AI candidates + executed-CO totals.
+
+    The base aggregator already ships open/approved totals. This helper adds
+    `pending_candidates` (AI-suggested but not yet accepted/rejected) and
+    `executed_count`, which together help the LLM say "1 CO suggestion is
+    waiting on the team's review" or "3 COs were executed during the period".
+    """
+    try:
+        from models.changeorder import ChangeOrderCandidate
+    except ImportError:
+        return None
+
+    try:
+        pending_candidates = (
+            await db.execute(
+                select(func.count()).where(
+                    ChangeOrderCandidate.project_id == project_id,
+                    ChangeOrderCandidate.accepted_co_id.is_(None),
+                    ChangeOrderCandidate.rejected_at.is_(None),
+                )
+            )
+        ).scalar_one()
+    except Exception:
+        pending_candidates = 0
+
+    executed_count = sum(1 for c in open_cos if c.status == "executed")
+
+    return {
+        "pending_candidates": int(pending_candidates or 0),
+        "executed_count": int(executed_count),
     }
 
 

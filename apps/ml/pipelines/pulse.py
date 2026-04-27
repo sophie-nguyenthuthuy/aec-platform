@@ -201,6 +201,23 @@ Include financials section: {include_financials}
 Data (JSON):
 {data}
 
+Notes for the writer:
+- `data.completed_tasks` / `data.milestones` drive the progress narrative.
+- `data.change_orders` and `data.approved_change_order_totals` drive the
+  cost/schedule impact sentences in `header_summary` and `financials`.
+- `data.schedule_slip` (when present) reports SchedulePilot CPM slip in
+  days. Mention it under `issues` only when `overall_slip_days > 0` —
+  use a sentence like "X activities are tracking past baseline; CPM
+  forecast is N days late."
+- `data.submittals` (when present) reports the submittal queue. Mention
+  the count if `revise_resubmit_count > 0` (a real issue) or if the
+  contractor's queue is large (`contractor_court_count > 5`).
+- `data.dailylog` (when present) summarises field-log issues. Reference
+  `high_severity_observation_count` under `issues` when > 0.
+- `data.changeorder_extended.pending_candidates` (when > 0) is worth a
+  brief line in `next_steps` — these are AI-suggested changes awaiting
+  the team's review.
+
 Produce a JSON object with this exact shape:
 {{
   "header_summary": "<1 paragraph overview in the requested language>",
