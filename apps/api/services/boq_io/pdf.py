@@ -11,6 +11,14 @@ reportlab's Platypus stack. The shape is deliberately spartan:
 We don't try to reproduce the buyer's full estimate styling because
 the output is meant for sharing with suppliers / authorities, where a
 clean tabular dump is more useful than a designed report.
+
+**Font embedding**: reportlab's default Helvetica uses WinAnsiEncoding,
+which doesn't include Vietnamese precomposed diacritics ("ố", "ạ",
+"ữ", etc.). Material descriptions like "Bê tông cốt thép" get
+silently mangled to "Bê tông c?t thép" in the rendered PDF. We bundle
+DejaVu Sans (full Vietnamese coverage, public-domain license — see
+`fonts/LICENSE.md`) and register it on first use; reportlab's
+TTFont registration is process-global, so the second call is free.
 """
 
 from __future__ import annotations
@@ -42,6 +50,8 @@ def render_boq_pdf(estimate_name: str, rows: list[BoqRow]) -> bytes:
     except ImportError as exc:  # pragma: no cover — deployed env always has it
         raise BoqIOError("reportlab not installed; cannot render .pdf") from exc
 
+    font_normal, font_bold = _ensure_unicode_fonts()
+
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -53,6 +63,15 @@ def render_boq_pdf(estimate_name: str, rows: list[BoqRow]) -> bytes:
         title=f"BOQ — {estimate_name}",
     )
     styles = getSampleStyleSheet()
+    # Re-point the styles we use at the registered Unicode fonts.
+    # Otherwise reportlab keeps its default Helvetica references and the
+    # title / timestamp paragraphs render diacritics as `?`. The body
+    # `<b>` tag in `Paragraph` resolves the bold variant via the font
+    # family registration done in `_ensure_unicode_fonts`.
+    for style_name in ("Heading1", "Heading3", "Italic", "Normal"):
+        if style_name in styles.byName:
+            styles.byName[style_name].fontName = font_normal
+
     story = []
 
     story.append(Paragraph(f"<b>BOQ — {estimate_name}</b>", styles["Heading1"]))
@@ -78,9 +97,14 @@ def render_boq_pdf(estimate_name: str, rows: list[BoqRow]) -> bytes:
     table.setStyle(
         TableStyle(
             [
+                # Body uses the Unicode font; header overrides to bold.
+                # Both must be the registered DejaVu names — otherwise
+                # the cells fall back to Helvetica + WinAnsi and
+                # Vietnamese diacritics render as `?` again.
+                ("FONTNAME", (0, 0), (-1, -1), font_normal),
+                ("FONTNAME", (0, 0), (-1, 0), font_bold),
                 # Header.
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEEEEE")),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                 ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.black),
                 # Body.
                 ("FONTSIZE", (0, 0), (-1, -1), 8),
@@ -110,6 +134,82 @@ def render_boq_pdf(estimate_name: str, rows: list[BoqRow]) -> bytes:
 
     doc.build(story)
     return buffer.getvalue()
+
+
+# ---------- Unicode font registration ----------
+
+
+# Names the registered TTFs go under in reportlab's process-global font
+# table. Picking a stable identifier means second-and-onward calls to
+# `_ensure_unicode_fonts` are free (the registration cache hits).
+_FONT_NORMAL = "AECDejaVuSans"
+_FONT_BOLD = "AECDejaVuSans-Bold"
+
+
+def _ensure_unicode_fonts() -> tuple[str, str]:
+    """Register the bundled Vietnamese-capable TTFs once per process.
+
+    Returns the (normal, bold) font names to use in TableStyle / paragraph
+    styles. Idempotent — registering the same name twice is silently a
+    no-op in reportlab, so calling on every render is fine.
+
+    Falls back to (Helvetica, Helvetica-Bold) when the bundled TTFs are
+    missing or reportlab's TTFont machinery raises. That's a degraded
+    state — Vietnamese diacritics will render as `?` — but rendering
+    the BOQ as ASCII-mangled English is still better than 500ing the
+    export endpoint. The fallback is logged at WARNING so it surfaces
+    in the slow-query / observability stream.
+    """
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+    except ImportError:  # pragma: no cover — gated by `import reportlab` above
+        return "Helvetica", "Helvetica-Bold"
+
+    # Already registered? `getRegisteredFontNames` returns a set on
+    # modern reportlab; also tolerate the older list shape.
+    try:
+        registered = set(pdfmetrics.getRegisteredFontNames())
+    except Exception:  # pragma: no cover — defensive
+        registered = set()
+    if _FONT_NORMAL in registered and _FONT_BOLD in registered:
+        return _FONT_NORMAL, _FONT_BOLD
+
+    import os
+
+    fonts_dir = os.path.join(os.path.dirname(__file__), "fonts")
+    normal_path = os.path.join(fonts_dir, "DejaVuSans.ttf")
+    bold_path = os.path.join(fonts_dir, "DejaVuSans-Bold.ttf")
+
+    if not (os.path.exists(normal_path) and os.path.exists(bold_path)):
+        logger.warning(
+            "boq_io.pdf: bundled DejaVu fonts not found at %s — "
+            "Vietnamese diacritics will be mangled. Re-deploy with the fonts/ "
+            "directory present.",
+            fonts_dir,
+        )
+        return "Helvetica", "Helvetica-Bold"
+
+    try:
+        pdfmetrics.registerFont(TTFont(_FONT_NORMAL, normal_path))
+        pdfmetrics.registerFont(TTFont(_FONT_BOLD, bold_path))
+        # Family registration so reportlab's `<b>...</b>` markup picks
+        # the bold variant automatically inside `Paragraph` text.
+        pdfmetrics.registerFontFamily(
+            _FONT_NORMAL,
+            normal=_FONT_NORMAL,
+            bold=_FONT_BOLD,
+            italic=_FONT_NORMAL,  # no italic variant bundled — fall back to upright
+            boldItalic=_FONT_BOLD,
+        )
+    except Exception as exc:  # pragma: no cover — TTFont read errors
+        logger.warning(
+            "boq_io.pdf: TTFont registration failed (%s); falling back to Helvetica",
+            exc,
+        )
+        return "Helvetica", "Helvetica-Bold"
+
+    return _FONT_NORMAL, _FONT_BOLD
 
 
 def _pretty_cell(value: object) -> str:

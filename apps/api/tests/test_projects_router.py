@@ -68,7 +68,9 @@ def fake_db() -> FakeAsyncSession:
 
 
 @pytest.fixture
-def app(fake_db) -> FastAPI:
+def app(fake_db, monkeypatch) -> FastAPI:
+    from contextlib import asynccontextmanager
+
     from fastapi import HTTPException
 
     from core.envelope import http_exception_handler, unhandled_exception_handler
@@ -93,6 +95,16 @@ def app(fake_db) -> FastAPI:
 
     app.dependency_overrides[require_auth] = lambda: auth_ctx
     app.dependency_overrides[get_db] = _db_override
+
+    # The detail endpoint fans out via `_scoped_session` (each helper
+    # gets its own session in production). In tests we want every
+    # gathered helper to read from the same `fake_db` so existing
+    # `push_execute(...)` queues drive both serial and parallel paths.
+    @asynccontextmanager
+    async def _fake_scoped(_org_id):
+        yield fake_db
+
+    monkeypatch.setattr(projects_router, "_scoped_session", _fake_scoped)
     return app
 
 

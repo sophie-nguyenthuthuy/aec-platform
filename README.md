@@ -69,18 +69,24 @@ make seed-codeguard
 ## Running tests
 
 ```bash
-# API (pytest + async, uses in-memory FakeAsyncSession)
-make test-api
-
-# Web E2E (Playwright, intercepts API calls — no backend needed)
-cd apps/web
-npm run test:e2e:install    # one-time Chromium download
-npm run test:e2e
+make test                    # api unit + web E2E (no infra needed)
+make test-api                # ~5s; FakeAsyncSession + mocked pipelines
+make test-web                # Playwright; auto-boots `next dev` + Chromium
+make test-api-integration    # opt-in lane; spins up Postgres+Redis from compose
 
 # Type + lint
-pnpm typecheck
-pnpm lint
+pnpm -r typecheck
+pnpm -r lint
 ```
+
+Four lanes total: api unit, api integration (12 tests gated on
+`--integration`), web E2E (80 tests across 28 specs), and worker tasks.
+See [`docs/testing.md`](./docs/testing.md) for what each lane covers,
+how the integration env is wired, the dual-`sys.path` gotcha that bit
+us in worker tests, and where to find CI artifacts on failure.
+
+CI also runs a non-blocking **security** job that posts `pnpm audit` +
+`pip-audit` JSON reports as artifacts on every PR (`.github/workflows/ci.yml::security`).
 
 ## Architecture highlights
 

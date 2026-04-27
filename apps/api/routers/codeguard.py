@@ -588,6 +588,89 @@ async def create_permit_checklist(
     return ok(PermitChecklist.model_validate(record))
 
 
+@router.post("/permit-checklist/stream")
+async def codeguard_permit_checklist_stream(
+    payload: PermitChecklistRequest,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> StreamingResponse:
+    """SSE-streamed permit checklist.
+
+    Wire format:
+
+        event: item
+        data: {id, title, description, regulation_ref, required, status}
+
+        event: done
+        data: {checklist_id, total, generated_at}
+
+        event: error
+        data: {"message": "..."}
+
+    Items arrive as the LLM's JSON output progressively populates the
+    `items` array (see `generate_permit_checklist_stream` for the
+    look-ahead-by-one heuristic that prevents emitting partial items).
+    The terminal `done` event carries the persisted checklist's id,
+    which the frontend uses to enable the per-item mark-as-done
+    interaction.
+
+    The non-streaming `/permit-checklist` endpoint stays in place for
+    server-side renders and clients that don't want SSE complexity —
+    same persistence shape, same audit trail.
+    """
+    from ml.pipelines.codeguard import generate_permit_checklist_stream
+
+    async def sse_stream():
+        try:
+            items: list = []
+            async for event_name, event_payload in generate_permit_checklist_stream(
+                db=db,
+                jurisdiction=payload.jurisdiction,
+                project_type=payload.project_type,
+                parameters=payload.parameters,
+            ):
+                if event_name == "item_done":
+                    body = event_payload.model_dump(mode="json")
+                    yield f"event: item\ndata: {json.dumps(body)}\n\n"
+                elif event_name == "done":
+                    items = event_payload
+                elif event_name == "error":
+                    yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
+                    return
+
+            # Persist the PermitChecklistModel after all items are in,
+            # so the `done` event can carry a stable checklist_id that
+            # the frontend's mark-item flow targets.
+            now = datetime.now(UTC)
+            record = PermitChecklistModel(
+                id=uuid4(),
+                organization_id=auth.organization_id,
+                project_id=payload.project_id,
+                jurisdiction=payload.jurisdiction,
+                project_type=payload.project_type,
+                items=[i.model_dump(mode="json") for i in items],
+                generated_at=now,
+            )
+            db.add(record)
+            await db.flush()
+            await db.refresh(record)
+
+            done_body = {
+                "checklist_id": str(record.id),
+                "total": len(items),
+                "generated_at": record.generated_at.isoformat(),
+            }
+            yield f"event: done\ndata: {json.dumps(done_body)}\n\n"
+        except Exception as exc:  # pragma: no cover — defensive
+            yield (f"event: error\ndata: {json.dumps({'message': f'Checklist generation failed: {exc}'})}\n\n")
+
+    return StreamingResponse(
+        sse_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/checks/{check_id}/mark-item", response_model=Envelope[PermitChecklist])
 async def mark_checklist_item(
     check_id: UUID,

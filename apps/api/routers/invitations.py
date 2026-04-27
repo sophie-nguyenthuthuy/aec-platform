@@ -15,6 +15,7 @@ Two surfaces with very different trust:
 from __future__ import annotations
 
 import logging
+from datetime import UTC
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -221,6 +222,12 @@ async def get_invitation(token: UUID) -> dict:
     if row["expires_at"].tzinfo is None:
         # Defensive — DB returns tz-aware but a bad timezone setting could yield naive.
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "expires_at not tz-aware")
+    # Expiry enforcement — without this, the 7-day TTL on the row is
+    # purely decorative and a leaked stale token can still be redeemed.
+    from datetime import datetime
+
+    if row["expires_at"] <= datetime.now(UTC):
+        raise HTTPException(status.HTTP_410_GONE, "Invitation expired")
 
     return ok(
         {
@@ -277,6 +284,13 @@ async def accept_invitation(token: UUID, payload: InvitationAccept) -> dict:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Invitation not found")
         if inv["accepted_at"] is not None:
             raise HTTPException(status.HTTP_410_GONE, "Invitation already accepted")
+        # Same expiry guard as the public GET — without this an attacker
+        # who scraped a leaked stale token from logs / inbox can still
+        # consume it past the 7-day TTL the migration sets up.
+        from datetime import datetime
+
+        if inv["expires_at"] <= datetime.now(UTC):
+            raise HTTPException(status.HTTP_410_GONE, "Invitation expired")
 
         # Create the Supabase user. Idempotent: if the email exists, the
         # admin API returns 422 with a code we recognize and we look up

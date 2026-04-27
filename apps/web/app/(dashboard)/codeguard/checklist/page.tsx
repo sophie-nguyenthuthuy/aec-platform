@@ -1,11 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Info } from "lucide-react";
+import { Info, Loader2 } from "lucide-react";
 import { ChecklistItem } from "@aec/ui/codeguard";
-import type { PermitChecklist as PermitChecklistType } from "@aec/ui/codeguard";
+import type {
+  ChecklistItemType,
+  PermitChecklist as PermitChecklistType,
+} from "@aec/ui/codeguard";
 import {
-  useGeneratePermitChecklist,
+  useCodeguardChecklistStream,
   useMarkChecklistItem,
 } from "@/hooks/codeguard";
 
@@ -13,31 +16,63 @@ export default function PermitChecklistPage() {
   const [projectId, setProjectId] = useState("");
   const [jurisdiction, setJurisdiction] = useState("Hồ Chí Minh");
   const [projectType, setProjectType] = useState("residential");
+  // `checklist` is set only after the terminal `done` event arrives —
+  // it carries the persisted checklist_id which the mark-item flow
+  // needs. While streaming, items live in `streamingItems` and the
+  // mark-item interactions are disabled (checklist_id not yet known).
   const [checklist, setChecklist] = useState<PermitChecklistType | null>(null);
+  const [streamingItems, setStreamingItems] = useState<ChecklistItemType[]>([]);
+  const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const generate = useGeneratePermitChecklist();
+  const startStream = useCodeguardChecklistStream();
 
   const onGenerate = async () => {
-    // Mirror the query/scan pages' error-handling shape: catch the
-    // rejection, surface a red banner where the form was, but leave the
-    // form filled so the user can retry without re-typing.
+    if (!projectId || streaming) return;
     setError(null);
-    try {
-      const res = await generate.mutateAsync({
+    setStreamingItems([]);
+    setChecklist(null);
+    setStreaming(true);
+
+    await startStream(
+      {
         project_id: projectId,
         jurisdiction,
         project_type: projectType,
-      });
-      setChecklist(res);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Đã xảy ra lỗi";
-      setError(message);
-    }
+      },
+      {
+        onItem: (item) => {
+          setStreamingItems((curr) => [...curr, item]);
+        },
+        onDone: (payload) => {
+          // Build the canonical PermitChecklist shape from the streamed
+          // items + the persisted ids the `done` event carries. This
+          // is what enables the mark-item view, which targets
+          // `/checks/{checklist_id}/mark-item`.
+          setStreamingItems((items) => {
+            setChecklist({
+              id: payload.checklist_id,
+              project_id: projectId || null,
+              jurisdiction,
+              project_type: projectType,
+              items,
+              generated_at: payload.generated_at,
+              completed_at: null,
+            });
+            return items;
+          });
+        },
+        onError: (message) => {
+          setError(message);
+        },
+      },
+    );
+    setStreaming(false);
   };
 
   const onReset = () => {
     setChecklist(null);
+    setStreamingItems([]);
     setError(null);
   };
 
@@ -50,7 +85,7 @@ export default function PermitChecklistPage() {
         </p>
       </div>
 
-      {!checklist && (
+      {!checklist && !streaming && (
         <div className="space-y-4">
           {error && (
             <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
@@ -95,13 +130,53 @@ export default function PermitChecklistPage() {
               <button
                 type="button"
                 onClick={onGenerate}
-                disabled={!projectId || generate.isPending}
+                disabled={!projectId}
                 className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {generate.isPending ? "Đang tạo..." : "Tạo checklist"}
+                Tạo checklist
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {streaming && (
+        // Streaming view: items pop in as the LLM emits them. Mark-item
+        // checkboxes are intentionally absent because no checklist_id
+        // exists yet (the route persists the row only after the LLM
+        // finishes). The `done` event hands off to the full
+        // ChecklistView below.
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+            <Loader2 size={16} className="animate-spin text-blue-600" />
+            <span>Đang sinh danh sách... ({streamingItems.length} mục)</span>
+          </div>
+          <ul className="space-y-2">
+            {streamingItems.map((item) => (
+              <li
+                key={item.id}
+                data-testid={`streaming-item-${item.id}`}
+                className="rounded-lg border border-slate-200 bg-white p-4"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="font-medium text-slate-900">{item.title}</h4>
+                  {item.required && (
+                    <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700">
+                      Bắt buộc
+                    </span>
+                  )}
+                  {item.regulation_ref && (
+                    <span className="rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-xs text-slate-600">
+                      {item.regulation_ref}
+                    </span>
+                  )}
+                </div>
+                {item.description && (
+                  <p className="mt-1 text-sm text-slate-600">{item.description}</p>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

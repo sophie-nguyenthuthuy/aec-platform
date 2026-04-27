@@ -143,14 +143,7 @@ test.describe("Projects / hub", () => {
       .toBeTruthy();
   });
 
-  // FIXME: This test has been failing consistently in CI — the projects
-  // detail page's `<h1>Dự án mẫu</h1>` heading isn't found within the
-  // 5s timeout, suggesting the page either renders a different element
-  // tree from what the mock data implies or fails to mount entirely
-  // under Playwright's headless Chromium. Local repro and component
-  // inspection needed; until then `.fixme` keeps CI unblocked while
-  // still surfacing the test in `pnpm test:e2e` output.
-  test.fixme("project detail page renders all seven module roll-ups + risks", async ({ page }) => {
+  test("project detail page renders all module roll-ups + risks", async ({ page }) => {
     const projectId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 
     const detail = {
@@ -194,6 +187,38 @@ test.describe("Projects / hub", () => {
       },
       siteeye: { visit_count: 4, open_safety_incident_count: 1 },
       codeguard: { compliance_check_count: 7, permit_checklist_count: 2 },
+      // Modules 8–11 were added to ProjectDetail after this test was first
+      // authored; the page reads these eagerly in the render path so a
+      // missing key crashes with `Cannot read properties of undefined`.
+      // (That's how this test ended up `.fixme`'d for a stretch.)
+      schedulepilot: {
+        schedule_count: 2,
+        activity_count: 38,
+        behind_schedule_count: 3,
+        on_critical_path_count: 7,
+        overall_slip_days: 4,
+      },
+      submittals: {
+        open_count: 5,
+        revise_resubmit_count: 1,
+        approved_count: 12,
+        designer_court_count: 2,
+        contractor_court_count: 3,
+      },
+      dailylog: {
+        log_count: 60,
+        open_observation_count: 4,
+        high_severity_observation_count: 1,
+        last_log_date: "2026-04-25",
+      },
+      changeorder: {
+        total_count: 4,
+        open_count: 1,
+        approved_count: 3,
+        pending_candidates: 2,
+        total_cost_impact_vnd: 120_000_000,
+        total_schedule_impact_days: 5,
+      },
     };
 
     await page.route(`**/api/v1/projects/${projectId}`, async (route: Route) => {
@@ -218,6 +243,12 @@ test.describe("Projects / hub", () => {
       "Handover",
       "SiteEye",
       "CodeGuard",
+      "SchedulePilot",
+      "Submittals",
+      // The two below render in Vietnamese on the page (not English),
+      // matching the `title` prop in apps/web/app/(dashboard)/projects/[id]/page.tsx.
+      "Nhật ký công trường",
+      "Change orders",
     ]) {
       // `exact: true` prevents the substring match — without it,
       // `name: "Pulse"` resolves both <h3>Pulse</h3> AND <h3>CostPulse</h3>

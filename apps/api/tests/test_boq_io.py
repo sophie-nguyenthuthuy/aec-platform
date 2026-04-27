@@ -293,3 +293,68 @@ class TestPdfRender:
         """Vietnamese estimate names must round-trip without UnicodeEncodeError."""
         blob = render_boq_pdf("Tòa nhà chung cư", [BoqRow(description="x")])
         assert blob.startswith(b"%PDF-")
+
+    def test_embeds_unicode_font_for_vietnamese_diacritics(self):
+        """Helvetica + WinAnsi can't render multi-mark Vietnamese chars
+        ("ố", "ạ", "ữ", etc.) — they'd be silently replaced with `?`.
+
+        We bundle DejaVu Sans (full Vietnamese coverage) and register
+        it on first call. This test pins the wiring: the rendered PDF
+        must NOT use Helvetica for the body, and the actual Vietnamese
+        text must round-trip through `pdfminer` extraction.
+
+        Skipped when `pdfminer.six` isn't installed — that's an opt-in
+        dep we use only for this assertion. The font-name check via
+        raw byte search runs unconditionally as a cheaper fallback.
+        """
+        rows = [
+            BoqRow(
+                description="Bê tông cốt thép C30 mác cao",
+                code="1.1",
+                unit="m³",
+                quantity=Decimal("120"),
+                unit_price_vnd=Decimal("2050000"),
+            ),
+            BoqRow(
+                description="Gạch đỏ tuynel hai lỗ",
+                code="2.1",
+                unit="viên",
+                quantity=Decimal("15000"),
+                unit_price_vnd=Decimal("1200"),
+            ),
+        ]
+        blob = render_boq_pdf("Tòa nhà chung cư — Đợt 1", rows)
+
+        # 1) Cheap byte-level check: the registered DejaVu name must
+        #    appear in the font dict. PDF font names get a 6-letter
+        #    subset prefix (e.g. `AAAAAA+DejaVuSans`) so we match the
+        #    base name only.
+        assert b"DejaVuSans" in blob, (
+            "Rendered PDF doesn't embed DejaVu — Vietnamese diacritics "
+            "would be mangled. Check `_ensure_unicode_fonts` and the "
+            "`fonts/` directory in the repo."
+        )
+
+        # 2) Round-trip extraction. `pdfminer.six` is the canonical Python
+        #    PDF text extractor; it handles ToUnicode CMaps which is what
+        #    reportlab's TTF subsets generate. If this fails, the font is
+        #    embedded but not properly mapped to Unicode, and the
+        #    rendered PDF would still render glyphs that copy-paste as
+        #    garbage.
+        try:
+            from pdfminer.high_level import extract_text
+        except ImportError:
+            pytest.skip("pdfminer.six not installed; skipping round-trip check")
+
+        import io as _io
+
+        text = extract_text(_io.BytesIO(blob))
+        # Both the buyer-side estimate name and a multi-mark line item
+        # must come back with their diacritics intact.
+        assert "Tòa nhà chung cư" in text
+        assert "Bê tông cốt thép C30" in text
+        assert "Gạch đỏ tuynel" in text
+        # Unit column must preserve the superscripts too — those failed
+        # silently before this fix.
+        assert "m³" in text
+        assert "viên" in text

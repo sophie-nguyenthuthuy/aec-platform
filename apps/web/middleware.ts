@@ -19,6 +19,7 @@ import { readSupabaseEnv } from "./lib/supabase-env";
 const PUBLIC_ROUTES = [
   "/login",
   "/auth", // /auth/callback for magic links / OAuth
+  "/invite", // /invite/{token} — set-password page; the token is the credential
   "/rfq", // supplier-portal token-auth pages
   "/api/health",
 ];

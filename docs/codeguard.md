@@ -25,6 +25,7 @@ code alone.
 | `GET /api/v1/codeguard/regulations[/{id}]` | List + detail views of the indexed corpus. | 0 (DB only) |
 | `GET /api/v1/codeguard/checks/{project_id}` | Audit history of `query` + `scan` calls for a project. | 0 |
 | `POST /api/v1/codeguard/checks/{check_id}/mark-item` | Update a checklist item's status (done / in_progress / not_applicable). | 0 |
+| `GET /api/v1/codeguard/health` | Unauthenticated dependency probe for ops tooling. Per-dep `{status, latency_ms, message}` + aggregate `ok` / `degraded` / `down`. See §7. | 0 |
 
 Every call that produces findings or answers persists a `ComplianceCheck`
 row keyed on `(organization_id, project_id)` so the audit trail is
@@ -54,7 +55,7 @@ permit_checklists    ← one row per /permit-checklist call,
 ```
 
 Tenant-scoped tables (`compliance_checks`, `permit_checklists`) carry
-`organization_id`; RLS enforces isolation — see §7.
+`organization_id`; RLS enforces isolation — see §8.
 
 ### regulation_chunks columns of note
 
@@ -196,18 +197,29 @@ actually appears in the source.
 strings, no floats, no booleans, no negatives, no out-of-range). All
 drops are logged at WARNING.
 
-**Inline `[N]` markers:** the prompt (`_QA_SYSTEM`) instructs the model to
-emit 1-indexed `[N]` markers in the `answer` text immediately after each
-factual claim, where `[N]` refers to the N-th entry of the `citations`
-array. The frontend's `<AnswerWithCitations>` component (in
+**Inline `[N]` markers (Q&A):** the prompt (`_QA_SYSTEM`) instructs the
+model to emit 1-indexed `[N]` markers in the `answer` text immediately
+after each factual claim, where `[N]` refers to the N-th entry of the
+`citations` array. The frontend's `<AnswerWithCitations>` component (in
 `packages/ui/codeguard/`) parses those markers and substitutes them with
 hover-expanded chips. Out-of-range markers (LLM mis-numbered) render as
 literal text, so the worst-case is "ugly bracket in the answer" — never
 a popover pointing at undefined data.
 
-Tests: `apps/ml/tests/test_codeguard_citation_grounding.py` (14 cases) +
-`apps/web/tests/e2e/codeguard-citation-markers.spec.ts` (3 cases:
-rendering, out-of-range fallback, plain-text passthrough).
+**Inline `[1]` marker (scan):** the same convention applies to scan
+finding descriptions, with one simplification — each `Finding` has at
+most one citation, so the marker is always `[1]` referring to that
+finding's own citation. The `_SCAN_SYSTEM` prompt instructs the model
+to skip the marker entirely when `citation_chunk_index` is null (PASS
+findings without a source). `<FindingItem>` reuses
+`<AnswerWithCitations>` with `citations={citation ? [citation] : []}`,
+so the same out-of-range-fallback behaviour applies — a stray `[1]` in
+a citation-less finding renders as literal text.
+
+Tests:
+- `apps/ml/tests/test_codeguard_citation_grounding.py` (14 cases — guard logic)
+- `apps/web/tests/e2e/codeguard-citation-markers.spec.ts` (3 cases — Q&A side)
+- `apps/web/tests/e2e/codeguard-scan-markers.spec.ts` (2 cases — scan side: hover chip + no-citation literal fallback).
 
 ### 5.2 Zero-retrieval abstain — `_abstain_response`
 
@@ -312,7 +324,73 @@ lands in both surfaces simultaneously.
 
 ---
 
-## 7. Tenant isolation (RLS)
+## 7. Health endpoint
+
+`GET /api/v1/codeguard/health` is an unauthenticated dependency probe for
+ops tooling — Kubernetes readiness/liveness checks, dashboards,
+deployment smoke tests. Crucially does **not** call any LLM or burn any
+tokens, so it's safe to probe at any frequency.
+
+### Response shape
+
+```json
+{
+  "data": {
+    "status": "ok" | "degraded" | "down",
+    "deps": [
+      {"name": "postgres",      "status": "ok",          "latency_ms": 5,  "message": "halfvec column present"},
+      {"name": "openai_key",    "status": "ok",          "latency_ms": 0,  "message": "OPENAI_API_KEY configured"},
+      {"name": "anthropic_key", "status": "ok",          "latency_ms": 0,  "message": "ANTHROPIC_API_KEY configured"},
+      {"name": "elasticsearch", "status": "unavailable", "latency_ms": 0,  "message": "ELASTICSEARCH_URL not configured (dense-only mode)"}
+    ]
+  },
+  "meta": null,
+  "errors": null
+}
+```
+
+### Aggregate status rules
+
+- `ok` — every required dep is `ok`. Optional deps may be `unavailable`
+  (intentionally off) without changing this.
+- `degraded` — required deps are `ok`, but a configured optional dep is
+  `down`. Service still answers, just with reduced capability (e.g.
+  ES-down means dense-only retrieval — answers degrade in quality but
+  the pipeline doesn't fail).
+- `down` — at least one required dep is `down`. Service should not
+  answer queries; load balancers should pull this pod out of rotation.
+
+Required deps: `postgres`, `openai_key`, `anthropic_key`. Everything else
+is optional.
+
+### What's checked
+
+- **Postgres:** SELECTs against `information_schema.columns` for the
+  presence of `regulation_chunks.embedding_half`. This is the cheapest
+  proof that migration `0009_codeguard_hnsw` is applied — cheaper than
+  parsing alembic state. If the column is missing, `_dense_search`
+  raises on every query, so this is a real "service is broken" signal.
+- **API keys:** env-var presence only. Deliberately NOT a live ping —
+  pinging Anthropic/OpenAI on every probe would burn tokens proportional
+  to `probe_frequency × pod_count`. Invalid-key failures surface in the
+  LLM call telemetry (§10) instead.
+- **Elasticsearch:** `await es.ping()` if `ELASTICSEARCH_URL` is set
+  and the package is installed. `unavailable` (intentionally off) is
+  distinct from `down` (configured but unreachable).
+
+### Why no auth
+
+Kubernetes liveness probes don't carry auth headers; forcing them
+would either require a static probe token (operational drag) or
+break the probe entirely. The route is intentionally outside
+`require_auth`.
+
+Tests: `apps/api/tests/test_codeguard_health.py` (6 cases — aggregate
+rules, per-dep shape contract, unauthenticated route).
+
+---
+
+## 8. Tenant isolation (RLS)
 
 `compliance_checks` and `permit_checklists` are tenant-scoped. Migration
 `0008_codeguard_rls.py` enables RLS with `tenant_isolation_*` policies
@@ -335,7 +413,7 @@ global reference data. All organisations share the same corpus.
 
 ---
 
-## 8. Ingest pipeline
+## 9. Ingest pipeline
 
 `apps/ml/pipelines/codeguard_ingest.py` parses PDF / TXT / MD, splits by
 heading hierarchy, embeds with `text-embedding-3-large` in batches of 64,
@@ -386,7 +464,7 @@ chunk count. No embeddings, no DB writes, no Anthropic/OpenAI calls.
 
 ---
 
-## 9. Test tiers
+## 10. Test tiers
 
 CODEGUARD has four distinct test tiers, each with different deps. Run
 the right tier for the change you're making.
@@ -403,7 +481,8 @@ python -m pytest \
   apps/ml/tests/test_codeguard_abstain.py \
   apps/ml/tests/test_codeguard_hyde_cache.py \
   apps/ml/tests/test_codeguard_query_stream.py \
-  apps/ml/tests/test_codeguard_scan_stream.py
+  apps/ml/tests/test_codeguard_scan_stream.py \
+  apps/ml/tests/test_codeguard_telemetry.py
 ```
 
 ### Tier 2 — Router tests (no external deps)
@@ -416,7 +495,8 @@ shape, not pipeline internals.
 python -m pytest \
   apps/api/tests/test_codeguard_query.py \
   apps/api/tests/test_codeguard_scan.py \
-  apps/api/tests/test_codeguard_checklist.py
+  apps/api/tests/test_codeguard_checklist.py \
+  apps/api/tests/test_codeguard_health.py
 ```
 
 ### Tier 3 — Integration tests (real Postgres, no API keys)
@@ -469,7 +549,7 @@ nothing extra to run these.
 
 ---
 
-## 10. Operational notes
+## 11. Operational notes
 
 - **HyDE cache:** `_hyde_expand` is wrapped in a per-process
   `cachetools.TTLCache` keyed on `(question, language)`. Defaults: 10000
@@ -493,19 +573,33 @@ nothing extra to run these.
 - **Cost telemetry:** every LLM and embedding call goes through the
   `_record_llm_call` async context manager and emits a structured log
   on the `codeguard.telemetry` logger. Stable shape: `call`, `model`,
-  `latency_ms`, `input_chars`, `output_chars`, `status`, `error`.
-  Failures still emit (with `status="error"`) — a misconfigured API
-  key shows up in the spend rollup, not just the error path. HyDE
-  cache hits emit NO record (call didn't happen). Character counts are
-  used instead of token counts because LangChain strips usage_metadata
-  through `JsonOutputParser`-suffixed chains; chars are within ~3-4×
-  of tokens for Vietnamese, sufficient for order-of-magnitude rollups.
-  Token-accurate logging is a worthwhile follow-up via callback
-  handlers.
+  `latency_ms`, `input_chars`, `output_chars`, `input_tokens`,
+  `output_tokens`, `status`, `error`. Failures still emit (with
+  `status="error"`) — a misconfigured API key shows up in the spend
+  rollup, not just the error path. HyDE cache hits emit NO record
+  (call didn't happen).
+
+  Token counts come from a `_UsageCaptureHandler` (a LangChain
+  `BaseCallbackHandler`) that hooks `on_llm_end` and reads
+  `usage_metadata` off the AIMessage *before* the JsonOutputParser
+  strips it. Each call site threads `config={"callbacks":
+  rec["callbacks"]}` into `chain.ainvoke(...)` to wire it through.
+  Token fields stay None for embedding calls (OpenAIEmbeddings isn't
+  a chat model and doesn't fire `on_llm_end`) and for fake test
+  models without `usage_metadata` — both are documented "no usage
+  available" states, not bugs.
+
+  Character counts are populated alongside as a sanity check and as
+  the primary spend dimension for embeddings.
+
+  See `docs/codeguard-telemetry.md` for the operating guide: how to
+  configure JSON formatting, how to use `scripts/codeguard_spend_report.py`
+  for tail-and-script rollups, and sample LogQL queries for spend +
+  latency + cache hit rate dashboards.
 
 ---
 
-## 11. Reference index
+## 12. Reference index
 
 | Concern | File |
 |---------|------|
@@ -516,6 +610,8 @@ nothing extra to run these.
 | Streaming pipeline helpers | Same file: `answer_regulation_query_stream`, `auto_scan_project_stream` |
 | HyDE cache | Same file: `_hyde_cache`, `_hyde_clear_cache` |
 | Citation grounding guard | Same file: `_ground_citations`, `_abstain_response` |
+| Cost telemetry helper | Same file: `_record_llm_call`, `_UsageCaptureHandler`, `telemetry_logger` |
+| Health probe | `apps/api/routers/codeguard.py` (`_check_postgres`, `_check_api_key_env`, `_check_elasticsearch`, `_aggregate_status`) |
 | Ingest CLI | `apps/ml/pipelines/codeguard_ingest.py` |
 | Migrations | `apps/api/alembic/versions/0005_codeguard.py`, `0008_codeguard_rls.py`, `0009_codeguard_hnsw.py` |
 | Fixture | `apps/ml/fixtures/codeguard/qcvn_06_2022_excerpt.md` |
@@ -523,6 +619,8 @@ nothing extra to run these.
 | Frontend hooks | `apps/web/hooks/codeguard/{useQuery,useQueryStream,useScan,useScanStream,useChecklist,useRegulations,keys}.ts` |
 | UI components | `packages/ui/codeguard/{CitationCard,AnswerWithCitations,FindingItem,ChecklistItem,ComplianceScore,RegulationSearch}.tsx` |
 | Shared types | `packages/ui/codeguard/types.ts` |
-| Frontend E2E specs | `apps/web/tests/e2e/codeguard-{query,scan,checklist,history,citation-markers}.spec.ts` |
-| Backend tests | `apps/ml/tests/test_codeguard_*.py` (parser, grounding, abstain, hybrid, hyde-cache, query-stream, scan-stream, retrieval-integration, query-pipeline-integration, scan-pipeline-integration, quality-eval) |
+| Frontend E2E specs | `apps/web/tests/e2e/codeguard-{query,scan,scan-markers,checklist,history,regulations,citation-markers}.spec.ts` |
+| Backend tests | `apps/ml/tests/test_codeguard_*.py` (parser, grounding, abstain, hybrid, hyde-cache, query-stream, scan-stream, telemetry, retrieval-integration, query-pipeline-integration, scan-pipeline-integration, quality-eval) + `apps/api/tests/test_codeguard_health.py` |
 | Make targets | `Makefile` (`seed-codeguard`, `eval-codeguard`) |
+| Spend rollup script | `scripts/codeguard_spend_report.py` |
+| Telemetry operating guide | `docs/codeguard-telemetry.md` |

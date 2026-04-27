@@ -65,12 +65,6 @@ jobs:
           # ANON_KEY (anon was renamed). Setting both keeps both code paths
           # happy if the dep gets bumped or rolled back.
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
-          # apps/web/app/layout.tsx hard-fails in prod (which `next build`
-          # counts as during prerender) unless these are set. Placeholder
-          # values are fine here — the build artefact isn't deployed from CI.
-          AEC_DEV_SESSION_TOKEN: ci-build-placeholder
-          AEC_DEV_SESSION_ORG_ID: 00000000-0000-0000-0000-000000000000
-          AEC_DEV_SESSION_USER_ID: 00000000-0000-0000-0000-000000000000
 
       # ---- Playwright E2E ----
       # Tests live in apps/web/tests/e2e/*.spec.ts. The Playwright config

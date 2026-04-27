@@ -184,25 +184,23 @@ async def update_boq(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    estimate = (
-        await db.execute(
-            select(Estimate).where(
-                Estimate.id == estimate_id,
-                Estimate.organization_id == auth.organization_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if estimate is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Estimate not found")
-    if estimate.status == EstimateStatus.approved.value:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Approved estimates are read-only")
+    """Save a new version of the BOQ.
 
-    await db.execute(delete(BoqItem).where(BoqItem.estimate_id == estimate_id))
-    total = _persist_items(db, estimate_id, payload.items, recompute=payload.recompute_totals)
-    estimate.total_vnd = int(total)
+    Each save **forks a new Estimate row** with `version = old.version + 1`
+    and marks the previous one as `superseded`. The previous BOQ items
+    stay attached to the previous estimate id — that's the audit trail.
+    The response carries the NEW estimate id so the client can navigate
+    to the latest version's URL.
+    """
+    estimate = await _load_writable_estimate(db, auth, estimate_id)
+    new_estimate = _supersede_and_clone(db, estimate, actor_user_id=auth.user_id)
+    await db.flush()  # populate new_estimate.id without committing yet
+
+    total = _persist_items(db, new_estimate.id, payload.items, recompute=payload.recompute_totals)
+    new_estimate.total_vnd = int(total)
     await db.commit()
 
-    detail = await _load_estimate_detail(db, estimate_id)
+    detail = await _load_estimate_detail(db, new_estimate.id)
     return ok(detail.model_dump(mode="json"))
 
 

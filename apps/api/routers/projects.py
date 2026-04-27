@@ -9,6 +9,8 @@ module for the selected project.
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from typing import Annotated
 from uuid import UUID
@@ -19,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.envelope import ok, paginated
 from db.deps import get_db
+from db.session import TenantAwareSession
 from middleware.auth import AuthContext, require_auth
 from models.changeorder import ChangeOrderCandidate
 from models.codeguard import ComplianceCheck, PermitChecklist
@@ -166,19 +169,84 @@ async def get_project_detail(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
 
     detail = ProjectDetail.model_validate(project)
-    detail.winwork = await _winwork_status(db, project_id)
-    detail.costpulse = await _costpulse_status(db, project_id)
-    detail.pulse = await _pulse_status(db, project_id)
-    detail.drawbridge = await _drawbridge_status(db, project_id)
-    detail.handover = await _handover_status(db, project_id)
-    detail.siteeye = await _siteeye_status(db, project_id)
-    detail.codeguard = await _codeguard_status(db, project_id)
-    detail.schedulepilot = await _schedulepilot_status(db, project_id)
-    detail.submittals = await _submittals_status(db, project_id)
-    detail.dailylog = await _dailylog_status(db, project_id)
-    detail.changeorder = await _changeorder_status(db, project_id)
+
+    # Parallelize the 11 module roll-ups. Each helper gets its own
+    # short-lived session because SQLAlchemy AsyncSession serialises
+    # commands per-session — calling `await` on the same session from
+    # multiple gathered tasks is undefined behaviour. A semaphore caps
+    # in-flight tasks to 5 so a hub-detail render can't exhaust the
+    # 10-connection pool under concurrent requests.
+    #
+    # Latency budget: was ~11×query_latency sequential; becomes
+    # ~ceil(11/5)×query_latency = 3 round-trips of fan-out. For 2ms
+    # queries that's 6ms instead of 22ms, but more importantly it
+    # decouples slow sub-queries (e.g. SiteEye safety incident counts
+    # at scale) from blocking the rest of the render.
+    sem = asyncio.Semaphore(5)
+
+    async def _run(helper, *args):
+        async with sem, _scoped_session(auth.organization_id) as scoped:
+            return await helper(scoped, *args)
+
+    (
+        winwork,
+        costpulse,
+        pulse_,
+        drawbridge,
+        handover,
+        siteeye,
+        codeguard,
+        schedulepilot,
+        submittals,
+        dailylog,
+        changeorder,
+    ) = await asyncio.gather(
+        _run(_winwork_status, project_id),
+        _run(_costpulse_status, project_id),
+        _run(_pulse_status, project_id),
+        _run(_drawbridge_status, project_id),
+        _run(_handover_status, project_id),
+        _run(_siteeye_status, project_id),
+        _run(_codeguard_status, project_id),
+        _run(_schedulepilot_status, project_id),
+        _run(_submittals_status, project_id),
+        _run(_dailylog_status, project_id),
+        _run(_changeorder_status, project_id),
+    )
+    detail.winwork = winwork
+    detail.costpulse = costpulse
+    detail.pulse = pulse_
+    detail.drawbridge = drawbridge
+    detail.handover = handover
+    detail.siteeye = siteeye
+    detail.codeguard = codeguard
+    detail.schedulepilot = schedulepilot
+    detail.submittals = submittals
+    detail.dailylog = dailylog
+    detail.changeorder = changeorder
 
     return ok(detail.model_dump(mode="json"))
+
+
+# ---------- Helpers for the parallelised detail fan-out ----------
+
+
+@asynccontextmanager
+async def _scoped_session(organization_id: UUID):
+    """Give each parallel helper its own tenant-scoped session.
+
+    Lives here (not as a fixture / dependency) because it's tightly
+    coupled to the fan-out shape — every callsite is one of the
+    `_run(...)` invocations above.
+
+    Why TenantAwareSession instead of a plain SessionFactory: the
+    helpers' WHERE clauses already filter by `project_id`, but a few
+    of them join through tables that don't carry `project_id` natively
+    (e.g. some submittals/dailylog joins). RLS via `app.current_org_id`
+    is the cheapest belt-and-suspenders here.
+    """
+    async with TenantAwareSession(organization_id) as session:
+        yield session
 
 
 # ---------- Per-module roll-up helpers ----------

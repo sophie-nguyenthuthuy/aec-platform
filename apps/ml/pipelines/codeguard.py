@@ -205,11 +205,143 @@ _hyde_cache: cachetools.TTLCache = cachetools.TTLCache(
 )
 
 
-def _llm(temperature: float = 0.1) -> ChatAnthropic:
+# Dev-only bypass: when AEC_PIPELINE_DEV_STUB=1 (and AEC_ENV != "production"),
+# return canned-response shims so query / scan / permit-checklist / HyDE all
+# run without ANTHROPIC_API_KEY or OPENAI_API_KEY. Hard-disabled under
+# AEC_ENV=production. Mirrors the gate in winwork / costpulse / drawbridge.
+_AEC_ENV = os.getenv("AEC_ENV", "development")
+_REQUEST_STUB = os.getenv("AEC_PIPELINE_DEV_STUB") == "1"
+PIPELINE_DEV_STUB = _REQUEST_STUB and _AEC_ENV != "production"
+if _REQUEST_STUB and not PIPELINE_DEV_STUB:
+    logger.error(
+        "AEC_PIPELINE_DEV_STUB=1 ignored: refusing to stub LLM calls when AEC_ENV=%s",
+        _AEC_ENV,
+    )
+
+
+from langchain_core.messages import AIMessage  # noqa: E402
+from langchain_core.runnables import Runnable  # noqa: E402
+
+
+class _StubLLM(Runnable):
+    """Offline shim used when AEC_PIPELINE_DEV_STUB=1.
+
+    CodeGuard composes the LLM into LangChain pipelines via `prompt |
+    _llm() | JsonOutputParser()`. We need a Runnable so the `|` operator
+    works; downstream JsonOutputParser reads `.content` off the message.
+
+    Prompt-shape classification:
+      * HyDE expansion → return a short Vietnamese paraphrase
+      * Query (citation grounded) → answer + citations + confidence
+      * Scan (project compliance) → findings array + regulations_referenced
+      * Permit checklist → items array
+    """
+
+    def invoke(self, input: object, config: object = None, **_kwargs: object) -> AIMessage:
+        return AIMessage(content=self._respond(input))
+
+    async def ainvoke(self, input: object, config: object = None, **_kwargs: object) -> AIMessage:
+        return AIMessage(content=self._respond(input))
+
+    def _respond(self, input: object) -> str:
+        # Flatten ChatPromptValue / list[BaseMessage] / str into a text
+        # blob we can keyword-match.
+        messages: list[object] = []
+        if hasattr(input, "messages"):
+            messages = list(input.messages)  # type: ignore[attr-defined]
+        elif isinstance(input, list):
+            messages = input
+        else:
+            messages = [input]
+        s = ""
+        for m in messages:
+            content = getattr(m, "content", m if isinstance(m, str) else "")
+            s += " " + (content if isinstance(content, str) else str(content))
+        s = s.lower()
+
+        if "hyde" in s or "hypothetical answer" in s or "expand the query" in s:
+            # _hyde_expand chain doesn't pipe through JsonOutputParser —
+            # the raw `.content` is used directly. Return plain text.
+            return "[DEV STUB] An toàn cháy nhà cao tầng — khoảng cách thoát hiểm tối đa 25m."
+
+        if "permit" in s and ("checklist" in s or "items" in s):
+            payload = {
+                "items": [
+                    {
+                        "id": "PCC-1",
+                        "title": "[DEV STUB] Bản vẽ kiến trúc + kết cấu đã được duyệt",
+                        "category": "design",
+                        "required": True,
+                        "regulation_refs": ["QCVN 06:2022/BXD"],
+                    },
+                    {
+                        "id": "PCC-2",
+                        "title": "[DEV STUB] Hồ sơ PCCC đầy đủ",
+                        "category": "fire_safety",
+                        "required": True,
+                        "regulation_refs": ["QCVN 06:2022/BXD §3"],
+                    },
+                ]
+            }
+        elif "findings" in s or (
+            "scan" in s and ("compliance" in s or "regulations_referenced" in s)
+        ):
+            payload = {
+                "findings": [
+                    {
+                        "regulation_id": "33333333-3333-3333-3333-333333333333",
+                        "section": "3.2.1",
+                        "severity": "warning",
+                        "description": "[DEV STUB] Chiều rộng hành lang cần xác nhận theo bản vẽ A-101.",
+                        "evidence": "[DEV STUB] (no real evidence in stub mode)",
+                    }
+                ],
+                "regulations_referenced": ["33333333-3333-3333-3333-333333333333"],
+            }
+        else:
+            # Default: query-style answer with one citation.
+            payload = {
+                "answer": "[DEV STUB] Hành lang thoát nạn phải có chiều rộng tối thiểu 1.4m theo QCVN 06:2022/BXD.",
+                "confidence": 0.75,
+                "citations": [
+                    {
+                        "regulation_id": "33333333-3333-3333-3333-333333333333",
+                        "regulation": "QCVN 06:2022/BXD",
+                        "section": "3.2.1",
+                        "excerpt": "[DEV STUB] Chiều rộng hành lang thoát nạn ≥ 1.4m.",
+                        "source_url": None,
+                    }
+                ],
+                "related_questions": [
+                    "[DEV STUB] Chiều rộng cầu thang thoát nạn?",
+                ],
+            }
+        return json.dumps(payload, ensure_ascii=False)
+
+
+class _StubEmbedder:
+    """Deterministic 3072-d zero vectors. Enough to make hybrid search /
+    HyDE / RAG plumbing run; semantic recall is meaningless and that's the
+    point — the smoke is about the pipeline shape, not retrieval quality."""
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [[0.0] * 3072 for _ in texts]
+
+    async def aembed_query(self, text_in: str) -> list[float]:
+        return [0.0] * 3072
+
+
+def _llm(temperature: float = 0.1) -> ChatAnthropic | _StubLLM:
+    if PIPELINE_DEV_STUB:
+        logger.warning("CodeGuard LLM running with AEC_PIPELINE_DEV_STUB=1")
+        return _StubLLM()
     return ChatAnthropic(model=_ANTHROPIC_MODEL, temperature=temperature, max_tokens=4096)
 
 
-def _embedder() -> OpenAIEmbeddings:
+def _embedder() -> OpenAIEmbeddings | _StubEmbedder:
+    if PIPELINE_DEV_STUB:
+        logger.warning("CodeGuard embedder running with AEC_PIPELINE_DEV_STUB=1")
+        return _StubEmbedder()
     return OpenAIEmbeddings(model=_EMBED_MODEL)
 
 
@@ -917,6 +1049,13 @@ produce findings. Each finding has:
   - resolution: concrete fix (null if PASS)
   - citation_chunk_index: integer index into the provided chunks
 
+Inline citation marker:
+- In the `description`, place a single `[1]` marker immediately after the
+  factual claim that quotes the cited chunk. Use only `[1]` (not `[2]`,
+  `[3]`, etc.) — each finding has exactly one citation, so the marker
+  always points to its own. Skip the marker entirely if `citation_chunk_index`
+  is null (PASS findings without a citation).
+
 Be conservative: use WARN when information is insufficient; FAIL only for clear violations.
 
 Return JSON: {{"findings": [...]}}
@@ -1262,14 +1401,122 @@ async def generate_permit_checklist(
 
     items: list[ChecklistItem] = []
     for i, item in enumerate(raw.get("items", [])):
-        items.append(
-            ChecklistItem(
-                id=item.get("id") or f"item-{i}",
-                title=item.get("title", ""),
-                description=item.get("description"),
-                regulation_ref=item.get("regulation_ref"),
-                required=bool(item.get("required", True)),
-                status="pending",
-            )
-        )
+        items.append(_shape_checklist_item(item, i))
     return items
+
+
+def _shape_checklist_item(raw: dict, index: int) -> ChecklistItem:
+    """Coerce a single LLM-emitted item dict into a `ChecklistItem`.
+
+    Defensive against missing fields (the streaming variant calls this
+    on partial JSON parses where a key/value pair may arrive after
+    we've decided the item is "done").
+    """
+    return ChecklistItem(
+        id=raw.get("id") or f"item-{index}",
+        title=raw.get("title", ""),
+        description=raw.get("description"),
+        regulation_ref=raw.get("regulation_ref"),
+        required=bool(raw.get("required", True)),
+        status="pending",
+    )
+
+
+async def generate_permit_checklist_stream(
+    db: AsyncSession,
+    jurisdiction: str,
+    project_type: str,
+    parameters: ProjectParameters | None,
+):
+    """Streaming variant of `generate_permit_checklist`.
+
+    Yields a sequence of `(event_name, payload)` tuples:
+      ("item_done", ChecklistItem)
+          One item is now stable enough to render. Emitted as the
+          *next* item starts appearing in the partial JSON, OR when
+          the stream finishes for the last item.
+      ("done", list[ChecklistItem])
+          Terminal — full ordered list. The route layer uses this to
+          persist the PermitChecklistModel row before sending the SSE
+          terminal frame.
+      ("error", str)
+          Terminal — on hard pipeline failure.
+
+    Why "wait for the next item before emitting" rather than streaming
+    each item immediately as JsonOutputParser yields it:
+    `JsonOutputParser.astream()` emits successive partial parses, so a
+    given item appears multiple times as its fields populate (first
+    `{}`, then `{"id": "..."}`, then full). Emitting on every partial
+    would flood the wire and force the client to deduplicate. The
+    "look-ahead by one" heuristic is the simplest safe rule: once item
+    N+1 starts populating, item N is no longer being mutated.
+    """
+    params_summary = (
+        json.dumps(parameters.model_dump(exclude_none=True), ensure_ascii=False, indent=2)
+        if parameters
+        else "(not provided)"
+    )
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", _CHECKLIST_SYSTEM),
+            (
+                "human",
+                "Jurisdiction: {jurisdiction}\nProject type: {project_type}\n\nParameters:\n{params}\n\nReturn JSON only.",
+            ),
+        ]
+    )
+    chain = prompt | _llm(temperature=0.2) | JsonOutputParser()
+
+    try:
+        emitted_count = 0
+        last_partial: dict | None = None
+        async with _record_llm_call(
+            call="checklist_generate_stream",
+            model=_ANTHROPIC_MODEL,
+            input_chars=len(jurisdiction) + len(project_type) + len(params_summary),
+        ) as rec:
+            async for partial in chain.astream(
+                {
+                    "jurisdiction": jurisdiction,
+                    "project_type": project_type,
+                    "params": params_summary,
+                },
+                config={"callbacks": rec["callbacks"]},
+            ):
+                if not isinstance(partial, dict):
+                    continue
+                last_partial = partial
+                items = partial.get("items") or []
+                if not isinstance(items, list):
+                    continue
+                # Item N is "done" once item N+1 has appeared in the
+                # parse. Flush every newly-completed item.
+                while emitted_count + 1 < len(items):
+                    yield (
+                        "item_done",
+                        _shape_checklist_item(items[emitted_count], emitted_count),
+                    )
+                    emitted_count += 1
+            rec["output_chars"] = (
+                len(json.dumps(last_partial, ensure_ascii=False)) if last_partial is not None else 0
+            )
+
+        # Stream finished. Flush the trailing item (if any) — it never
+        # got the look-ahead trigger because no item N+1 exists.
+        final_items_raw = (
+            (last_partial or {}).get("items") or [] if isinstance(last_partial, dict) else []
+        )
+        if not isinstance(final_items_raw, list):
+            final_items_raw = []
+        all_items: list[ChecklistItem] = []
+        for idx, raw in enumerate(final_items_raw):
+            shaped = _shape_checklist_item(raw, idx)
+            all_items.append(shaped)
+            if idx >= emitted_count:
+                yield ("item_done", shaped)
+
+        yield ("done", all_items)
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.exception("codeguard: checklist stream aborted")
+        yield ("error", str(exc))

@@ -17,5 +17,11 @@ export type {
 } from "./useScanStream";
 export { useGeneratePermitChecklist, useMarkChecklistItem } from "./useChecklist";
 export type { PermitChecklistRequest, MarkItemRequest } from "./useChecklist";
+export { useCodeguardChecklistStream } from "./useChecklistStream";
+export type {
+  ChecklistStreamRequest,
+  ChecklistStreamHandlers,
+  ChecklistStreamDonePayload,
+} from "./useChecklistStream";
 export { useRegulations, useRegulation } from "./useRegulations";
 export type { RegulationFilters, RegulationDetail, RegulationSection } from "./useRegulations";

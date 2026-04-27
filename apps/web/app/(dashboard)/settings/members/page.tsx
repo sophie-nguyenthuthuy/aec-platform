@@ -1,23 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import { Trash2, UserPlus } from "lucide-react";
+import { Copy, Trash2, UserPlus } from "lucide-react";
 
 import {
+  type Invitation,
+  type InvitationCreated,
   type OrgMember,
   type Role,
   useInviteMember,
   useOrgMembers,
+  usePendingInvitations,
   useRemoveMember,
+  useRevokeInvitation,
   useUpdateMemberRole,
 } from "@/hooks/org";
 
 
+// Invitable roles match the api's _ASSIGNABLE_ROLES set — `owner` is
+// excluded so an admin can't promote an invitee above themselves.
 const ROLES: Array<{ value: Role; label: string; help: string }> = [
   { value: "viewer",  label: "Viewer",  help: "Read-only across modules" },
   { value: "member",  label: "Member",  help: "Read + write within modules" },
   { value: "admin",   label: "Admin",   help: "Full read/write + manage members" },
-  { value: "owner",   label: "Owner",   help: "Admin + billing + delete org" },
 ];
 
 const ROLE_BADGE: Record<Role, string> = {
@@ -29,12 +34,17 @@ const ROLE_BADGE: Record<Role, string> = {
 
 export default function MembersPage() {
   const { data: members, isLoading, error } = useOrgMembers();
+  const { data: invitations } = usePendingInvitations();
   const invite = useInviteMember();
+  const revoke = useRevokeInvitation();
   const updateRole = useUpdateMemberRole();
   const removeMember = useRemoveMember();
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<Role>("member");
+  // Last successful invite — surface the accept URL so the admin can
+  // copy it. Goes away once SMTP is wired and we mail the link directly.
+  const [lastInvite, setLastInvite] = useState<InvitationCreated | null>(null);
 
   const handleInvite = (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +52,8 @@ export default function MembersPage() {
     invite.mutate(
       { email: inviteEmail.trim(), role: inviteRole },
       {
-        onSuccess: () => {
+        onSuccess: (created) => {
+          setLastInvite(created);
           setInviteEmail("");
           setInviteRole("member");
         },
@@ -114,10 +125,39 @@ export default function MembersPage() {
           </p>
         )}
         <p className="mt-2 text-xs text-slate-500">
-          Hệ thống sẽ tạo bản ghi user nếu email chưa từng đăng nhập. Người
-          dùng cần có tài khoản Supabase trước khi truy cập được vào tổ chức.
+          Hệ thống tạo một liên kết một lần. Người được mời mở liên kết, đặt
+          mật khẩu, và được thêm vào tổ chức tự động.
         </p>
+
+        {lastInvite && (
+          <AcceptUrlChip invitation={lastInvite} onDismiss={() => setLastInvite(null)} />
+        )}
       </section>
+
+      {/* ---------------- Pending invitations ---------------- */}
+      {invitations && invitations.length > 0 && (
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+              Lời mời đang chờ ({invitations.length})
+            </span>
+          </div>
+          <ul className="divide-y divide-amber-200">
+            {invitations.map((inv) => (
+              <PendingInvitationRow
+                key={inv.id}
+                invitation={inv}
+                onRevoke={() => {
+                  if (window.confirm(`Hủy lời mời cho ${inv.email}?`)) {
+                    revoke.mutate(inv.id);
+                  }
+                }}
+                pending={revoke.isPending && revoke.variables === inv.id}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* ---------------- Members list ---------------- */}
       <section className="rounded-xl border border-slate-200 bg-white">
@@ -231,6 +271,92 @@ function MemberRow({
         title="Xóa thành viên"
       >
         <Trash2 size={14} />
+      </button>
+    </li>
+  );
+}
+
+
+function AcceptUrlChip({
+  invitation,
+  onDismiss,
+}: {
+  invitation: InvitationCreated;
+  onDismiss: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(invitation.accept_url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Older browsers / non-secure contexts: fall through to visible URL.
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium text-emerald-900">
+          Lời mời đã tạo cho <span className="font-mono">{invitation.email}</span>. Sao chép
+          liên kết và gửi cho người được mời:
+        </p>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 text-[11px] text-emerald-700 hover:text-emerald-900"
+        >
+          ×
+        </button>
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <code className="flex-1 truncate rounded bg-white px-2 py-1 text-xs text-slate-700">
+          {invitation.accept_url}
+        </code>
+        <button
+          type="button"
+          onClick={copy}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+        >
+          <Copy size={12} />
+          {copied ? "Đã sao chép" : "Sao chép"}
+        </button>
+      </div>
+      <p className="mt-2 text-[11px] text-emerald-800">
+        Hết hạn: {new Date(invitation.expires_at).toLocaleString("vi-VN")}
+      </p>
+    </div>
+  );
+}
+
+
+function PendingInvitationRow({
+  invitation,
+  onRevoke,
+  pending,
+}: {
+  invitation: Invitation;
+  onRevoke: () => void;
+  pending: boolean;
+}) {
+  return (
+    <li className="flex items-center gap-4 py-2">
+      <div className="flex-1 min-w-0">
+        <p className="truncate text-sm font-medium text-slate-900">{invitation.email}</p>
+        <p className="text-xs text-slate-600">
+          Vai trò: {invitation.role} · Hết hạn{" "}
+          {new Date(invitation.expires_at).toLocaleDateString("vi-VN")}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onRevoke}
+        disabled={pending}
+        className="shrink-0 rounded-md px-2.5 py-1 text-xs text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+      >
+        {pending ? "Đang hủy..." : "Hủy"}
       </button>
     </li>
   );

@@ -2,6 +2,7 @@
 
 import { AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import type { Finding } from "./types";
+import { AnswerWithCitations } from "./AnswerWithCitations";
 import { CitationCard } from "./CitationCard";
 
 interface FindingItemProps {
@@ -40,7 +41,22 @@ export function FindingItem({ finding }: FindingItemProps): JSX.Element {
               {finding.category}
             </span>
           </div>
-          <p className="mt-2 text-sm text-slate-700">{finding.description}</p>
+          {/*
+            Inline `[N]` markers in the description hover-expand to show
+            the cited chunk. Each finding has at most one citation, so
+            `[1]` always points to it — the LLM is prompted to use that
+            single marker (see `_SCAN_SYSTEM` in
+            `apps/ml/pipelines/codeguard.py`). When `finding.citation`
+            is null (e.g. some PASS findings), `<AnswerWithCitations>`
+            renders any `[1]` text literally — same out-of-range fallback
+            it uses on the query path.
+          */}
+          <AnswerWithCitations
+            text={finding.description}
+            citations={finding.citation ? [finding.citation] : []}
+            className="mt-2 text-sm text-slate-700"
+          />
+
           {finding.resolution && (
             <div className="mt-3 rounded bg-white/60 p-3 text-sm">
               <div className="mb-1 font-medium text-slate-900">Khuyến nghị</div>
