@@ -25,16 +25,19 @@ from routers import (  # noqa: E402
     changeorder,
     codeguard,
     costpulse,
+    dailylog,
     drawbridge,
     files,
     handover,
     me,
     notifications,
+    org,
     projects,
     public_rfq,
     pulse,
     schedulepilot,
     siteeye,
+    submittals,
     winwork,
 )
 
@@ -67,6 +70,7 @@ def create_app() -> FastAPI:
     setup_observability(app, settings)
 
     app.include_router(me.router)
+    app.include_router(org.router)
     app.include_router(projects.router)
     app.include_router(activity.router)
     app.include_router(notifications.router)
@@ -80,6 +84,8 @@ def create_app() -> FastAPI:
     app.include_router(handover.router)
     app.include_router(drawbridge.router)
     app.include_router(schedulepilot.router)
+    app.include_router(submittals.router)
+    app.include_router(dailylog.router)
     app.include_router(changeorder.router)
     app.include_router(files.router)
     # Cross-module admin / ops endpoints (gated by `admin` role).
