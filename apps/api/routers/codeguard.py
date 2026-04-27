@@ -48,6 +48,203 @@ from schemas.codeguard import (
 router = APIRouter(prefix="/api/v1/codeguard", tags=["codeguard"])
 
 
+# ---------- Health -------------------------------------------------------
+
+
+# Dep status names. Kept as plain strings (not an enum) so consumers can
+# treat the JSON response loosely without importing API types — health
+# probes are typically scraped by ops tooling, not other Python code.
+_DEP_OK = "ok"
+_DEP_DOWN = "down"
+_DEP_UNAVAILABLE = "unavailable"  # optional dep that's intentionally not configured
+
+
+async def _check_postgres(db: AsyncSession) -> dict:
+    """Verify Postgres is reachable AND migration 0009 is applied.
+
+    The presence of `regulation_chunks.embedding_half` is the cheapest
+    proof that the codeguard schema is at the expected revision —
+    cheaper than parsing alembic state. If this column is missing,
+    `_dense_search` will raise on every call, so a `down` status here
+    is a real "service is broken" signal worth paging on.
+    """
+    import time as _time
+
+    start = _time.monotonic()
+    try:
+        from sqlalchemy import text as sa_text
+
+        result = await db.execute(
+            sa_text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name='regulation_chunks' "
+                "AND column_name='embedding_half'"
+            )
+        )
+        has_halfvec = result.scalar_one_or_none() is not None
+        elapsed_ms = int((_time.monotonic() - start) * 1000)
+        if not has_halfvec:
+            return {
+                "name": "postgres",
+                "status": _DEP_DOWN,
+                "latency_ms": elapsed_ms,
+                "message": ("regulation_chunks.embedding_half missing — migration 0009_codeguard_hnsw not applied"),
+            }
+        return {
+            "name": "postgres",
+            "status": _DEP_OK,
+            "latency_ms": elapsed_ms,
+            "message": "halfvec column present",
+        }
+    except Exception as exc:
+        elapsed_ms = int((_time.monotonic() - start) * 1000)
+        return {
+            "name": "postgres",
+            "status": _DEP_DOWN,
+            "latency_ms": elapsed_ms,
+            "message": str(exc),
+        }
+
+
+def _check_api_key_env(name: str, env_var: str) -> dict:
+    """Light env-var presence check for an LLM/embedding provider key.
+
+    Deliberately NOT a live ping — pinging on every health probe would
+    burn ~1¢ × probe_frequency × pod_count, which adds up fast in
+    production and creates a positive-feedback loop where a noisy probe
+    is itself a cost incident. Env-presence is sufficient for "is this
+    deployment configured" — invalid-key failures surface in the LLM
+    call telemetry instead.
+    """
+    import os as _os
+
+    value = _os.environ.get(env_var)
+    if not value:
+        return {
+            "name": name,
+            "status": _DEP_DOWN,
+            "latency_ms": 0,
+            "message": f"{env_var} not set",
+        }
+    return {
+        "name": name,
+        "status": _DEP_OK,
+        "latency_ms": 0,
+        "message": f"{env_var} configured",
+    }
+
+
+async def _check_elasticsearch() -> dict:
+    """Optional dep — sparse retrieval still works without it (the
+    pipeline degrades to dense-only via `_hybrid_search`'s graceful
+    fallback). Returns `unavailable` if the package or env var isn't
+    configured, distinct from `down` (configured but unreachable)."""
+    import os as _os
+    import time as _time
+
+    es_url = _os.environ.get("ELASTICSEARCH_URL")
+    if not es_url:
+        return {
+            "name": "elasticsearch",
+            "status": _DEP_UNAVAILABLE,
+            "latency_ms": 0,
+            "message": "ELASTICSEARCH_URL not configured (dense-only mode)",
+        }
+    try:
+        from elasticsearch import AsyncElasticsearch  # type: ignore[import-not-found]
+    except ImportError:
+        return {
+            "name": "elasticsearch",
+            "status": _DEP_UNAVAILABLE,
+            "latency_ms": 0,
+            "message": "elasticsearch package not installed",
+        }
+
+    start = _time.monotonic()
+    es = AsyncElasticsearch(es_url)
+    try:
+        await es.ping()
+        elapsed_ms = int((_time.monotonic() - start) * 1000)
+        return {
+            "name": "elasticsearch",
+            "status": _DEP_OK,
+            "latency_ms": elapsed_ms,
+            "message": "ping succeeded",
+        }
+    except Exception as exc:
+        elapsed_ms = int((_time.monotonic() - start) * 1000)
+        return {
+            "name": "elasticsearch",
+            "status": _DEP_DOWN,
+            "latency_ms": elapsed_ms,
+            "message": str(exc),
+        }
+    finally:
+        await es.close()
+
+
+def _aggregate_status(deps: list[dict]) -> str:
+    """Roll dep statuses into a single overall verdict.
+
+    `ok`        — every required dep is `ok`. Optional deps may be
+                  `unavailable` (intentionally off) without changing this.
+    `degraded`  — required deps are `ok`, but at least one configured
+                  optional dep is `down`. Service still answers, just
+                  with reduced capability.
+    `down`      — at least one required dep is `down`. Service should
+                  not answer queries; load balancers should pull this
+                  pod out of rotation.
+
+    Required = postgres, openai_key, anthropic_key. Everything else is
+    optional from the codeguard point of view.
+    """
+    required_names = {"postgres", "openai_key", "anthropic_key"}
+    has_required_down = any(d["name"] in required_names and d["status"] == _DEP_DOWN for d in deps)
+    if has_required_down:
+        return "down"
+    has_optional_down = any(d["name"] not in required_names and d["status"] == _DEP_DOWN for d in deps)
+    return "degraded" if has_optional_down else "ok"
+
+
+@router.get("/health")
+async def codeguard_health(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Dependency-state probe for ops tooling.
+
+    Checks every dependency the codeguard module needs and returns a
+    structured status envelope. Designed for:
+      * Kubernetes readiness probes — pull the pod out of rotation
+        when overall status is `down`.
+      * Ops dashboards — surface per-dep latency/message for triage
+        ("Anthropic key missing" vs "Postgres unreachable" demand
+        very different responses).
+      * CI smoke tests — a clean health probe is the cheapest way
+        to assert "deployment X has every required env var set."
+
+    Crucially does NOT call any LLM (no token spend on probes) and
+    does NOT require auth — the route is intentionally outside the
+    `require_auth` dependency so external probes don't need a JWT.
+    """
+    import asyncio as _asyncio
+
+    pg, openai_key, anthropic_key, es = await _asyncio.gather(
+        _check_postgres(db),
+        _asyncio.to_thread(_check_api_key_env, "openai_key", "OPENAI_API_KEY"),
+        _asyncio.to_thread(_check_api_key_env, "anthropic_key", "ANTHROPIC_API_KEY"),
+        _check_elasticsearch(),
+    )
+    deps = [pg, openai_key, anthropic_key, es]
+    return {
+        "data": {
+            "status": _aggregate_status(deps),
+            "deps": deps,
+        },
+        "meta": None,
+        "errors": None,
+    }
+
+
 # ---------- Q&A ----------
 
 

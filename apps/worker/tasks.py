@@ -32,11 +32,17 @@ app.conf.update(
 
 
 def _run_async(coro):
-    return (
-        asyncio.get_event_loop().run_until_complete(coro)
-        if asyncio.get_event_loop().is_running() is False
-        else asyncio.run(coro)
-    )
+    """Run an async coroutine inside a sync Celery task.
+
+    Celery's prefork worker has no running event loop, so `asyncio.run()`
+    is the right tool — it builds a fresh loop, runs the coroutine to
+    completion, and closes the loop. The previous implementation called
+    `asyncio.get_event_loop()`, which Python 3.12+ deprecates outside an
+    active loop, and had inverted recovery logic (it tried `asyncio.run`
+    when a loop *was* running, which would crash with "asyncio.run()
+    cannot be called from a running event loop").
+    """
+    return asyncio.run(coro)
 
 
 @app.task(name="winwork.send_proposal_email", bind=True, max_retries=3, default_retry_delay=30)

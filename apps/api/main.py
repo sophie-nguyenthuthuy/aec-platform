@@ -29,6 +29,7 @@ from routers import (  # noqa: E402
     drawbridge,
     files,
     handover,
+    invitations,
     me,
     notifications,
     org,
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
 
     app.include_router(me.router)
     app.include_router(org.router)
+    app.include_router(invitations.router)
     app.include_router(projects.router)
     app.include_router(activity.router)
     app.include_router(notifications.router)

@@ -68,7 +68,8 @@ def telemetry_records(caplog):
 
 async def test_record_llm_call_emits_ok_log_with_stable_fields(telemetry_records):
     """The success path: one log record with every documented field
-    populated and `status="ok"`."""
+    populated and `status="ok"`. Token fields are None when no callback
+    handler fires (no chain.ainvoke happened in this test)."""
     import pipelines.codeguard as cg
 
     async with cg._record_llm_call(
@@ -77,6 +78,11 @@ async def test_record_llm_call_emits_ok_log_with_stable_fields(telemetry_records
         input_chars=42,
     ) as rec:
         rec["output_chars"] = 100
+        # `callbacks` is exposed for the caller to thread into
+        # chain.ainvoke; it must be a list (LangChain expects an
+        # iterable), and it must contain exactly one handler.
+        assert isinstance(rec["callbacks"], list)
+        assert len(rec["callbacks"]) == 1
 
     records = telemetry_records()
     assert len(records) == 1
@@ -86,6 +92,8 @@ async def test_record_llm_call_emits_ok_log_with_stable_fields(telemetry_records
     assert r.model == "test-model"
     assert r.input_chars == 42
     assert r.output_chars == 100
+    assert r.input_tokens is None  # no chain.ainvoke fired the handler
+    assert r.output_tokens is None
     assert r.status == "ok"
     assert r.error is None
     # Latency is non-negative; we can't assert a specific value
@@ -114,6 +122,8 @@ async def test_record_llm_call_emits_error_log_and_reraises(telemetry_records):
     assert r.status == "error"
     assert r.error == "boom"
     assert r.output_chars is None  # never populated on the error path
+    assert r.input_tokens is None  # handler never fired
+    assert r.output_tokens is None
     assert r.input_chars == 10
 
 
@@ -138,6 +148,76 @@ async def test_hyde_expand_cache_miss_emits_one_record(monkeypatch, telemetry_re
     assert r.input_chars == len("Test question?") + len("vi")
     assert r.output_chars == len("hypothetical regulation paragraph")
     assert r.model == cg._ANTHROPIC_MODEL
+    # FakeListChatModel doesn't synthesize usage_metadata, so token
+    # fields stay None — which is the documented "no usage available"
+    # state. The next test exercises a model that *does* emit
+    # usage_metadata to prove the capture wiring works end-to-end.
+    assert r.input_tokens is None
+    assert r.output_tokens is None
+
+
+async def test_hyde_expand_captures_tokens_when_model_emits_usage_metadata(
+    monkeypatch, telemetry_records
+):
+    """End-to-end token capture through the full call path.
+
+    `FakeMessagesListChatModel` preserves the `usage_metadata` set on
+    each AIMessage in its response list, so we can simulate a real
+    Anthropic response without hitting the network. The handler
+    attached by `_record_llm_call` reads usage off the AIMessage on
+    `on_llm_end` — proves the callback wiring through to the log.
+    """
+    import pipelines.codeguard as cg
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.messages import AIMessage
+
+    msg = AIMessage(
+        content="hypothetical regulation paragraph",
+        usage_metadata={"input_tokens": 42, "output_tokens": 17, "total_tokens": 59},
+    )
+    monkeypatch.setattr(
+        cg,
+        "_llm",
+        lambda temperature=0.1: FakeMessagesListChatModel(responses=[msg]),
+    )
+
+    await cg._hyde_expand("Token test?", "vi")
+
+    records = telemetry_records()
+    hyde_records = [r for r in records if getattr(r, "call", None) == "hyde_expand"]
+    assert len(hyde_records) == 1
+    r = hyde_records[0]
+    # Token counts populated from usage_metadata on the AIMessage.
+    assert r.input_tokens == 42
+    assert r.output_tokens == 17
+    # Char counts still populated alongside — both dimensions are
+    # available in the same record.
+    assert r.input_chars == len("Token test?") + len("vi")
+    assert r.output_chars == len("hypothetical regulation paragraph")
+
+
+def test_usage_capture_handler_handles_missing_metadata_gracefully():
+    """Defensive contract: a malformed or empty LLMResult must not
+    crash the handler — token fields stay None and the pipeline
+    continues normally. Different LangChain versions and providers
+    structure responses slightly differently; the guard is what makes
+    the telemetry safe to deploy across all of them."""
+    import pipelines.codeguard as cg
+    from langchain_core.outputs import LLMResult
+
+    handler = cg._UsageCaptureHandler()
+    # Empty generations — the safest "we got nothing" shape.
+    handler.on_llm_end(LLMResult(generations=[]))
+    assert handler.input_tokens is None
+    assert handler.output_tokens is None
+
+    # Object that doesn't have a `.generations` attribute at all.
+    class _Bogus:
+        pass
+
+    handler.on_llm_end(_Bogus())  # type: ignore[arg-type]
+    assert handler.input_tokens is None
+    assert handler.output_tokens is None
 
 
 async def test_hyde_expand_cache_hit_emits_no_record(monkeypatch, telemetry_records):
@@ -229,3 +309,9 @@ async def test_dense_search_emits_embedding_record(monkeypatch, telemetry_record
     assert r.model == cg._EMBED_MODEL
     assert r.input_chars == len("Câu hỏi test embedding")
     assert r.output_chars == 3072  # vector dim
+    # OpenAIEmbeddings doesn't fire `on_llm_end` (not a chat model), so
+    # token fields stay None — embedding spend remains char-based by
+    # design. Pin this so a future refactor doesn't accidentally start
+    # populating tokens incorrectly for embeddings.
+    assert r.input_tokens is None
+    assert r.output_tokens is None

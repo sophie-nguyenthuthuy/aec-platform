@@ -45,6 +45,52 @@ logger = logging.getLogger(__name__)
 telemetry_logger = logging.getLogger("codeguard.telemetry")
 
 
+from langchain_core.callbacks import BaseCallbackHandler  # noqa: E402
+
+
+class _UsageCaptureHandler(BaseCallbackHandler):
+    """LangChain callback that stashes Anthropic/OpenAI token usage.
+
+    `on_llm_end` fires once per LLM invocation regardless of how the
+    chain is composed downstream — `prompt | _llm() | JsonOutputParser`
+    still triggers it because the parser is a transform on top of the
+    LLM's already-generated output. So this handler captures real
+    token counts for *every* call site that goes through `_record_llm_call`,
+    closing the chars-vs-tokens precision gap from the previous round.
+
+    Embedding calls don't fire `on_llm_end` (OpenAIEmbeddings isn't a
+    chat model), so `input_tokens` / `output_tokens` stay None for those
+    — consistent with the design: chars remain the proxy for embedding
+    spend, tokens cover the LLM surface where they're billable.
+
+    Defensive on metadata shape: different LLM providers structure the
+    response slightly differently and the LangChain version surface
+    has shifted across releases. We catch any extraction error and
+    leave both fields None rather than crashing the pipeline.
+    """
+
+    def __init__(self) -> None:
+        self.input_tokens: int | None = None
+        self.output_tokens: int | None = None
+
+    def on_llm_end(self, response, **_kwargs) -> None:  # type: ignore[no-untyped-def]
+        try:
+            gens = response.generations
+            if not gens or not gens[0]:
+                return
+            msg = gens[0][0].message
+            usage = getattr(msg, "usage_metadata", None)
+            if not usage:
+                return
+            # `usage_metadata` is a TypedDict with `.get` semantics on
+            # both LangChain 0.2 and 0.3 — safe across the floor we ship.
+            self.input_tokens = usage.get("input_tokens")
+            self.output_tokens = usage.get("output_tokens")
+        except (AttributeError, IndexError, TypeError):
+            # Unknown shape — record nothing, don't crash the pipeline.
+            pass
+
+
 @contextlib.asynccontextmanager
 async def _record_llm_call(
     *,
@@ -55,38 +101,44 @@ async def _record_llm_call(
     """Time a single LLM/embedding call and emit a structured log on exit.
 
     Yields a small mutable record dict the caller can stash output info
-    into before the context closes — typically `output_chars` for an
-    LLM call (length of the response text) or count for an embedding
-    call. The exit handler then writes one log line via
-    `telemetry_logger` with stable shape:
+    into and, critically, contains a pre-built `callbacks` list that
+    callers MUST pass through to `chain.ainvoke(config={"callbacks":
+    rec["callbacks"]})`. The handler attached there captures token
+    counts off `on_llm_end`, which the exit handler then includes in
+    the log line.
+
+    Stable record shape:
 
         message = "codeguard.llm_call"
         extra   = {
-            call:          str   — symbolic name (e.g. "hyde_expand")
-            model:         str   — Anthropic/OpenAI model name
-            latency_ms:    int   — wall-clock latency
-            input_chars:   int   — sum of prompt characters at call time
-            output_chars:  int   — length of the response (None on error)
-            status:        "ok" | "error"
-            error:         str | None — message of the raised exception
+            call:           str   — symbolic name (e.g. "hyde_expand")
+            model:          str   — Anthropic/OpenAI model name
+            latency_ms:     int   — wall-clock latency
+            input_chars:    int   — sum of prompt characters at call time
+            output_chars:   int   — length of the response (None on error)
+            input_tokens:   int | None — Anthropic/OpenAI billable input
+            output_tokens:  int | None — Anthropic/OpenAI billable output
+            status:         "ok" | "error"
+            error:          str | None — message of the raised exception
         }
 
-    Why characters not tokens: LangChain's response shape varies per
-    chain composition (an `AIMessage` carries `.usage_metadata`, but the
-    JsonOutputParser-suffixed chains used by `node_generate` /
-    `auto_scan_project` strip it). Characters are reliably available
-    everywhere and are within ~3-4x of token counts for Vietnamese, so
-    they support per-org spend rollups at order-of-magnitude precision.
-    Token-accurate logging would require either refactoring chain
-    composition or wiring a callback handler — worthwhile follow-up,
-    not in this round's scope.
+    Tokens are the actual billable unit for both Anthropic and OpenAI —
+    chars stay alongside as a fallback for the embedding path (OpenAI
+    embeddings don't fire `on_llm_end`) and as a sanity check.
 
     Failures still emit a log (with `status="error"`) and re-raise — so
     a misconfigured Anthropic key shows up in telemetry, not just the
-    error path.
+    error path. Token fields are None on error since the handler never
+    received an `on_llm_end`.
+
+    Backwards compatibility: `input_tokens` / `output_tokens` are
+    additive fields — existing log consumers that filter on the previous
+    record shape continue to work; new consumers can opt into the
+    sharper precision when present.
     """
     start = time.monotonic()
-    record: dict[str, Any] = {"output_chars": None}
+    handler = _UsageCaptureHandler()
+    record: dict[str, Any] = {"output_chars": None, "callbacks": [handler]}
     try:
         yield record
     except Exception as exc:
@@ -99,6 +151,8 @@ async def _record_llm_call(
                 "latency_ms": elapsed_ms,
                 "input_chars": input_chars,
                 "output_chars": None,
+                "input_tokens": handler.input_tokens,
+                "output_tokens": handler.output_tokens,
                 "status": "error",
                 "error": str(exc),
             },
@@ -114,6 +168,8 @@ async def _record_llm_call(
                 "latency_ms": elapsed_ms,
                 "input_chars": input_chars,
                 "output_chars": record.get("output_chars"),
+                "input_tokens": handler.input_tokens,
+                "output_tokens": handler.output_tokens,
                 "status": "ok",
                 "error": None,
             },
@@ -202,7 +258,10 @@ async def _hyde_expand(question: str, language: str) -> str:
         model=_ANTHROPIC_MODEL,
         input_chars=len(question) + len(language),
     ) as rec:
-        result = await chain.ainvoke({"question": question, "language": language})
+        result = await chain.ainvoke(
+            {"question": question, "language": language},
+            config={"callbacks": rec["callbacks"]},
+        )
         text_value = result.content if isinstance(result.content, str) else str(result.content)
         rec["output_chars"] = len(text_value)
     # Only store on success — a thrown exception above bypasses this.
@@ -656,11 +715,13 @@ async def answer_regulation_query(
                     "language": state.language,
                     "question": state.question,
                     "context": context_str,
-                }
+                },
+                config={"callbacks": rec["callbacks"]},
             )
             # JsonOutputParser returns a dict, not a string; serialise
             # to JSON for character-count fidelity (output_chars then
             # tracks the raw model output we're paying tokens for).
+            # Token counts come from the callback handler — see rec["callbacks"].
             rec["output_chars"] = len(json.dumps(raw, ensure_ascii=False))
 
         # Citations pass through _ground_citations — the single choke point
@@ -797,7 +858,8 @@ async def answer_regulation_query_stream(
                     "language": lang,
                     "question": question,
                     "context": context_str,
-                }
+                },
+                config={"callbacks": rec["callbacks"]},
             ):
                 if not isinstance(partial, dict):
                     continue
@@ -936,7 +998,8 @@ async def auto_scan_project(
                         "category": category.value,
                         "params": param_summary,
                         "context": scan_context,
-                    }
+                    },
+                    config={"callbacks": rec["callbacks"]},
                 )
                 rec["output_chars"] = len(json.dumps(raw, ensure_ascii=False))
         except Exception:
@@ -1063,7 +1126,8 @@ async def auto_scan_project_stream(
                             "category": category.value,
                             "params": param_summary,
                             "context": scan_context,
-                        }
+                        },
+                        config={"callbacks": rec["callbacks"]},
                     )
                     rec["output_chars"] = len(json.dumps(raw, ensure_ascii=False))
             except Exception as exc:
@@ -1191,7 +1255,8 @@ async def generate_permit_checklist(
                 "jurisdiction": jurisdiction,
                 "project_type": project_type,
                 "params": params_summary,
-            }
+            },
+            config={"callbacks": rec["callbacks"]},
         )
         rec["output_chars"] = len(json.dumps(raw, ensure_ascii=False))
 

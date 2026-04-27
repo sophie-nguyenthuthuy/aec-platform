@@ -229,6 +229,24 @@ class ReportKPIs(BaseModel):
     overall_progress_pct: float
 
 
+class ReportAttachment(BaseModel):
+    """Sidecar artefact attached to a weekly report.
+
+    Used today for the latest approved BOQ PDF (`kind = "boq_pdf"`); the
+    shape is intentionally generic so we can add more attachment types
+    (RFI digest, compliance checklist, …) without a schema migration.
+    """
+
+    kind: str
+    """Stable enum-like discriminator: 'boq_pdf', 'rfi_digest', etc."""
+
+    label: str
+    """Human-friendly title for the attachment link in the dashboard."""
+
+    url: str
+    """Storage URL — typically `s3://bucket/key` resolved by the API on read."""
+
+
 class ReportContent(BaseModel):
     executive_summary: str
     progress_this_week: dict[str, Any]
@@ -237,6 +255,9 @@ class ReportContent(BaseModel):
     next_week_plan: list[str] = Field(default_factory=list)
     photos_highlighted: list[UUID] = Field(default_factory=list)
     kpis: ReportKPIs
+    attachments: list[ReportAttachment] = Field(default_factory=list)
+    """Optional sidecar artefacts. Set by `generate_weekly_report` when
+    the project has an approved estimate; the BOQ PDF is the first one."""
 
 
 class WeeklyReportGenerateRequest(BaseModel):

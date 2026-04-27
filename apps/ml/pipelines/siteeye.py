@@ -32,12 +32,13 @@ from schemas.siteeye import (
     IncidentType,
     PhotoAIAnalysis,
     PhotoDetection,
+    ReportAttachment,
     ReportContent,
     ReportKPIs,
     SafetyStatus,
     WeeklyReport,
 )
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -506,6 +507,27 @@ async def generate_weekly_report(
     async with TenantAwareSession(organization_id) as session:
         data = await _gather_report_data(session, organization_id, project_id, week_start, week_end)
         content = await _assemble_report(data)
+
+        # Attach the latest approved BOQ as a sidecar PDF. Best-effort:
+        # projects without an approved estimate just skip this step
+        # without failing the weekly report. Done before HTML rendering
+        # so the report body could in future link to the attachment
+        # via a Jinja loop on `content.attachments`.
+        try:
+            boq_attachment = await _maybe_render_boq_attachment(
+                session, project_id=project_id, week_start=week_start
+            )
+            if boq_attachment is not None:
+                content = content.model_copy(
+                    update={"attachments": [*content.attachments, boq_attachment]}
+                )
+        except Exception as exc:  # pragma: no cover — defensive
+            logger.warning(
+                "weekly_report.boq_attach failed for project %s: %s",
+                project_id,
+                exc,
+            )
+
         html = _render_html(content)
         pdf_url = await _render_pdf_and_upload(html, project_id, week_start)
 
@@ -762,6 +784,98 @@ async def _render_pdf_and_upload(html: str, project_id: UUID, week_start: date) 
     key = f"siteeye/reports/{project_id}/{week_start.isoformat()}.pdf"
     await _s3_put(key, pdf_bytes, content_type="application/pdf")
     return f"s3://{_settings.s3_bucket}/{key}"
+
+
+async def _maybe_render_boq_attachment(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+    week_start: date,
+) -> ReportAttachment | None:
+    """If the project has an approved estimate, render its BOQ as a PDF.
+
+    The intent is "give the recipient a one-click way to see the latest
+    cost baseline alongside the weekly progress". Only approved
+    estimates land here — drafts would noisily flap each week as the
+    estimator iterates.
+
+    Returns `None` (and logs at INFO) when:
+      * The project has no approved estimate.
+      * The approved estimate has zero BOQ rows (corrupt/in-flight).
+      * `services.boq_io` isn't importable for some reason — the import
+        is local so a missing reportlab can't take down the whole
+        weekly cron.
+
+    The session is reused (it's already tenant-scoped via
+    `TenantAwareSession`) — no extra connection cost.
+    """
+    from models.costpulse import BoqItem, Estimate
+
+    estimate = (
+        await session.execute(
+            select(Estimate)
+            .where(Estimate.project_id == project_id, Estimate.status == "approved")
+            .order_by(Estimate.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if estimate is None:
+        logger.info(
+            "weekly_report.boq_attach: no approved estimate for project %s; skipping",
+            project_id,
+        )
+        return None
+
+    items = (
+        (
+            await session.execute(
+                select(BoqItem)
+                .where(BoqItem.estimate_id == estimate.id)
+                .order_by(BoqItem.sort_order)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not items:
+        logger.info(
+            "weekly_report.boq_attach: estimate %s has no BOQ items; skipping",
+            estimate.id,
+        )
+        return None
+
+    # Build BoqRow values from the ORM rows. Local import: services.boq_io
+    # depends on reportlab + openpyxl, which are heavy and not always
+    # present in pure-ML test environments. Lazy-import keeps the
+    # weekly cron robust to a misconfigured deploy that drops the deps.
+    try:
+        from services.boq_io import BoqRow, render_boq_pdf
+    except ImportError as exc:
+        logger.warning("weekly_report.boq_attach: services.boq_io missing: %s", exc)
+        return None
+
+    rows = [
+        BoqRow(
+            description=i.description or "",
+            code=i.code,
+            unit=i.unit,
+            quantity=i.quantity,
+            unit_price_vnd=i.unit_price_vnd,
+            total_price_vnd=i.total_price_vnd,
+            material_code=i.material_code,
+            sort_order=i.sort_order or 0,
+        )
+        for i in items
+    ]
+
+    pdf_bytes = await asyncio.to_thread(render_boq_pdf, estimate.name, rows)
+    key = f"siteeye/reports/{project_id}/{week_start.isoformat()}-boq.pdf"
+    await _s3_put(key, pdf_bytes, content_type="application/pdf")
+    return ReportAttachment(
+        kind="boq_pdf",
+        label=f"BOQ — {estimate.name}",
+        url=f"s3://{_settings.s3_bucket}/{key}",
+    )
 
 
 async def email_weekly_report(

@@ -49,6 +49,29 @@ class OrgMember(Base):
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
+class Invitation(Base):
+    """Admin-issued one-time token granting org membership.
+
+    See migration 0017_invitations for the flow rationale. The accept
+    endpoint runs without an X-Org-ID header (the invitee has no org
+    yet), so it uses `AdminSessionFactory` to bypass RLS — the row is
+    found by `token` which is itself the bearer credential.
+    """
+
+    __tablename__ = "invitations"
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    organization_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    email: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False)
+    token: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(TZ)
+    invited_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+
+
 class Project(Base):
     __tablename__ = "projects"
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)

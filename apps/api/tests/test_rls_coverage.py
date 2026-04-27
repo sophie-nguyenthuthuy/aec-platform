@@ -85,9 +85,10 @@ async def test_every_org_scoped_table_has_rls_enabled(admin_session):
     the other is the bug shape this test exists to prevent.
     """
     org_scoped = (
-        await admin_session.execute(
-            text(
-                """
+        (
+            await admin_session.execute(
+                text(
+                    """
                 SELECT c.table_name
                 FROM information_schema.columns c
                 JOIN information_schema.tables t USING (table_schema, table_name)
@@ -95,16 +96,6 @@ async def test_every_org_scoped_table_has_rls_enabled(admin_session):
                   AND c.column_name = 'organization_id'
                   AND t.table_type = 'BASE TABLE'
                 """
-            )
-        )
-    ).scalars().all()
-
-    rls_tables = set(
-        (
-            await admin_session.execute(
-                text(
-                    "SELECT tablename FROM pg_tables "
-                    "WHERE schemaname = 'public' AND rowsecurity"
                 )
             )
         )
@@ -112,11 +103,17 @@ async def test_every_org_scoped_table_has_rls_enabled(admin_session):
         .all()
     )
 
-    missing = [
-        tbl
-        for tbl in org_scoped
-        if tbl not in rls_tables and tbl not in _ALLOWLIST
-    ]
+    rls_tables = set(
+        (
+            await admin_session.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND rowsecurity")
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    missing = [tbl for tbl in org_scoped if tbl not in rls_tables and tbl not in _ALLOWLIST]
     assert not missing, (
         f"Tables with organization_id but no RLS enabled: {sorted(missing)}. "
         "Either add `ALTER TABLE … ENABLE ROW LEVEL SECURITY` to the relevant "

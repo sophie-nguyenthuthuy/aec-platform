@@ -22,6 +22,7 @@ The script issues one DB connection per incident batch and commits per
 incident — so a Ctrl-C in the middle leaves the partial sync intact and
 the next run picks up where it stopped.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,13 +37,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from core.config import get_settings
 from services.dailylog_sync import sync_incident_to_dailylog
 
-
 logger = logging.getLogger("backfill_dailylog")
 
 
-async def _iter_incidents(
-    session: Any, *, org_id: UUID | None, batch_size: int
-):
+async def _iter_incidents(session: Any, *, org_id: UUID | None, batch_size: int):
     """Yield incidents in batches of `batch_size`, ordered by detected_at."""
     where = "project_id IS NOT NULL"
     params: dict[str, Any] = {"limit": batch_size, "offset": 0}
@@ -95,8 +93,7 @@ async def run_backfill(*, org_id: UUID | None, dry_run: bool, batch_size: int) -
                     existing = (
                         await session.execute(
                             text(
-                                "SELECT 1 FROM daily_log_observations "
-                                "WHERE related_safety_incident_id = :iid LIMIT 1"
+                                "SELECT 1 FROM daily_log_observations WHERE related_safety_incident_id = :iid LIMIT 1"
                             ),
                             {"iid": str(inc.id)},
                         )
@@ -156,11 +153,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s | %(message)s",
     )
 
-    counters = asyncio.run(
-        run_backfill(
-            org_id=args.org_id, dry_run=args.dry_run, batch_size=args.batch_size
-        )
-    )
+    counters = asyncio.run(run_backfill(org_id=args.org_id, dry_run=args.dry_run, batch_size=args.batch_size))
     print(
         f"\nBackfill {'(DRY-RUN) ' if args.dry_run else ''}done — "
         f"scanned={counters['scanned']} "
