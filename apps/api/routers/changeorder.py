@@ -394,6 +394,29 @@ async def record_approval(
             text(f"UPDATE change_orders SET status = :status{extra_set} WHERE id = :id"),
             params,
         )
+        # Cross-module rollup: when the CO becomes executed, push every
+        # line item with a schedule_activity_id onto its activity. Best-effort
+        # (a failure must not block the approval audit row from committing).
+        if new_status == "executed":
+            try:
+                from services.changeorder_schedule_rollup import (
+                    apply_change_order_to_schedule,
+                )
+
+                await apply_change_order_to_schedule(
+                    session,
+                    organization_id=auth.organization_id,
+                    change_order_id=co_id,
+                    actor_id=auth.user_id,
+                )
+            except Exception as exc:  # noqa: BLE001 — best-effort
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "changeorder.executed_rollup: co_id=%s rollup failed: %s",
+                    co_id,
+                    exc,
+                )
         await session.commit()
     return ok(Approval.model_validate(_row_to_dict(approval)).model_dump(mode="json"))
 
