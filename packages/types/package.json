@@ -13,6 +13,7 @@
     "./submittals": "./submittals.ts",
     "./dailylog": "./dailylog.ts",
     "./changeorder": "./changeorder.ts",
-    "./punchlist": "./punchlist.ts"
+    "./punchlist": "./punchlist.ts",
+    "./inbox": "./inbox.ts"
   }
 }

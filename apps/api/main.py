@@ -21,6 +21,7 @@ from routers import (  # noqa: E402
     activity,
     admin,
     assistant,
+    audit,
     bidradar,
     changeorder,
     codeguard,
@@ -29,10 +30,12 @@ from routers import (  # noqa: E402
     drawbridge,
     files,
     handover,
+    inbox,
     invitations,
     me,
     notifications,
     org,
+    orgs,
     projects,
     public_rfq,
     pulse,
@@ -72,12 +75,15 @@ def create_app() -> FastAPI:
     setup_observability(app, settings)
 
     app.include_router(me.router)
+    app.include_router(inbox.router)
     app.include_router(org.router)
+    app.include_router(orgs.router)
     app.include_router(invitations.router)
     app.include_router(projects.router)
     app.include_router(activity.router)
     app.include_router(notifications.router)
     app.include_router(assistant.router)
+    app.include_router(audit.router)
     app.include_router(winwork.router)
     app.include_router(pulse.router)
     app.include_router(bidradar.router)

@@ -5,7 +5,8 @@ import type { ReactNode } from "react";
 import { OrgSwitcher } from "./_components/OrgSwitcher";
 
 const NAV: Array<{ href: Route; label: string; section?: string }> = [
-  { section: "Tổng quan", href: "/projects", label: "Dự án" },
+  { section: "Tổng quan", href: "/inbox", label: "Hôm nay" },
+  { href: "/projects", label: "Dự án" },
   { href: "/activity", label: "Hoạt động" },
   { section: "Giai đoạn thiết kế", href: "/codeguard", label: "CodeGuard" },
   { href: "/drawbridge", label: "Drawbridge" },
@@ -21,6 +22,7 @@ const NAV: Array<{ href: Route; label: string; section?: string }> = [
   { section: "Bàn giao", href: "/handover", label: "Handover" },
   { href: "/punchlist", label: "Punch list" },
   { section: "Cài đặt", href: "/settings/members", label: "Thành viên" },
+  { href: "/settings/audit", label: "Nhật ký kiểm tra" },
 ];
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
