@@ -35,6 +35,8 @@ from schemas.changeorder import (
     LineItem,
     LineItemCreate,
     LineItemUpdate,
+    PriceSuggestion,
+    PriceSuggestionsResponse,
     RejectCandidateRequest,
     Source,
     SourceCreate,
@@ -722,6 +724,88 @@ async def analyze_impact_endpoint(
         )
         await session.commit()
     return ok(analysis)
+
+
+# ---------- CostPulse → CO unit-price suggestions ----------
+
+
+@router.get("/price-suggestions")
+async def price_suggestions(
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    q: str | None = None,
+    spec_section: str | None = None,
+    province: str | None = None,
+    limit: int = Query(default=5, ge=1, le=20),
+):
+    """Top-k CostPulse rows ranked by `effective_date DESC` for a CO line-item
+    form hint. Matches by free-text `q` against material_code/name/category
+    via case-insensitive `ILIKE`.
+
+    `spec_section` is a CSI MasterFormat hint (e.g. "03 30 00") that we use
+    as an extra fuzzy filter against `category` — many catalog rows store
+    descriptive categories (`"Concrete"`, `"Reinforcement"`) that loosely
+    map to the CSI division prefix (the first two digits of the section).
+
+    `province` lets a UI scope to a region's catalog. The `material_prices`
+    table is org-public (no organization_id column) so RLS doesn't apply
+    here — but the endpoint still requires auth so unauthenticated callers
+    can't cheap-poll the catalog.
+    """
+    where: list[str] = []
+    params: dict[str, Any] = {"limit": limit}
+    if q:
+        # Fuzzy across the three most useful columns. Each ILIKE is cheap on
+        # the trigram index built in 0002_costpulse.
+        where.append("(material_code ILIKE :q OR name ILIKE :q OR category ILIKE :q)")
+        params["q"] = f"%{q}%"
+    if spec_section:
+        # Use the first two-digit prefix as a soft category hint (e.g.
+        # "03 30 00" → "03"). If the row's category contains that prefix
+        # OR the row's material_code starts with it, it's a candidate.
+        prefix = spec_section.strip().split()[0] if spec_section.strip() else ""
+        if prefix:
+            where.append("(category ILIKE :spec_pref OR material_code ILIKE :spec_pref)")
+            params["spec_pref"] = f"%{prefix}%"
+    if province:
+        where.append("province = :province")
+        params["province"] = province
+
+    where_sql = " AND ".join(where) if where else "TRUE"
+
+    async with TenantAwareSession(auth.organization_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    f"""
+                SELECT id, material_code, name, category, unit,
+                       price_vnd, province, source, effective_date
+                FROM material_prices
+                WHERE {where_sql}
+                ORDER BY effective_date DESC, name ASC
+                LIMIT :limit
+                """
+                ),
+                params,
+            )
+        ).all()
+
+    suggestions = [
+        PriceSuggestion(
+            material_price_id=r._mapping["id"],
+            material_code=r._mapping["material_code"],
+            name=r._mapping["name"],
+            category=r._mapping.get("category"),
+            unit=r._mapping["unit"],
+            # price_vnd is Numeric; coerce to int VND for the UI.
+            price_vnd=int(r._mapping["price_vnd"]),
+            province=r._mapping.get("province"),
+            source=r._mapping.get("source"),
+            effective_date=r._mapping.get("effective_date"),
+        )
+        for r in rows
+    ]
+    response = PriceSuggestionsResponse(query=q, spec_section=spec_section, results=suggestions)
+    return ok(response.model_dump(mode="json"))
 
 
 # ---------- Helpers ----------

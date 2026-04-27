@@ -8,6 +8,7 @@ export {
   useExtractCandidates,
   useAcceptCandidate,
   useAnalyzeImpact,
+  usePriceSuggestions,
 } from "./useChangeOrder";
 export type {
   ChangeOrderListFilters,
@@ -21,4 +22,6 @@ export type {
   Candidate,
   LineItem,
   Approval,
+  PriceSuggestion,
+  PriceSuggestionsResponse,
 } from "./useChangeOrder";

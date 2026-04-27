@@ -345,3 +345,59 @@ async def test_analyze_impact_persists_and_returns_rollup(client, patch_session,
     assert body["schedule_impact_days"] == 3
     assert body["rollup_method"] == "sum_cost+max_days"
     patch_pipeline.analyze_impact.assert_awaited_once()
+
+
+# ---------- CostPulse → CO price suggestions ----------
+
+
+async def test_price_suggestions_returns_top_k_by_recency(client, patch_session):
+    from datetime import date
+
+    rows = [
+        _make_row(
+            id=uuid4(),
+            material_code="C30-OPC",
+            name="Bê tông M300 OPC",
+            category="Concrete",
+            unit="m3",
+            price_vnd=1_750_000,
+            province="HCM",
+            source="ministry-april",
+            effective_date=date(2026, 4, 1),
+        ),
+        _make_row(
+            id=uuid4(),
+            material_code="C30-OPC",
+            name="Bê tông M300 OPC",
+            category="Concrete",
+            unit="m3",
+            price_vnd=1_700_000,
+            province="HCM",
+            source="ministry-march",
+            effective_date=date(2026, 3, 1),
+        ),
+    ]
+    patch_session.queue(_result(rows=rows))
+
+    resp = await client.get(
+        "/api/v1/changeorder/price-suggestions",
+        params={"q": "bê tông", "spec_section": "03 30 00", "limit": 5},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()["data"]
+    assert body["query"] == "bê tông"
+    assert body["spec_section"] == "03 30 00"
+    assert len(body["results"]) == 2
+    # Returned in DB order (which the SQL guarantees via ORDER BY effective_date DESC).
+    assert body["results"][0]["price_vnd"] == 1_750_000
+    assert body["results"][0]["effective_date"] == "2026-04-01"
+    assert body["results"][0]["material_code"] == "C30-OPC"
+
+
+async def test_price_suggestions_no_match_returns_empty_list(client, patch_session):
+    patch_session.queue(_result(rows=[]))
+
+    resp = await client.get("/api/v1/changeorder/price-suggestions", params={"q": "unobtainium"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()["data"]
+    assert body["results"] == []

@@ -125,6 +125,73 @@ export function useCreateChangeOrder() {
   });
 }
 
+export interface PriceSuggestion {
+  material_price_id: string;
+  material_code: string;
+  name: string;
+  category: string | null;
+  unit: string;
+  price_vnd: number;
+  province: string | null;
+  source: string | null;
+  effective_date: string | null;
+}
+
+export interface PriceSuggestionsResponse {
+  query: string | null;
+  spec_section: string | null;
+  results: PriceSuggestion[];
+}
+
+/** CostPulse-backed unit price hints for a CO line-item form. */
+export function usePriceSuggestions(opts: {
+  q?: string;
+  spec_section?: string;
+  province?: string;
+  limit?: number;
+  enabled?: boolean;
+}) {
+  const { token, orgId } = useSession();
+  const enabled =
+    (opts.enabled ?? true) && Boolean(opts.q?.trim() || opts.spec_section?.trim());
+  return useQuery({
+    enabled,
+    // Stable key — same inputs reuse the cache entry.
+    queryKey: [
+      "changeorder",
+      "price-suggestions",
+      opts.q ?? "",
+      opts.spec_section ?? "",
+      opts.province ?? "",
+      opts.limit ?? 5,
+    ] as const,
+    staleTime: 30_000, // hints don't change often; avoid hammering the API
+    queryFn: async () => {
+      const res = await apiFetch<PriceSuggestionsResponse>(
+        "/api/v1/changeorder/price-suggestions",
+        {
+          method: "GET",
+          token,
+          orgId,
+          query: {
+            q: opts.q,
+            spec_section: opts.spec_section,
+            province: opts.province,
+            limit: opts.limit ?? 5,
+          },
+        },
+      );
+      return (
+        (res.data ?? {
+          query: opts.q ?? null,
+          spec_section: opts.spec_section ?? null,
+          results: [],
+        }) as PriceSuggestionsResponse
+      );
+    },
+  });
+}
+
 export function useAddLineItem(coId: string) {
   const { token, orgId } = useSession();
   const qc = useQueryClient();

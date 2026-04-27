@@ -7,7 +7,7 @@ the AI extract / analyze request shapes.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -243,6 +243,26 @@ class AnalyzeImpactRequest(BaseModel):
     """Re-run the AI cost/schedule impact analyzer on an existing CO."""
 
     force: bool = False
+
+
+class PriceSuggestion(BaseModel):
+    """One CostPulse hit ranked by recency for a CO line-item form hint."""
+
+    material_price_id: UUID
+    material_code: str
+    name: str
+    category: str | None = None
+    unit: str
+    price_vnd: int
+    province: str | None = None
+    effective_date: date | None = None
+    source: str | None = None
+
+
+class PriceSuggestionsResponse(BaseModel):
+    query: str | None = None
+    spec_section: str | None = None
+    results: list[PriceSuggestion] = Field(default_factory=list)
 
 
 # ---------- Aggregates ----------
