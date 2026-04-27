@@ -865,3 +865,118 @@ async def test_promote_drawings_404_when_package_missing(client, patch_session):
     )
     assert r.status_code == 404
     assert "package_not_found" in r.text
+
+
+# ============================================================================
+# Punch list precondition for handover delivery
+# ============================================================================
+
+
+async def test_update_package_to_delivered_409s_when_unsigned_punch_lists(client, patch_session):
+    """Transitioning a handover package to `delivered` MUST 409 if any
+    punch list on the same project is still unsigned (status open or
+    in_review). Owner-acceptance + open walkthrough findings are
+    contradictory states."""
+    pkg_id = uuid4()
+    list_id = uuid4()
+    blockers = MagicMock()
+    blockers.all.return_value = [
+        type(
+            "_R",
+            (),
+            {
+                "_mapping": {
+                    "id": list_id,
+                    "name": "Pre-occupancy walkthrough",
+                    "status": "open",
+                    "open_items": 3,
+                }
+            },
+        )()
+    ]
+    patch_session.queue(blockers)
+
+    r = await client.patch(
+        f"/api/v1/handover/packages/{pkg_id}",
+        json={"status": "delivered"},
+    )
+    assert r.status_code == 409, r.text
+    body = r.json()
+    err = body["errors"][0]
+    # Detail comes through as the structured payload string-encoded.
+    # The first errors[].message contains our explanation.
+    assert "punch list" in err["message"].lower()
+
+
+async def test_update_package_to_delivered_succeeds_when_all_punch_lists_signed(client, patch_session):
+    """When the same query returns no blockers, the UPDATE proceeds."""
+    pkg_id = uuid4()
+    # Precondition query returns empty list.
+    no_blockers = MagicMock()
+    no_blockers.all.return_value = []
+    patch_session.queue(no_blockers)
+    # UPDATE … RETURNING * → the updated package row.
+    pkg = _package_row(id=pkg_id, status="delivered")
+    patch_session.queue(_row(**pkg))
+
+    r = await client.patch(
+        f"/api/v1/handover/packages/{pkg_id}",
+        json={"status": "delivered"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["status"] == "delivered"
+
+
+async def test_package_preconditions_lists_blocking_punch_lists(client, patch_session):
+    """The read-only preconditions endpoint surfaces the same blockers
+    so the UI can render warnings before the user attempts delivery."""
+    pkg_id = uuid4()
+    list_id = uuid4()
+
+    # 1: SELECT package id + project_id
+    pkg_lookup = MagicMock()
+    pkg_lookup.one_or_none.return_value = type("_P", (), {"_mapping": {"id": pkg_id, "project_id": uuid4()}})()
+    patch_session.queue(pkg_lookup)
+
+    # 2: SELECT unsigned lists with item counts
+    unsigned = MagicMock()
+    unsigned.all.return_value = [
+        type(
+            "_R",
+            (),
+            {
+                "_mapping": {
+                    "id": list_id,
+                    "name": "Owner walkthrough",
+                    "status": "in_review",
+                    "walkthrough_date": date(2026, 5, 1),
+                    "open_items": 2,
+                }
+            },
+        )()
+    ]
+    patch_session.queue(unsigned)
+
+    r = await client.get(f"/api/v1/handover/packages/{pkg_id}/preconditions")
+    assert r.status_code == 200, r.text
+    body = r.json()["data"]
+    assert body["deliverable"] is False
+    assert len(body["blockers"]) == 1
+    assert body["blockers"][0]["code"] == "punchlist_open"
+    assert body["blockers"][0]["open_items"] == 2
+
+
+async def test_package_preconditions_deliverable_when_no_blockers(client, patch_session):
+    pkg_id = uuid4()
+    pkg_lookup = MagicMock()
+    pkg_lookup.one_or_none.return_value = type("_P", (), {"_mapping": {"id": pkg_id, "project_id": uuid4()}})()
+    patch_session.queue(pkg_lookup)
+    no_blockers = MagicMock()
+    no_blockers.all.return_value = []
+    patch_session.queue(no_blockers)
+
+    r = await client.get(f"/api/v1/handover/packages/{pkg_id}/preconditions")
+    assert r.status_code == 200
+    body = r.json()["data"]
+    assert body["deliverable"] is True
+    assert body["blockers"] == []

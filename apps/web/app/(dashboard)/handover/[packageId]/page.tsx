@@ -14,6 +14,7 @@ import {
   useDefects,
   usePackage,
   usePackageOmManuals,
+  usePackagePreconditions,
   useProjectAsBuilts,
   usePromoteDrawings,
   useUpdateCloseoutItem,
@@ -21,6 +22,8 @@ import {
   useUpdateWarranty,
   useWarranties,
 } from "@/hooks/handover";
+import Link from "next/link";
+import { AlertTriangle } from "lucide-react";
 
 type Tab = "checklist" | "as-built" | "om" | "warranties" | "defects";
 
@@ -38,6 +41,7 @@ export default function PackageDetailPage() {
   const [tab, setTab] = useState<Tab>("checklist");
 
   const { data: pkg, isLoading } = usePackage(packageId);
+  const { data: precond } = usePackagePreconditions(packageId);
 
   if (isLoading) return <p className="text-sm text-slate-500">Đang tải...</p>;
   if (!pkg)
@@ -54,6 +58,34 @@ export default function PackageDetailPage() {
           {pkg.status}
         </p>
       </div>
+
+      {precond && !precond.deliverable && pkg.status !== "delivered" && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-700" />
+            <div className="flex-1 text-sm text-amber-900">
+              <p className="font-medium">
+                Gói này chưa thể bàn giao — còn punch list chủ đầu tư chưa ký
+              </p>
+              <ul className="mt-1.5 space-y-1 text-xs">
+                {precond.blockers.map((b) => (
+                  <li key={b.list_id} className="flex items-baseline gap-2">
+                    <Link
+                      href={`/punchlist/${b.list_id}`}
+                      className="font-medium text-amber-800 underline hover:text-amber-900"
+                    >
+                      {b.name}
+                    </Link>
+                    <span className="text-amber-700">
+                      ({b.status} · {b.open_items} item chưa xử lý)
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-1 border-b border-slate-200">
         {TABS.map((t) => (

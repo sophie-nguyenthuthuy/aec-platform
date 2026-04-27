@@ -113,3 +113,37 @@ export function useUpdatePackage(packageId: string) {
     },
   });
 }
+
+export interface PackageBlocker {
+  code: string;
+  list_id: string;
+  name: string;
+  status: string;
+  walkthrough_date: string | null;
+  open_items: number;
+}
+
+export interface PackagePreconditions {
+  package_id: string;
+  deliverable: boolean;
+  blockers: PackageBlocker[];
+}
+
+/** Read-only check of what blocks delivery. Lets the UI render warnings
+ *  before the user attempts the transition (vs learning via 409). */
+export function usePackagePreconditions(packageId: string | undefined) {
+  const { token, orgId } = useSession();
+  return useQuery({
+    enabled: Boolean(packageId),
+    queryKey: packageId
+      ? (["handover", "packages", packageId, "preconditions"] as const)
+      : (["handover", "packages", "noop"] as const),
+    queryFn: async () => {
+      const res = await apiFetch<PackagePreconditions>(
+        `/api/v1/handover/packages/${packageId}/preconditions`,
+        { method: "GET", token, orgId },
+      );
+      return res.data as PackagePreconditions;
+    },
+  });
+}

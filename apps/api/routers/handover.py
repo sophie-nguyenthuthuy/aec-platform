@@ -232,6 +232,52 @@ async def update_package(
         raise HTTPException(status_code=400, detail="no_fields_to_update")
 
     async with TenantAwareSession(auth.organization_id) as session:
+        # Precondition: a delivered package implies the owner has accepted
+        # the work — but unsigned punch lists on the same project mean
+        # there are still open owner-walkthrough findings. Block the
+        # transition with a 409 + structured detail so the UI can render
+        # "1 punch list still open — close it before delivery".
+        if payload.status == PackageStatus.delivered:
+            blockers = (
+                await session.execute(
+                    text(
+                        """
+                    SELECT pl.id, pl.name, pl.status,
+                           (SELECT COUNT(*) FROM punch_items i
+                              WHERE i.list_id = pl.id
+                                AND i.status NOT IN ('verified', 'waived')) AS open_items
+                    FROM handover_packages hp
+                    JOIN punch_lists pl ON pl.project_id = hp.project_id
+                    WHERE hp.id = :id
+                      AND pl.status IN ('open', 'in_review')
+                    ORDER BY pl.walkthrough_date DESC
+                    """
+                    ),
+                    {"id": str(package_id)},
+                )
+            ).all()
+            if blockers:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "punchlist_blocking_delivery",
+                        "message": (
+                            f"{len(blockers)} punch list(s) still unsigned — "
+                            "sign them off (or cancel them) before delivering "
+                            "the handover package."
+                        ),
+                        "blockers": [
+                            {
+                                "list_id": str(b._mapping["id"]),
+                                "name": b._mapping["name"],
+                                "status": b._mapping["status"],
+                                "open_items": int(b._mapping["open_items"] or 0),
+                            }
+                            for b in blockers
+                        ],
+                    },
+                )
+
         row = (
             (
                 await session.execute(
@@ -251,6 +297,76 @@ async def update_package(
     if row is None:
         raise HTTPException(status_code=404, detail="package_not_found")
     return ok(HandoverPackage.model_validate(dict(row)).model_dump(mode="json"))
+
+
+@router.get("/packages/{package_id}/preconditions")
+async def package_preconditions(
+    package_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+):
+    """Read-only checklist of what blocks delivery on this package.
+
+    Lets the UI render warnings before the user attempts the transition,
+    rather than learning about blockers via a 409 round-trip. Currently
+    surfaces:
+
+      * `punchlist_open` — unsigned punch lists on the same project.
+        Blocks delivery.
+
+    Future preconditions (closeout items not all done, missing O&M
+    manuals, expiring warranties without coverage) can plug into the
+    same response shape.
+    """
+    async with TenantAwareSession(auth.organization_id) as session:
+        pkg = (
+            await session.execute(
+                text("SELECT id, project_id FROM handover_packages WHERE id = :id"),
+                {"id": str(package_id)},
+            )
+        ).one_or_none()
+        if pkg is None:
+            raise HTTPException(status_code=404, detail="package_not_found")
+
+        unsigned_lists = (
+            await session.execute(
+                text(
+                    """
+                SELECT id, name, status, walkthrough_date,
+                       (SELECT COUNT(*) FROM punch_items i
+                          WHERE i.list_id = pl.id
+                            AND i.status NOT IN ('verified', 'waived')) AS open_items
+                FROM punch_lists pl
+                WHERE pl.project_id = (
+                    SELECT project_id FROM handover_packages WHERE id = :id
+                )
+                  AND pl.status IN ('open', 'in_review')
+                ORDER BY walkthrough_date DESC
+                """
+                ),
+                {"id": str(package_id)},
+            )
+        ).all()
+
+    blockers = [
+        {
+            "code": "punchlist_open",
+            "list_id": str(b._mapping["id"]),
+            "name": b._mapping["name"],
+            "status": b._mapping["status"],
+            "walkthrough_date": b._mapping["walkthrough_date"].isoformat()
+            if b._mapping.get("walkthrough_date")
+            else None,
+            "open_items": int(b._mapping["open_items"] or 0),
+        }
+        for b in unsigned_lists
+    ]
+    return ok(
+        {
+            "package_id": str(package_id),
+            "deliverable": len(blockers) == 0,
+            "blockers": blockers,
+        }
+    )
 
 
 # ---------- Closeout items ----------
