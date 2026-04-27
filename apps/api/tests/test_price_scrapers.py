@@ -1170,3 +1170,86 @@ def _probe_response(status_code: int, text: str):
     resp.status_code = status_code
     resp.text = text
     return resp
+
+
+# ---------- PDF OCR fallback (T2.4) ----------
+#
+# The full OCR pipeline depends on poppler (system) + pytesseract +
+# tesseract-vie-traineddata, which only the prod containers have. These
+# tests exercise the pure-Python row-splitter logic and the lazy-import
+# degradation path so the parser stays robust whether OCR deps are
+# present or not.
+
+
+from services.price_scrapers.parsers.pdf import _split_ocr_text_into_rows
+
+
+class TestSplitOcrTextIntoRows:
+    """Tesseract-style output → list-of-list rows."""
+
+    def test_splits_multispace_runs_into_columns(self):
+        text = "Bê tông C30      m3      2.050.000\nThép cuộn CB500  kg      20.500\n"
+        rows = _split_ocr_text_into_rows(text)
+        assert rows == [
+            ["Bê tông C30", "m3", "2.050.000"],
+            ["Thép cuộn CB500", "kg", "20.500"],
+        ]
+
+    def test_keeps_single_spaces_inside_cells(self):
+        # "Bê tông thương phẩm" is one cell — single spaces stay.
+        text = "Bê tông thương phẩm C30    m3    2.000.000\n"
+        rows = _split_ocr_text_into_rows(text)
+        assert rows == [["Bê tông thương phẩm C30", "m3", "2.000.000"]]
+
+    def test_drops_blank_and_paragraph_lines(self):
+        # Banner text (one cell) and blank lines must NOT appear in rows.
+        text = (
+            "Thông báo giá tháng 03/2026\n"
+            "\n"
+            "Bê tông C30      m3      2.000.000\n"
+            "  \n"
+            "Phòng Kinh tế Vật liệu\n"
+            "Thép CB500       kg      20.500\n"
+        )
+        rows = _split_ocr_text_into_rows(text)
+        # Only the two table-shaped rows survive; banner / footer get pruned.
+        assert rows == [
+            ["Bê tông C30", "m3", "2.000.000"],
+            ["Thép CB500", "kg", "20.500"],
+        ]
+
+    def test_returns_empty_for_pure_paragraph_text(self):
+        # No 2+-space gaps anywhere — the whole document is prose.
+        text = (
+            "Phòng Kinh tế Vật liệu Xây dựng kính báo cáo các nhà thầu "
+            "rằng giá vật liệu tháng này có những thay đổi như sau...\n"
+        )
+        assert _split_ocr_text_into_rows(text) == []
+
+
+def test_ocr_tables_returns_empty_when_pytesseract_missing(monkeypatch, caplog):
+    """Lazy-import: when pytesseract isn't installed, OCR returns ([], '').
+
+    The parser should log + degrade rather than raise. We simulate the
+    ImportError by injecting a fake `pytesseract` module that itself
+    imports a missing dep.
+    """
+    import logging
+    import sys
+
+    from services.price_scrapers.parsers import pdf as pdf_parser
+
+    # Swap pytesseract / pdf2image to None in sys.modules so the
+    # `import` inside `_ocr_tables` raises ImportError. We avoid using
+    # builtins.__import__ patches because `pdfplumber`'s own imports
+    # would trip them.
+    monkeypatch.setitem(sys.modules, "pytesseract", None)
+    monkeypatch.setitem(sys.modules, "pdf2image", None)
+
+    with caplog.at_level(logging.INFO, logger="services.price_scrapers.parsers.pdf"):
+        rows, full_text = pdf_parser._ocr_tables(b"%PDF-1.4 fake", province="test")
+
+    assert rows == []
+    assert full_text == ""
+    log_msgs = [r.getMessage() for r in caplog.records]
+    assert any("OCR deps not installed" in m for m in log_msgs)

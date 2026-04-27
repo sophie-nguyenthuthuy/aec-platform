@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ChevronLeft, ExternalLink } from "lucide-react";
+import { ChevronLeft, ExternalLink, Info } from "lucide-react";
+import { ApiError } from "@/lib/api";
 import { useRegulation } from "@/hooks/codeguard";
 
 export default function RegulationDetailPage() {
@@ -10,7 +11,42 @@ export default function RegulationDetailPage() {
   const { data, isLoading, error } = useRegulation(params?.id);
 
   if (isLoading) return <div className="p-6 text-sm text-slate-500">Đang tải...</div>;
-  if (error) return <div className="p-6 text-sm text-red-600">Lỗi: {error.message}</div>;
+
+  if (error) {
+    // 404 vs other errors: 404 is "regulation doesn't exist" (or was
+    // deleted) — render a neutral "not found" page with a back link;
+    // other errors get the red-banner treatment matching the rest of
+    // the module.
+    const is404 = error instanceof ApiError && error.status === 404;
+    return (
+      <div className="space-y-6">
+        <Link
+          href="/codeguard/regulations"
+          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+        >
+          <ChevronLeft size={14} /> Quay lại thư viện
+        </Link>
+        {is404 ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-amber-700">
+              <Info size={14} />
+              Không tìm thấy quy chuẩn
+            </div>
+            <p>
+              Quy chuẩn này không tồn tại hoặc đã bị xóa khỏi thư viện. Hãy
+              quay lại thư viện và chọn một mục khác.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-800">
+            <div className="mb-1 font-medium">Lỗi khi tải quy chuẩn</div>
+            <p>{error.message}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (!data) return null;
 
   return (
@@ -50,7 +86,21 @@ export default function RegulationDetailPage() {
           Nội dung ({data.sections.length} mục)
         </h2>
         {data.sections.length === 0 ? (
-          <div className="p-6 text-sm text-slate-500">Chưa có nội dung đã xử lý.</div>
+          // Empty sections is the same disambiguation problem as
+          // empty findings on the scan page: could mean "regulation
+          // exists but ingest didn't extract sections" (a real
+          // operational issue worth flagging) rather than "all clear."
+          // Amber advisory matches the pattern across the module.
+          <div className="m-4 rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+            <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-amber-700">
+              <Info size={14} />
+              Chưa có nội dung đã xử lý
+            </div>
+            <p>
+              Quy chuẩn này tồn tại nhưng chưa có nội dung được phân tách
+              thành mục. Hãy chạy lại pipeline ingest cho mã này.
+            </p>
+          </div>
         ) : (
           <ul className="divide-y divide-slate-100">
             {data.sections.map((s, i) => (

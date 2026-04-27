@@ -14,6 +14,7 @@ from core.config import get_settings
 from core.envelope import Envelope, ok, paginated
 from db.deps import get_db
 from middleware.auth import AuthContext, require_auth
+from middleware.rbac import Role, require_min_role
 from models.pulse import (
     ChangeOrder as ChangeOrderModel,
 )
@@ -375,7 +376,8 @@ async def analyze_change_order(
 async def approve_change_order(
     co_id: UUID,
     payload: ChangeOrderApproval,
-    auth: Annotated[AuthContext, Depends(require_auth)],
+    # Approving / rejecting a CO writes to the project budget — admin/owner.
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
     co = await db.get(ChangeOrderModel, co_id)

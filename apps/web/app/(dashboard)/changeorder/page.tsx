@@ -366,4 +366,3 @@ function ExtractDialog({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
-

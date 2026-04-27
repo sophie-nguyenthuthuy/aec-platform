@@ -15,11 +15,19 @@
  *  - 404 (RFQ withdrawn) → matching error variant.
  *  - 200 + submission_status="submitted" → confirmation page (no form).
  *  - 200 + submission_status="pending" → the response form.
+ *
+ * i18n: Vietnamese-first (the actual user base) with an English toggle
+ * via `?lang=en`. Strings live in `./i18n.ts` rather than going through
+ * `next-intl` because the page sits outside the dashboard locale plumbing
+ * (suppliers have no session, no cookie, no login).
  */
 
 import { useEffect, useState } from "react";
 
+import { SUPPLIER_MESSAGES, resolveSupplierLocale, type SupplierLocale } from "./i18n";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 
 interface PublicBoqLine {
   description: string;
@@ -61,16 +69,22 @@ type LoadState =
   | { kind: "error"; status: number; message: string }
   | { kind: "ready"; context: PublicRfqContext };
 
+
+type T = (key: string) => string;
+
+
 export default function RfqRespondPage(): JSX.Element {
   const [token, setToken] = useState<string | null>(null);
+  const [locale, setLocale] = useState<SupplierLocale>("vi");
   const [state, setState] = useState<LoadState>({ kind: "loading" });
 
-  // Read `?t=` directly from window.location instead of `useSearchParams`
-  // so we can render a sensible no-token state without pulling in the
-  // suspense boundary the App Router expects around `useSearchParams`.
+  // Read `?t=` and `?lang=` from window.location instead of
+  // `useSearchParams` so we can render a sensible no-token state without
+  // pulling in the suspense boundary the App Router expects around it.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
+    setLocale(resolveSupplierLocale(params.get("lang")));
     const t = params.get("t");
     if (!t) {
       setState({ kind: "no-token" });
@@ -80,33 +94,117 @@ export default function RfqRespondPage(): JSX.Element {
     void fetchContext(t).then(setState);
   }, []);
 
+  const t: T = (key) => SUPPLIER_MESSAGES[locale][key] ?? key;
+
   if (state.kind === "loading") {
-    return <CenteredCard>Loading your RFQ…</CenteredCard>;
+    return (
+      <PageShell locale={locale} setLocale={setLocale} t={t}>
+        <CenteredCard>{t("loading")}</CenteredCard>
+      </PageShell>
+    );
   }
   if (state.kind === "no-token") {
     return (
-      <ErrorCard title="Missing link token">
-        This page expects a secure link from your RFQ email. If you copied
-        the URL by hand, please use the original link from the email
-        instead — the token after <code>?t=</code> is required.
-      </ErrorCard>
+      <PageShell locale={locale} setLocale={setLocale} t={t}>
+        <ErrorCard title={t("missing_token_title")}>{t("missing_token_body")}</ErrorCard>
+      </PageShell>
     );
   }
   if (state.kind === "error") {
     return (
-      <ErrorCard title={state.status === 401 ? "Link expired or invalid" : "RFQ unavailable"}>
-        {state.status === 401
-          ? "The link in your email may have expired or been replaced by a newer one. Please reply to the original email asking for a fresh link."
-          : state.message}
-      </ErrorCard>
+      <PageShell locale={locale} setLocale={setLocale} t={t}>
+        <ErrorCard
+          title={state.status === 401 ? t("expired_title") : t("unavailable_title")}
+        >
+          {state.status === 401 ? t("expired_body") : state.message}
+        </ErrorCard>
+      </PageShell>
     );
   }
 
   const ctx = state.context;
   if (ctx.submission_status === "submitted") {
-    return <SubmittedConfirmation context={ctx} />;
+    return (
+      <PageShell locale={locale} setLocale={setLocale} t={t}>
+        <SubmittedConfirmation context={ctx} t={t} />
+      </PageShell>
+    );
   }
-  return <RespondForm context={ctx} token={token!} />;
+  return (
+    <PageShell locale={locale} setLocale={setLocale} t={t}>
+      <RespondForm context={ctx} token={token!} t={t} />
+    </PageShell>
+  );
+}
+
+
+// ---------- Page chrome (locale toggle) ----------
+
+
+function PageShell({
+  children,
+  locale,
+  setLocale,
+  t,
+}: {
+  children: React.ReactNode;
+  locale: SupplierLocale;
+  setLocale: (l: SupplierLocale) => void;
+  t: T;
+}): JSX.Element {
+  // Keep the URL in sync when the supplier flips language so a refresh
+  // (or shared link) preserves their choice. Done with `replaceState`
+  // rather than `pushState` so the back button doesn't navigate
+  // through every locale toggle.
+  function changeLocale(next: SupplierLocale) {
+    setLocale(next);
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      params.set("lang", next);
+      const url = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState({}, "", url);
+    }
+  }
+
+  return (
+    <>
+      <div className="absolute right-4 top-4 z-10 flex items-center gap-2 text-xs text-slate-600">
+        <span className="hidden sm:inline">{t("language_label")}:</span>
+        <LocaleButton active={locale === "vi"} onClick={() => changeLocale("vi")}>
+          {t("language_vi")}
+        </LocaleButton>
+        <LocaleButton active={locale === "en"} onClick={() => changeLocale("en")}>
+          {t("language_en")}
+        </LocaleButton>
+      </div>
+      {children}
+    </>
+  );
+}
+
+
+function LocaleButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1 ${
+        active
+          ? "border-slate-900 bg-slate-900 text-white"
+          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+      }`}
+    >
+      {children}
+    </button>
+  );
 }
 
 
@@ -186,20 +284,20 @@ function ErrorCard({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-function ContextHeader({ context }: { context: PublicRfqContext }): JSX.Element {
+function ContextHeader({ context, t }: { context: PublicRfqContext; t: T }): JSX.Element {
   return (
     <header className="border-b border-slate-200 pb-4">
-      <div className="text-xs uppercase tracking-wide text-slate-500">Request for Quotation</div>
+      <div className="text-xs uppercase tracking-wide text-slate-500">{t("header_label")}</div>
       <h1 className="mt-1 text-2xl font-bold text-slate-900">{context.organization_name}</h1>
       <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
         {context.project_name ? (
-          <Field label="Project">{context.project_name}</Field>
+          <Field label={t("field_project")}>{context.project_name}</Field>
         ) : null}
         {context.estimate_name ? (
-          <Field label="Estimate">{context.estimate_name}</Field>
+          <Field label={t("field_estimate")}>{context.estimate_name}</Field>
         ) : null}
         {context.deadline ? (
-          <Field label="Response deadline">{context.deadline}</Field>
+          <Field label={t("field_deadline")}>{context.deadline}</Field>
         ) : null}
       </dl>
       {context.message ? (
@@ -218,19 +316,20 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function BoqDigestList({ lines }: { lines: PublicBoqLine[] }): JSX.Element | null {
+function BoqDigestList({ lines, t }: { lines: PublicBoqLine[]; t: T }): JSX.Element | null {
   if (lines.length === 0) return null;
+  const placeholder = t("no_value");
   return (
     <section className="mt-6">
-      <h2 className="mb-2 text-sm font-semibold text-slate-700">Indicative scope</h2>
+      <h2 className="mb-2 text-sm font-semibold text-slate-700">{t("scope_heading")}</h2>
       <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-600">
             <tr>
-              <th className="px-3 py-2">Description</th>
-              <th className="px-3 py-2">Code</th>
-              <th className="px-3 py-2 text-right">Quantity</th>
-              <th className="px-3 py-2">Unit</th>
+              <th className="px-3 py-2">{t("col_description")}</th>
+              <th className="px-3 py-2">{t("col_code")}</th>
+              <th className="px-3 py-2 text-right">{t("col_quantity")}</th>
+              <th className="px-3 py-2">{t("col_unit")}</th>
             </tr>
           </thead>
           <tbody>
@@ -238,10 +337,10 @@ function BoqDigestList({ lines }: { lines: PublicBoqLine[] }): JSX.Element | nul
               <tr key={i} className="border-t border-slate-100">
                 <td className="px-3 py-2">{l.description}</td>
                 <td className="px-3 py-2 font-mono text-xs text-slate-500">
-                  {l.material_code ?? "—"}
+                  {l.material_code ?? placeholder}
                 </td>
-                <td className="px-3 py-2 text-right">{l.quantity ?? "—"}</td>
-                <td className="px-3 py-2">{l.unit ?? "—"}</td>
+                <td className="px-3 py-2 text-right">{l.quantity ?? placeholder}</td>
+                <td className="px-3 py-2">{l.unit ?? placeholder}</td>
               </tr>
             ))}
           </tbody>
@@ -254,24 +353,25 @@ function BoqDigestList({ lines }: { lines: PublicBoqLine[] }): JSX.Element | nul
 
 // ---------- Submitted state ----------
 
-function SubmittedConfirmation({ context }: { context: PublicRfqContext }): JSX.Element {
+function SubmittedConfirmation({ context, t }: { context: PublicRfqContext; t: T }): JSX.Element {
   const q = context.submitted_quote;
   return (
     <CenteredCard>
-      <ContextHeader context={context} />
+      <ContextHeader context={context} t={t} />
       <div className="mt-6 rounded-md border border-green-200 bg-green-50 p-4 text-sm text-green-800">
-        <strong>Your quote has been received.</strong> Thanks — the buyer
-        will reach out if they need follow-up. You can close this page.
+        {t("submitted_banner")}
       </div>
       {q ? (
         <section className="mt-6">
-          <h2 className="mb-2 text-sm font-semibold text-slate-700">What you submitted</h2>
+          <h2 className="mb-2 text-sm font-semibold text-slate-700">{t("submitted_heading")}</h2>
           <dl className="grid grid-cols-1 gap-y-1 text-sm sm:grid-cols-2">
-            {q.total_vnd ? <Field label="Total (VND)">{q.total_vnd}</Field> : null}
+            {q.total_vnd ? <Field label={t("field_total_vnd")}>{q.total_vnd}</Field> : null}
             {q.lead_time_days != null ? (
-              <Field label="Lead time">{q.lead_time_days} days</Field>
+              <Field label={t("field_lead_time")}>
+                {q.lead_time_days} {t("lead_time_days_suffix")}
+              </Field>
             ) : null}
-            {q.valid_until ? <Field label="Valid until">{q.valid_until}</Field> : null}
+            {q.valid_until ? <Field label={t("field_valid_until")}>{q.valid_until}</Field> : null}
           </dl>
           {q.notes ? (
             <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600">{q.notes}</p>
@@ -288,13 +388,14 @@ function SubmittedConfirmation({ context }: { context: PublicRfqContext }): JSX.
 function RespondForm({
   context,
   token,
+  t,
 }: {
   context: PublicRfqContext;
   token: string;
+  t: T;
 }): JSX.Element {
   // Seed line items from the buyer's BOQ so the supplier can edit prices
-  // in place rather than retyping descriptions. They can still add/remove
-  // rows below.
+  // in place rather than retyping descriptions.
   const [lineItems, setLineItems] = useState<PublicQuoteLine[]>(() =>
     context.boq_digest.map((l) => ({
       material_code: l.material_code,
@@ -317,6 +418,7 @@ function RespondForm({
     // submitted_quote — saves a refetch.
     return (
       <SubmittedConfirmation
+        t={t}
         context={{
           ...context,
           submission_status: "submitted",
@@ -356,35 +458,34 @@ function RespondForm({
     }
   }
 
+  const placeholder = t("no_value");
+
   return (
     <main className="min-h-screen bg-slate-50 p-6">
       <div className="mx-auto mt-6 max-w-3xl space-y-4">
         <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          <ContextHeader context={context} />
-          <BoqDigestList lines={context.boq_digest} />
+          <ContextHeader context={context} t={t} />
+          <BoqDigestList lines={context.boq_digest} t={t} />
         </div>
 
         <form
           onSubmit={onSubmit}
           className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
         >
-          <h2 className="text-lg font-semibold text-slate-900">Submit your quote</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Fill in either a top-line total or per-line prices below — both is
-            fine too. All fields are optional.
-          </p>
+          <h2 className="text-lg font-semibold text-slate-900">{t("form_heading")}</h2>
+          <p className="mt-1 text-sm text-slate-500">{t("form_subheading")}</p>
 
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <FormField label="Total quote (VND)">
+            <FormField label={t("label_total")}>
               <input
                 inputMode="numeric"
                 value={totalVnd}
                 onChange={(e) => setTotalVnd(e.target.value)}
-                placeholder="e.g. 12500000"
+                placeholder={t("placeholder_total_vnd")}
                 className={inputClass}
               />
             </FormField>
-            <FormField label="Lead time (days)">
+            <FormField label={t("label_lead_time")}>
               <input
                 type="number"
                 min={0}
@@ -394,7 +495,7 @@ function RespondForm({
                 className={inputClass}
               />
             </FormField>
-            <FormField label="Quote valid until">
+            <FormField label={t("label_valid_until")}>
               <input
                 type="date"
                 value={validUntil}
@@ -404,7 +505,7 @@ function RespondForm({
             </FormField>
           </div>
 
-          <FormField label="Notes (delivery terms, payment terms, exclusions…)" className="mt-4">
+          <FormField label={t("label_notes")} className="mt-4">
             <textarea
               rows={3}
               value={notes}
@@ -416,15 +517,17 @@ function RespondForm({
 
           {lineItems.length > 0 ? (
             <section className="mt-6">
-              <h3 className="mb-2 text-sm font-semibold text-slate-700">Line-item pricing</h3>
+              <h3 className="mb-2 text-sm font-semibold text-slate-700">
+                {t("line_items_heading")}
+              </h3>
               <div className="overflow-hidden rounded-md border border-slate-200">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-600">
                     <tr>
-                      <th className="px-3 py-2">Item</th>
-                      <th className="px-3 py-2 text-right">Quantity</th>
-                      <th className="px-3 py-2">Unit</th>
-                      <th className="px-3 py-2 text-right">Unit price (VND)</th>
+                      <th className="px-3 py-2">{t("col_description")}</th>
+                      <th className="px-3 py-2 text-right">{t("col_quantity")}</th>
+                      <th className="px-3 py-2">{t("col_unit")}</th>
+                      <th className="px-3 py-2 text-right">{t("col_unit_price")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -438,8 +541,8 @@ function RespondForm({
                             </div>
                           ) : null}
                         </td>
-                        <td className="px-3 py-2 text-right">{line.quantity ?? "—"}</td>
-                        <td className="px-3 py-2">{line.unit ?? "—"}</td>
+                        <td className="px-3 py-2 text-right">{line.quantity ?? placeholder}</td>
+                        <td className="px-3 py-2">{line.unit ?? placeholder}</td>
                         <td className="px-3 py-2">
                           <input
                             inputMode="numeric"
@@ -451,7 +554,7 @@ function RespondForm({
                                 ),
                               )
                             }
-                            placeholder="0"
+                            placeholder={t("placeholder_unit_price")}
                             className={`${inputClass} text-right`}
                           />
                         </td>
@@ -475,7 +578,7 @@ function RespondForm({
               disabled={busy}
               className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
             >
-              {busy ? "Sending…" : "Submit quote"}
+              {busy ? t("submitting") : t("submit_button")}
             </button>
           </div>
         </form>

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.envelope import ok, paginated
 from db.deps import get_db
 from middleware.auth import AuthContext, require_auth
+from middleware.rbac import Role, require_min_role
 from models.costpulse import BoqItem, Estimate, MaterialPrice, PriceAlert, Rfq, Supplier
 from models.pulse import ChangeOrder
 from schemas.costpulse import (
@@ -325,7 +326,9 @@ async def export_boq_pdf(
 @router.post("/estimates/{estimate_id}/approve")
 async def approve_estimate(
     estimate_id: UUID,
-    auth: Annotated[AuthContext, Depends(require_auth)],
+    # Approving an estimate locks in the project budget AND emits a
+    # COSTPULSE → PULSE change order on variance — admin/owner only.
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     estimate = (

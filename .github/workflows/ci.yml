@@ -61,6 +61,10 @@ jobs:
           NEXT_PUBLIC_API_BASE: http://localhost:8000
           NEXT_PUBLIC_SUPABASE_URL: http://localhost
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+          # The Supabase JS client v2.45+ reads PUBLISHABLE_KEY rather than
+          # ANON_KEY (anon was renamed). Setting both keeps both code paths
+          # happy if the dep gets bumped or rolled back.
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
           # apps/web/app/layout.tsx hard-fails in prod (which `next build`
           # counts as during prerender) unless these are set. Placeholder
           # values are fine here — the build artefact isn't deployed from CI.
@@ -174,6 +178,34 @@ jobs:
         working-directory: apps/api
         run: alembic upgrade head
 
+      # Catches the kind of regression we hit when a parallel branch lands
+      # a sibling migration: `alembic heads` should always return exactly
+      # one head (any merge that spawns a branch must be merged downstream).
+      # Without this gate, an unmerged branch would deploy fine on a fresh
+      # DB but break any existing DB that hadn't traversed both sides of
+      # the split.
+      - name: Alembic — single head
+        working-directory: apps/api
+        run: |
+          heads=$(alembic heads 2>/dev/null | grep -c '(head)' || true)
+          if [ "$heads" != "1" ]; then
+            echo "Expected exactly 1 alembic head, got $heads:"
+            alembic heads
+            exit 1
+          fi
+
+      # Round-trip: upgrade → downgrade → upgrade again. Catches:
+      #   * a downgrade that references a table created in a sibling branch
+      #     (the 0014/0013_dailylog scenario from this codebase's history)
+      #   * a column type that the downgrade can't reverse (e.g. pgvector
+      #     halfvec without ALTER COLUMN ... USING)
+      #   * a migration whose upgrade only works against a clean DB
+      - name: Alembic — downgrade + re-upgrade
+        working-directory: apps/api
+        run: |
+          alembic downgrade base
+          alembic upgrade head
+
       - name: Pytest (unit + integration)
         working-directory: apps/api
         # `--integration` opts the 12 lane-tagged tests into the run. The lane
@@ -212,3 +244,68 @@ jobs:
         working-directory: infra/terraform
       - run: terraform validate
         working-directory: infra/terraform
+
+  # ----------------------------------------------------------------------
+  # Security audits — pnpm + pip
+  #
+  # Runs on every PR and uploads a JSON report as a build artifact. The
+  # job is intentionally **non-blocking** today: the repo carries existing
+  # advisories (notably next 14.2.x with several HIGH and 1 CRITICAL —
+  # GHSA-f82v-jwr5-mffw, the middleware-auth bypass — patched in 14.2.25)
+  # that need their own dependency-bump PR. Gating on those today would
+  # red every PR until the bump lands.
+  #
+  # To ratchet this to blocking later: drop the `|| true` from each audit
+  # step and choose a threshold (`--audit-level high` for pnpm, `--strict`
+  # for pip-audit). Recommend doing that AFTER the next bump.
+  # ----------------------------------------------------------------------
+  security:
+    name: Security — dependency audit (non-blocking)
+    runs-on: ubuntu-latest
+    # Don't fail the workflow if this job fails internally — it's
+    # informational. Required-status-checks rules should NOT include this
+    # job until the gate is ratcheted up.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: pnpm audit
+        # `|| true` keeps the step green even when advisories are present;
+        # remove once the existing pile is cleared. JSON output is what we
+        # actually persist for review.
+        run: |
+          mkdir -p audit
+          pnpm audit --prod --json > audit/pnpm.json || true
+          # Plain-text view also goes to the log so reviewers don't have to
+          # download the artifact for a quick triage.
+          pnpm audit --prod || true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: pip-audit
+        # `--strict` flips pip-audit's exit code to nonzero on any vuln;
+        # we deliberately omit it for the same ratchet-later reason.
+        run: |
+          pip install pip-audit
+          mkdir -p audit
+          pip-audit -r apps/api/requirements.txt --skip-editable -f json -o audit/pip.json || true
+          pip-audit -r apps/api/requirements.txt --skip-editable || true
+
+      - name: Upload audit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit
+          path: audit/
+          retention-days: 30

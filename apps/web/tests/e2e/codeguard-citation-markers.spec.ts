@@ -85,18 +85,25 @@ test.describe("CODEGUARD / Inline citation markers", () => {
     await expect(marker1).toHaveText("[1]");
     await expect(marker2).toHaveText("[2]");
 
-    // Tooltip targets are siblings of the buttons (role="tooltip")
-    // and carry the full citation content. They're DOM-present even
-    // when CSS-hidden, so assertions read the text directly.
+    // Tooltips are CSS-hidden until `group-hover` (Tailwind `invisible`
+    // → `visible`). Hover the chip and then assert visibility +
+    // content — `toContainText` requires the element to be visible.
+    await marker1.hover();
     const tooltip1 = page
       .getByRole("tooltip")
       .filter({ hasText: "không được nhỏ hơn 1.4 m" });
+    await expect(tooltip1).toBeVisible();
     await expect(tooltip1).toContainText("QCVN 06:2022/BXD");
     await expect(tooltip1).toContainText("3.2.1");
 
+    // Move away then hover the second marker — confirms each chip
+    // controls its own popover (no sticky state across hovers).
+    await page.mouse.move(0, 0);
+    await marker2.hover();
     const tooltip2 = page
       .getByRole("tooltip")
       .filter({ hasText: "phải có ít nhất 2 lối thoát nạn" });
+    await expect(tooltip2).toBeVisible();
     await expect(tooltip2).toContainText("3.1");
   });
 

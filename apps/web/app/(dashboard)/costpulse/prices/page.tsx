@@ -4,8 +4,10 @@ import { useState } from "react";
 import type { MaterialCategory, MaterialPrice } from "@aec/types";
 
 import { Button, Input } from "@aec/ui/primitives";
-import { PriceTrendChart, formatVnd } from "@aec/ui/costpulse";
+import { PriceTrendChart, ScraperRunsPanel, formatVnd } from "@aec/ui/costpulse";
+import { useScraperRuns } from "@/hooks/admin";
 import { usePriceAlert, usePriceHistory, usePrices } from "@/hooks/costpulse";
+import { useSession } from "@/lib/auth-context";
 
 const CATEGORIES: MaterialCategory[] = ["concrete", "steel", "finishing", "mep", "timber", "masonry"];
 const PROVINCES = ["Hanoi", "HCMC", "Da Nang", "Hai Phong", "Can Tho"];
@@ -19,6 +21,13 @@ export default function PriceDatabasePage(): JSX.Element {
   const { data, isLoading } = usePrices({ q: q || undefined, category, province });
   const history = usePriceHistory(selected?.material_code ?? null, selected?.province ?? undefined);
   const alertMut = usePriceAlert();
+
+  // Drift telemetry — admin-only. The panel issues a `useScraperRuns`
+  // query that 403s for non-admins, so even if the conditional below is
+  // bypassed, the API is the security boundary.
+  const session = useSession();
+  const isAdmin = session.orgs.find((o) => o.id === session.orgId)?.role === "admin";
+  const scraperRuns = useScraperRuns({ limit: 20 });
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 p-6">
@@ -146,6 +155,14 @@ export default function PriceDatabasePage(): JSX.Element {
           )}
         </div>
       </div>
+
+      {isAdmin ? (
+        <ScraperRunsPanel
+          runs={scraperRuns.data ?? []}
+          isLoading={scraperRuns.isLoading}
+          error={scraperRuns.error}
+        />
+      ) : null}
     </div>
   );
 }

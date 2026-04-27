@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Info } from "lucide-react";
 import { RegulationSearch } from "@aec/ui/codeguard";
 import type { RegulationCategory } from "@aec/ui/codeguard";
 import { useRegulations } from "@/hooks/codeguard";
@@ -17,11 +18,18 @@ const CATEGORY_LABELS: Record<RegulationCategory, string> = {
 export default function RegulationBrowserPage() {
   const [q, setQ] = useState("");
   const [category, setCategory] = useState<RegulationCategory | "">("");
-  const { data, isLoading } = useRegulations({
+  const { data, isLoading, isError, error } = useRegulations({
     q: q || undefined,
     category: category || undefined,
     limit: 50,
   });
+
+  // The empty state differs by whether the user has actively narrowed
+  // the corpus: filtered empty → amber advisory ("nothing matched
+  // YOUR filter"); unfiltered empty → neutral hint ("library is empty,
+  // run `make seed-codeguard`"). Without this split a filter that
+  // returns nothing looks identical to a misconfigured deployment.
+  const hasFilter = Boolean(q) || Boolean(category);
 
   return (
     <div className="space-y-6">
@@ -50,11 +58,39 @@ export default function RegulationBrowserPage() {
         </select>
       </div>
 
+      {isError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <div className="mb-1 font-medium">Lỗi khi tải thư viện quy chuẩn</div>
+          <p>{error instanceof Error ? error.message : "Đã xảy ra lỗi"}</p>
+        </div>
+      )}
+
       <div className="rounded-xl border border-slate-200 bg-white">
         {isLoading && !data ? (
           <div className="p-8 text-center text-sm text-slate-500">Đang tải...</div>
         ) : !data || data.data.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-500">Không có kết quả.</div>
+          hasFilter ? (
+            // Filtered empty: user typed/filtered and nothing matched.
+            // Amber Info card matches the abstain treatment elsewhere.
+            <div className="m-4 rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+              <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-amber-700">
+                <Info size={14} />
+                Không có kết quả phù hợp
+              </div>
+              <p>
+                Không có quy chuẩn nào khớp với bộ lọc hiện tại. Hãy thử bỏ một
+                điều kiện hoặc dùng từ khóa khác.
+              </p>
+            </div>
+          ) : (
+            // Unfiltered empty: corpus itself is empty. Neutral hint
+            // pointing to the seed step — distinguishes a fresh install
+            // from a filter-driven empty result.
+            <div className="p-8 text-center text-sm text-slate-500">
+              Thư viện chưa có quy chuẩn nào. Chạy <code>make seed-codeguard</code>{" "}
+              hoặc dùng pipeline ingest để nạp dữ liệu.
+            </div>
+          )
         ) : (
           <ul className="divide-y divide-slate-100">
             {data.data.map((r) => (

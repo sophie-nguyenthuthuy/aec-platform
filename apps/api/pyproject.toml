@@ -42,6 +42,14 @@ extend-immutable-calls = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Lock async fixture loop scope to the test function. Without this,
+# pytest-asyncio's default ("inherit cache scope") changes between minor
+# versions, and a session-scoped DB fixture sharing one event loop with
+# function-scoped tests is the classic source of "Future attached to a
+# different loop" / "Event loop is closed" flakes — exactly what bit the
+# siteeye/drawbridge/costpulse queue tests in this codebase's history.
+# Per-function loop = no cross-test loop reuse, no flake.
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 markers = [
     "integration: requires live infra (Postgres / Redis / OpenAI). Skipped by default; pass --integration to opt in.",

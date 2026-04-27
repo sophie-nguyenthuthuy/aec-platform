@@ -357,35 +357,66 @@ async def _persist_photo_analysis(state: PhotoState) -> None:
 
 
 async def _create_safety_incidents(state: PhotoState, violations: list[PhotoDetection]) -> None:
+    """Persist each detected violation as a `safety_incidents` row, then mirror
+    each into the project's daily log so the field team sees it in one place.
+
+    The dailylog mirror is best-effort: a failure (missing migration, schema
+    drift) MUST NOT prevent the incident itself from being recorded — that's
+    the safety-critical write.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
     now = datetime.now(UTC)
     async with TenantAwareSession(state.organization_id) as session:
         for v in violations:
             incident_type, severity, description = SAFETY_INCIDENT_CLASSES[v.label]
-            await session.execute(
-                text(
-                    """
+            row = (
+                await session.execute(
+                    text(
+                        """
                     INSERT INTO safety_incidents
                       (organization_id, project_id, detected_at, incident_type, severity,
                        photo_id, detection_box, ai_description, status)
                     VALUES
                       (:org, :project_id, :now, :incident_type, :severity,
                        :photo_id, CAST(:box AS jsonb), :description, :status)
+                    RETURNING id, project_id, detected_at, severity, incident_type,
+                              ai_description
                     """
-                ),
-                {
-                    "org": str(state.organization_id),
-                    "project_id": str(state.project_id),
-                    "now": now,
-                    "incident_type": incident_type.value,
-                    "severity": severity.value,
-                    "photo_id": str(state.photo_id),
-                    "box": json.dumps(
-                        {"bbox": v.bbox, "confidence": v.confidence, "label": v.label}
                     ),
-                    "description": description,
-                    "status": IncidentStatus.open.value,
-                },
-            )
+                    {
+                        "org": str(state.organization_id),
+                        "project_id": str(state.project_id),
+                        "now": now,
+                        "incident_type": incident_type.value,
+                        "severity": severity.value,
+                        "photo_id": str(state.photo_id),
+                        "box": json.dumps(
+                            {"bbox": v.bbox, "confidence": v.confidence, "label": v.label}
+                        ),
+                        "description": description,
+                        "status": IncidentStatus.open.value,
+                    },
+                )
+            ).one()
+
+            try:
+                from services.dailylog_sync import sync_incident_to_dailylog
+
+                await sync_incident_to_dailylog(
+                    session,
+                    organization_id=state.organization_id,
+                    incident=row,
+                )
+            except Exception as exc:
+                log.warning(
+                    "siteeye.create_incident: dailylog sync failed for incident_id=%s: %s",
+                    getattr(row, "id", None)
+                    if hasattr(row, "id")
+                    else (row._mapping.get("id") if hasattr(row, "_mapping") else None),
+                    exc,
+                )
 
 
 # ---------- Progress aggregator ----------

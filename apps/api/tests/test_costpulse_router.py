@@ -334,6 +334,43 @@ async def test_get_estimate_scopes_query_to_caller_org(client, fake_db):
     assert estimate_id.hex in compiled
 
 
+async def test_approve_estimate_403_for_viewer_role(fake_db):
+    """RBAC regression: estimate approval is admin/owner only — viewers
+    must be blocked before the handler body runs."""
+
+    from fastapi import FastAPI, HTTPException
+
+    from core.envelope import http_exception_handler, unhandled_exception_handler
+    from db.deps import get_db
+    from middleware.auth import AuthContext, require_auth
+    from routers import costpulse as costpulse_router
+
+    auth_ctx = AuthContext(
+        user_id=USER_ID,
+        organization_id=ORG_ID,
+        role="viewer",
+        email="viewer@example.com",
+    )
+    app = FastAPI()
+    app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
+    app.include_router(costpulse_router.router)
+
+    async def _db_override() -> AsyncIterator[FakeAsyncSession]:
+        yield fake_db
+
+    app.dependency_overrides[require_auth] = lambda: auth_ctx
+    app.dependency_overrides[get_db] = _db_override
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(f"/api/v1/costpulse/estimates/{uuid4()}/approve")
+
+    assert res.status_code == 403
+    # Dependency rejected before any SQL fired.
+    assert fake_db.executed_stmts == []
+
+
 async def test_approve_estimate_404_for_missing_or_other_org(client, fake_db):
     q = MagicMock()
     q.scalar_one_or_none.return_value = None  # as if belongs to another org

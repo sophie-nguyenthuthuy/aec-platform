@@ -54,3 +54,11 @@ markers = [
     # schema. Default `pytest` deselects them; `pytest --integration` runs them.
     "integration: requires a live Postgres (COSTPULSE_RLS_DB_URL)",
 ]
+filterwarnings = [
+    # langsmith (transitive langchain dep) calls `pydantic.v1` ForwardRef
+    # machinery at class-definition time; emits a Python 3.13
+    # DeprecationWarning we can't fix at the source. Mirror the same
+    # filter from `apps/api/pyproject.toml` so this is silenced regardless
+    # of which pyproject pytest happens to read.
+    "ignore::DeprecationWarning:pydantic.v1.typing",
+]

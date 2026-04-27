@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import os
 import re
@@ -40,8 +41,10 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import AIMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
 from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
@@ -82,11 +85,127 @@ _BG_TASKS: set[asyncio.Task[Any]] = set()
 _EMBED_BATCH = 100
 
 
-def _llm(temperature: float = 0.1, max_tokens: int = 4096) -> ChatAnthropic:
+# Dev-only bypass: when AEC_PIPELINE_DEV_STUB=1 (and AEC_ENV != "production"),
+# return canned-response shims so ingest / query / conflict-scan / extract /
+# draft-rfi run end-to-end without ANTHROPIC_API_KEY or OPENAI_API_KEY.
+# Hard-disabled under AEC_ENV=production. Mirrors the gate in winwork.py /
+# costpulse.py — single env var controls every pipeline.
+_AEC_ENV = os.getenv("AEC_ENV", "development")
+_REQUEST_STUB = os.getenv("AEC_PIPELINE_DEV_STUB") == "1"
+PIPELINE_DEV_STUB = _REQUEST_STUB and _AEC_ENV != "production"
+if _REQUEST_STUB and not PIPELINE_DEV_STUB:
+    logger.error(
+        "AEC_PIPELINE_DEV_STUB=1 ignored: refusing to stub LLM calls when AEC_ENV=%s",
+        _AEC_ENV,
+    )
+
+
+class _StubLLM(Runnable):
+    """Offline shim used when AEC_PIPELINE_DEV_STUB=1.
+
+    Drawbridge composes the LLM into LangChain pipelines via the `|`
+    operator (`prompt | llm | parser`), which requires a `Runnable`.
+    Implementing `invoke` / `ainvoke` is enough — the chain's downstream
+    `JsonOutputParser` reads `.content` from the returned `AIMessage`,
+    so we keyword-match the prompt and return canned JSON.
+    """
+
+    def invoke(self, input: Any, config: Any = None, **_kwargs: Any) -> AIMessage:
+        return AIMessage(content=self._respond(input))
+
+    async def ainvoke(self, input: Any, config: Any = None, **_kwargs: Any) -> AIMessage:
+        return AIMessage(content=self._respond(input))
+
+    def _respond(self, input: Any) -> str:
+        # Inputs to a chained LLM are usually a `ChatPromptValue` (with
+        # `.messages`) or a list[BaseMessage]. Flatten both shapes into
+        # a text blob we can keyword-match.
+        messages: list[Any] = []
+        if hasattr(input, "messages"):
+            messages = list(input.messages)
+        elif isinstance(input, list):
+            messages = input
+        elif isinstance(input, str):
+            messages = [input]
+        else:
+            messages = [input]
+
+        text_blob = ""
+        for m in messages:
+            content = getattr(m, "content", m if isinstance(m, str) else "")
+            if isinstance(content, list):
+                # Vision-style content: list of {type, text|image_url}.
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        text_blob += " " + str(part.get("text", ""))
+            else:
+                text_blob += " " + str(content)
+        s = text_blob.lower()
+
+        if "title block" in s or "drawing metadata" in s:
+            payload = {
+                "drawing_number": "[DEV] A-301",
+                "title": "[DEV] Floor plan — Level 3",
+                "revision": "R01",
+                "discipline": "architectural",
+                "scale": "1:100",
+            }
+        elif "conflict" in s and (
+            "explain" in s or "describe" in s or "analyse" in s or "analyze" in s
+        ):
+            payload = {
+                "severity": "high",
+                "conflict_type": "dimensional",
+                "description": "[DEV STUB] Mismatched slab thickness between A-301 and S-301.",
+                "ai_explanation": "[DEV STUB] Plan shows 200mm; structural drawing shows 250mm.",
+            }
+        elif "rfi" in s and ("draft" in s or "subject" in s or "compose" in s):
+            payload = {
+                "subject": "[DEV STUB] Slab thickness clarification — Level 3",
+                "description": "[DEV STUB] Please confirm the design intent for the L3 slab thickness.",
+                "priority": "high",
+            }
+        elif "extract" in s and ("dimension" in s or "schedule" in s or "material" in s):
+            payload = {
+                "dimensions": [{"label": "Slab thickness", "value": "200", "unit": "mm"}],
+                "materials": [{"name": "Concrete C30", "specification": "fc'=30 MPa"}],
+                "schedules": [],
+            }
+        elif "answer" in s or ("question" in s and "document" in s):
+            payload = {
+                "answer": "[DEV STUB] The slab thickness on level 3 is 200mm per A-301.",
+                "citations": [],
+                "confidence": 0.7,
+            }
+        else:
+            payload = {"result": "[DEV STUB] no canned response for this prompt"}
+
+        return json.dumps(payload, ensure_ascii=False)
+
+
+class _StubEmbedder:
+    """Returns deterministic 3072-d zero vectors. Enough to make ingest /
+    search code paths run; semantic recall is meaningless and that's fine —
+    the smoke is about the pipeline plumbing, not retrieval quality."""
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [[0.0] * 3072 for _ in texts]
+
+    async def aembed_query(self, text: str) -> list[float]:
+        return [0.0] * 3072
+
+
+def _llm(temperature: float = 0.1, max_tokens: int = 4096) -> ChatAnthropic | _StubLLM:
+    if PIPELINE_DEV_STUB:
+        logger.warning("Drawbridge LLM running with AEC_PIPELINE_DEV_STUB=1")
+        return _StubLLM()
     return ChatAnthropic(model=_ANTHROPIC_MODEL, temperature=temperature, max_tokens=max_tokens)
 
 
-def _embedder() -> OpenAIEmbeddings:
+def _embedder() -> OpenAIEmbeddings | _StubEmbedder:
+    if PIPELINE_DEV_STUB:
+        logger.warning("Drawbridge embedder running with AEC_PIPELINE_DEV_STUB=1")
+        return _StubEmbedder()
     return OpenAIEmbeddings(model=_EMBED_MODEL)
 
 
@@ -637,15 +756,22 @@ async def answer_document_query(
             for i, c in enumerate(state.candidates)
         ]
         context = "\n\n".join(context_lines) or "(no documents found)"
+        # Pass `language` as a ChatPromptTemplate variable rather than via
+        # str.format(): the system prompt embeds a literal JSON example
+        # using `{{...}}` to escape the braces for ChatPromptTemplate, but
+        # str.format() unescapes those *before* the template sees them and
+        # the template then treats the inner `{...}` as undeclared vars.
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", _QA_SYSTEM.format(language=state.language)),
+                ("system", _QA_SYSTEM),
                 ("human", _QA_USER),
             ]
         )
         parser = JsonOutputParser()
         chain = prompt | _llm(temperature=0.1) | parser
-        raw = await chain.ainvoke({"question": state.question, "context": context})
+        raw = await chain.ainvoke(
+            {"question": state.question, "context": context, "language": state.language}
+        )
 
         sources: list[SourceDocument] = []
         for cit in raw.get("citations", []) or []:
@@ -679,7 +805,10 @@ async def answer_document_query(
     graph.add_edge("generate", END)
     app = graph.compile()
 
-    final: _QaState = await app.ainvoke(
+    # LangGraph's `app.ainvoke` returns a dict (AddableValuesDict), even
+    # when the state schema is a BaseModel — attribute access like
+    # `final.answer` raises. Use dict semantics.
+    final = await app.ainvoke(
         _QaState(
             question=question,
             language=lang,
@@ -689,8 +818,9 @@ async def answer_document_query(
             top_k=top_k,
         )
     )
-    assert final.answer is not None
-    return final.answer
+    answer = final["answer"] if isinstance(final, dict) else getattr(final, "answer", None)
+    assert answer is not None
+    return answer
 
 
 # ============================================================

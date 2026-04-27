@@ -4,3 +4,4 @@ export * from "./pulse";
 export * from "./costpulse";
 export * from "./projects";
 export * from "./activity";
+export * from "./admin";

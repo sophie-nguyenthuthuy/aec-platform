@@ -17,8 +17,10 @@ code alone.
 
 | Endpoint | What it does | LLM calls per request |
 |----------|--------------|-----------------------|
-| `POST /api/v1/codeguard/query` | Free-text Q&A over the indexed corpus, returns answer + grounded citations + related questions. | 1 HyDE expansion + 1 generation = 2 |
+| `POST /api/v1/codeguard/query` | Free-text Q&A over the indexed corpus, returns answer + grounded citations + related questions. | 1 HyDE expansion (cached) + 1 generation = 1–2 |
+| `POST /api/v1/codeguard/query/stream` | SSE-streamed Q&A — token deltas as the LLM generates, terminal `done` event with grounded response. Same pipeline as `/query`. See §6. | 1–2 |
 | `POST /api/v1/codeguard/scan`  | Audits a project against fire-safety / accessibility / structure / zoning / energy categories, returns FAIL/WARN/PASS findings with citations. | 1 generation per category (up to 5) |
+| `POST /api/v1/codeguard/scan/stream` | SSE-streamed scan — per-category `category_start`/`category_done` events, terminal `done` with aggregate counts. See §6. | up to 5 |
 | `POST /api/v1/codeguard/permit-checklist` | Generates a jurisdiction-specific checklist of permit documents the applicant must prepare. | 1 generation |
 | `GET /api/v1/codeguard/regulations[/{id}]` | List + detail views of the indexed corpus. | 0 (DB only) |
 | `GET /api/v1/codeguard/checks/{project_id}` | Audit history of `query` + `scan` calls for a project. | 0 |
@@ -27,7 +29,13 @@ code alone.
 Every call that produces findings or answers persists a `ComplianceCheck`
 row keyed on `(organization_id, project_id)` so the audit trail is
 queryable. The `regulations_referenced` array on that row links back to
-every regulation cited in the response.
+every regulation cited in the response. Both the streaming and non-
+streaming variants of `/query` and `/scan` write the same row shape, so
+audit consumers (the history page, `GET /checks/{id}`) treat both paths
+identically.
+
+The frontend exposes five pages — query, scan, checklist, regulations,
+history — all under `/codeguard/*`. See `apps/web/app/(dashboard)/codeguard/`.
 
 ---
 
@@ -46,7 +54,7 @@ permit_checklists    ← one row per /permit-checklist call,
 ```
 
 Tenant-scoped tables (`compliance_checks`, `permit_checklists`) carry
-`organization_id`; RLS enforces isolation — see §6.
+`organization_id`; RLS enforces isolation — see §7.
 
 ### regulation_chunks columns of note
 
@@ -99,6 +107,8 @@ Requires:
 ```
                 ┌─────────────────────────────────────────────┐
 question  ─────▶│ _hyde_expand   (Anthropic, ~200-800ms)      │
+                │   TTL-cached on (question, language).       │
+                │   Cache hit → ~0ms, cache miss → LLM call.  │
                 └─────────────────────────────────────────────┘
                          │  question + hyde_text
                          ▼
@@ -118,14 +128,35 @@ question  ─────▶│ _hyde_expand   (Anthropic, ~200-800ms)      │
                          │  top_k candidates
                          ▼
                 ┌─────────────────────────────────────────────┐
-                │ node_generate                               │
+                │ node_generate / streaming generator         │
                 │   if candidates == [] → ABSTAIN (§5.2)      │
                 │   else: Claude returns JSON →               │
                 │         _ground_citations (§5.1)            │
+                │   Streaming variant: yield token deltas as  │
+                │   the JSON `answer` field grows; final      │
+                │   `done` event carries grounded citations.  │
                 └─────────────────────────────────────────────┘
                          │
                          ▼   QueryResponse
 ```
+
+### HyDE cache
+
+`_hyde_expand` is wrapped in a per-process `cachetools.TTLCache` keyed on
+`(question, language)`. Defaults: 10000 entries, 1h TTL. Override via:
+
+- `CODEGUARD_HYDE_CACHE_MAX` — max entries (LRU eviction past)
+- `CODEGUARD_HYDE_CACHE_TTL_SEC` — TTL in seconds
+
+A cache hit skips the Anthropic round-trip entirely (typically 500–800ms
+saved, which is exactly the gap users see between submit and first
+streamed token). Failures don't poison the cache — exceptions propagate
+before the cache write.
+
+The cache is **per-process**: multi-worker production gets N independent
+caches. A shared Redis cache is a worthwhile follow-up but not required
+for dev/staging or single-worker deployments. Tests use `_hyde_clear_cache()`
+between cases to keep state isolated.
 
 Sparse search returns `[]` if Elasticsearch is unreachable — the WARNING
 log fires but the pipeline degrades gracefully to dense-only (RRF of
@@ -165,7 +196,18 @@ actually appears in the source.
 strings, no floats, no booleans, no negatives, no out-of-range). All
 drops are logged at WARNING.
 
-Tests: `apps/ml/tests/test_codeguard_citation_grounding.py` (14 cases).
+**Inline `[N]` markers:** the prompt (`_QA_SYSTEM`) instructs the model to
+emit 1-indexed `[N]` markers in the `answer` text immediately after each
+factual claim, where `[N]` refers to the N-th entry of the `citations`
+array. The frontend's `<AnswerWithCitations>` component (in
+`packages/ui/codeguard/`) parses those markers and substitutes them with
+hover-expanded chips. Out-of-range markers (LLM mis-numbered) render as
+literal text, so the worst-case is "ugly bracket in the answer" — never
+a popover pointing at undefined data.
+
+Tests: `apps/ml/tests/test_codeguard_citation_grounding.py` (14 cases) +
+`apps/web/tests/e2e/codeguard-citation-markers.spec.ts` (3 cases:
+rendering, out-of-range fallback, plain-text passthrough).
 
 ### 5.2 Zero-retrieval abstain — `_abstain_response`
 
@@ -193,7 +235,84 @@ abstain path never invokes the LLM).
 
 ---
 
-## 6. Tenant isolation (RLS)
+## 6. Streaming endpoints
+
+Two streaming variants exist alongside the JSON endpoints. Both return
+`text/event-stream` with `Cache-Control: no-cache` + `X-Accel-Buffering: no`
+(the latter is critical for nginx; without it the proxy buffers the
+whole stream and the streaming UX collapses).
+
+### 6.1 `POST /query/stream`
+
+Wire format:
+
+```
+event: token
+data: {"delta": "<incremental text>"}
+
+event: done
+data: {"answer": "...", "confidence": 0.88, "citations": [...],
+       "related_questions": [...], "check_id": "<uuid>"}
+
+event: error
+data: {"message": "..."}
+```
+
+`done` is terminal and only fires on success — the `check_id` is
+populated only after the `ComplianceCheck` row is persisted, which
+can't happen until the LLM finishes. `error` is also terminal; once
+fired, no further events follow.
+
+Token deltas come from `JsonOutputParser.astream()` — the parser yields
+incremental dicts as the JSON parses, and we extract the `answer` field's
+prefix-delta. The `citations` and `related_questions` arrive in the
+`done` event so they can be grounded against the retrieved chunks
+*before* shipping to the client (citation grounding can only run on a
+fully-parsed citation array, not on partials).
+
+Backend helper: `pipelines.codeguard.answer_regulation_query_stream`.
+Frontend hook: `apps/web/hooks/codeguard/useQueryStream.ts`.
+
+### 6.2 `POST /scan/stream`
+
+Wire format:
+
+```
+event: category_start
+data: {"category": "fire_safety"}
+
+event: category_done
+data: {"category": "fire_safety", "findings": [{...}, ...]}
+
+event: done
+data: {"check_id": "<uuid>", "total": N,
+       "pass_count": ..., "warn_count": ..., "fail_count": ...}
+
+event: error
+data: {"message": "..."}
+```
+
+Categories yield in input order. Each category emits exactly one
+`category_start` and one `category_done` regardless of retrieval/LLM
+outcomes. **Per-category LLM exceptions are swallowed** — the failing
+category yields zero findings rather than aborting the scan; only hard
+pipeline failures surface as `error` events.
+
+Backend helper: `pipelines.codeguard.auto_scan_project_stream`.
+Frontend hook: `apps/web/hooks/codeguard/useScanStream.ts`.
+
+### 6.3 Why the non-streaming endpoints stay
+
+`POST /query` and `POST /scan` are kept alongside the streaming variants:
+the existing router-level mock tests use them, and clients without
+SSE-friendly transports (server-side rendering, batch jobs) still need
+the JSON endpoints. Both paths share the same retrieval, grounding,
+abstain, and persistence helpers — anything you change in those flows
+lands in both surfaces simultaneously.
+
+---
+
+## 7. Tenant isolation (RLS)
 
 `compliance_checks` and `permit_checklists` are tenant-scoped. Migration
 `0008_codeguard_rls.py` enables RLS with `tenant_isolation_*` policies
@@ -216,7 +335,7 @@ global reference data. All organisations share the same corpus.
 
 ---
 
-## 7. Ingest pipeline
+## 8. Ingest pipeline
 
 `apps/ml/pipelines/codeguard_ingest.py` parses PDF / TXT / MD, splits by
 heading hierarchy, embeds with `text-embedding-3-large` in batches of 64,
@@ -267,7 +386,7 @@ chunk count. No embeddings, no DB writes, no Anthropic/OpenAI calls.
 
 ---
 
-## 8. Test tiers
+## 9. Test tiers
 
 CODEGUARD has four distinct test tiers, each with different deps. Run
 the right tier for the change you're making.
@@ -281,7 +400,10 @@ python -m pytest \
   apps/ml/tests/test_codeguard_ingest_parser.py \
   apps/ml/tests/test_codeguard_citation_grounding.py \
   apps/ml/tests/test_codeguard_hybrid_search.py \
-  apps/ml/tests/test_codeguard_abstain.py
+  apps/ml/tests/test_codeguard_abstain.py \
+  apps/ml/tests/test_codeguard_hyde_cache.py \
+  apps/ml/tests/test_codeguard_query_stream.py \
+  apps/ml/tests/test_codeguard_scan_stream.py
 ```
 
 ### Tier 2 — Router tests (no external deps)
@@ -331,14 +453,31 @@ TEST_DATABASE_URL=postgresql+asyncpg://aec:aec@localhost:5437/aec \
 
 Requires `make seed-codeguard` to have been run against the same DB.
 
+### Tier 5 — Frontend E2E (Playwright, no API server required)
+
+Mock the API endpoints (including SSE streams) via `page.route()`. No
+real backend, no API keys. Covers query / scan / checklist / history /
+inline-citation-markers flows end-to-end at the rendered-DOM level.
+
+```bash
+cd apps/web && pnpm exec playwright test tests/e2e/codeguard-*.spec.ts
+```
+
+The webServer block in `playwright.config.ts` boots `next dev` on port
+3101 once per test run, so a clean clone with deps installed needs
+nothing extra to run these.
+
 ---
 
-## 9. Operational notes
+## 10. Operational notes
 
-- **HyDE cost:** every query burns Anthropic tokens for hypothetical-
-  document expansion before retrieval, regardless of whether the question
-  needs it. No caching today. For high-volume use cases consider a TTL
-  cache keyed on `(question, language)`.
+- **HyDE cache:** `_hyde_expand` is wrapped in a per-process
+  `cachetools.TTLCache` keyed on `(question, language)`. Defaults: 10000
+  entries, 1h TTL. Override via `CODEGUARD_HYDE_CACHE_MAX` and
+  `CODEGUARD_HYDE_CACHE_TTL_SEC`. Cuts Anthropic spend on repeat
+  questions and trims ~500–800ms off perceived first-token latency in
+  the streaming path. Per-process; multi-worker production gets N
+  independent caches.
 - **Reranker:** `_RERANKER_ENDPOINT` env var enables cross-encoder
   re-ranking. Without it the pipeline uses raw RRF order. For Vietnamese
   the reranker matters — bge-reranker-v2-m3 is the recommended model.
@@ -346,10 +485,27 @@ Requires `make seed-codeguard` to have been run against the same DB.
   default analyzer on first `es.index()` call. For better Vietnamese
   recall an explicit mapping with `icu_analyzer` is worth adding (out of
   scope for current work).
+- **Streaming + nginx:** SSE responses set `X-Accel-Buffering: no` so
+  intermediate proxies don't buffer the stream. Without it the client
+  receives the entire response in one chunk and the streaming UX
+  collapses. If you front the API with a different proxy, configure the
+  equivalent flag.
+- **Cost telemetry:** every LLM and embedding call goes through the
+  `_record_llm_call` async context manager and emits a structured log
+  on the `codeguard.telemetry` logger. Stable shape: `call`, `model`,
+  `latency_ms`, `input_chars`, `output_chars`, `status`, `error`.
+  Failures still emit (with `status="error"`) — a misconfigured API
+  key shows up in the spend rollup, not just the error path. HyDE
+  cache hits emit NO record (call didn't happen). Character counts are
+  used instead of token counts because LangChain strips usage_metadata
+  through `JsonOutputParser`-suffixed chains; chars are within ~3-4×
+  of tokens for Vietnamese, sufficient for order-of-magnitude rollups.
+  Token-accurate logging is a worthwhile follow-up via callback
+  handlers.
 
 ---
 
-## 10. Reference index
+## 11. Reference index
 
 | Concern | File |
 |---------|------|
@@ -357,11 +513,16 @@ Requires `make seed-codeguard` to have been run against the same DB.
 | API schemas | `apps/api/schemas/codeguard.py` |
 | ORM models | `apps/api/models/codeguard.py` |
 | Pipeline (Q&A, scan, checklist) | `apps/ml/pipelines/codeguard.py` |
+| Streaming pipeline helpers | Same file: `answer_regulation_query_stream`, `auto_scan_project_stream` |
+| HyDE cache | Same file: `_hyde_cache`, `_hyde_clear_cache` |
+| Citation grounding guard | Same file: `_ground_citations`, `_abstain_response` |
 | Ingest CLI | `apps/ml/pipelines/codeguard_ingest.py` |
 | Migrations | `apps/api/alembic/versions/0005_codeguard.py`, `0008_codeguard_rls.py`, `0009_codeguard_hnsw.py` |
 | Fixture | `apps/ml/fixtures/codeguard/qcvn_06_2022_excerpt.md` |
-| Frontend pages | `apps/web/app/(dashboard)/codeguard/{query,scan,checklist,regulations}/page.tsx` |
-| Frontend hooks | `apps/web/hooks/codeguard/{useQuery,useScan,useChecklist,useRegulations,keys}.ts` |
-| UI components | `packages/ui/codeguard/{CitationCard,FindingItem,ChecklistItem,ComplianceScore,RegulationSearch}.tsx` |
+| Frontend pages | `apps/web/app/(dashboard)/codeguard/{query,scan,checklist,regulations,history}/page.tsx` |
+| Frontend hooks | `apps/web/hooks/codeguard/{useQuery,useQueryStream,useScan,useScanStream,useChecklist,useRegulations,keys}.ts` |
+| UI components | `packages/ui/codeguard/{CitationCard,AnswerWithCitations,FindingItem,ChecklistItem,ComplianceScore,RegulationSearch}.tsx` |
 | Shared types | `packages/ui/codeguard/types.ts` |
-| Seed target | `Makefile` (`seed-codeguard`) |
+| Frontend E2E specs | `apps/web/tests/e2e/codeguard-{query,scan,checklist,history,citation-markers}.spec.ts` |
+| Backend tests | `apps/ml/tests/test_codeguard_*.py` (parser, grounding, abstain, hybrid, hyde-cache, query-stream, scan-stream, retrieval-integration, query-pipeline-integration, scan-pipeline-integration, quality-eval) |
+| Make targets | `Makefile` (`seed-codeguard`, `eval-codeguard`) |

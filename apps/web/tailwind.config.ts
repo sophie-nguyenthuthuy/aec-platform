@@ -1,10 +1,17 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  // Only `.tsx` carries Tailwind class strings; bare-`.ts` files in
+  // packages/ui are index barrels and shared TypeScript types. The
+  // previous `**/*.{ts,tsx}` glob on `packages/ui` triggered Tailwind's
+  // own perf warning ("looks like it's accidentally matching all of
+  // node_modules") because the JIT scanner walked type-only files with
+  // no class strings on every rebuild. Local app dirs likewise only
+  // have classes in `.tsx` files.
   content: [
-    "./app/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
-    "../../packages/ui/**/*.{ts,tsx}",
+    "./app/**/*.tsx",
+    "./components/**/*.tsx",
+    "../../packages/ui/**/*.tsx",
   ],
   theme: {
     extend: {

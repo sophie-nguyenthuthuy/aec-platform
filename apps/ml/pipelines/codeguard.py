@@ -10,9 +10,11 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
+import time
 from typing import Any
 from uuid import UUID
 
@@ -36,6 +38,87 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+# Dedicated telemetry logger so production can route LLM/embedding cost
+# events to a different sink (Loki, Splunk, OTEL) without filtering on
+# message text. Tests read records off this logger via `caplog`.
+telemetry_logger = logging.getLogger("codeguard.telemetry")
+
+
+@contextlib.asynccontextmanager
+async def _record_llm_call(
+    *,
+    call: str,
+    model: str,
+    input_chars: int,
+):
+    """Time a single LLM/embedding call and emit a structured log on exit.
+
+    Yields a small mutable record dict the caller can stash output info
+    into before the context closes — typically `output_chars` for an
+    LLM call (length of the response text) or count for an embedding
+    call. The exit handler then writes one log line via
+    `telemetry_logger` with stable shape:
+
+        message = "codeguard.llm_call"
+        extra   = {
+            call:          str   — symbolic name (e.g. "hyde_expand")
+            model:         str   — Anthropic/OpenAI model name
+            latency_ms:    int   — wall-clock latency
+            input_chars:   int   — sum of prompt characters at call time
+            output_chars:  int   — length of the response (None on error)
+            status:        "ok" | "error"
+            error:         str | None — message of the raised exception
+        }
+
+    Why characters not tokens: LangChain's response shape varies per
+    chain composition (an `AIMessage` carries `.usage_metadata`, but the
+    JsonOutputParser-suffixed chains used by `node_generate` /
+    `auto_scan_project` strip it). Characters are reliably available
+    everywhere and are within ~3-4x of token counts for Vietnamese, so
+    they support per-org spend rollups at order-of-magnitude precision.
+    Token-accurate logging would require either refactoring chain
+    composition or wiring a callback handler — worthwhile follow-up,
+    not in this round's scope.
+
+    Failures still emit a log (with `status="error"`) and re-raise — so
+    a misconfigured Anthropic key shows up in telemetry, not just the
+    error path.
+    """
+    start = time.monotonic()
+    record: dict[str, Any] = {"output_chars": None}
+    try:
+        yield record
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        telemetry_logger.info(
+            "codeguard.llm_call",
+            extra={
+                "call": call,
+                "model": model,
+                "latency_ms": elapsed_ms,
+                "input_chars": input_chars,
+                "output_chars": None,
+                "status": "error",
+                "error": str(exc),
+            },
+        )
+        raise
+    else:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        telemetry_logger.info(
+            "codeguard.llm_call",
+            extra={
+                "call": call,
+                "model": model,
+                "latency_ms": elapsed_ms,
+                "input_chars": input_chars,
+                "output_chars": record.get("output_chars"),
+                "status": "ok",
+                "error": None,
+            },
+        )
+
 
 # ---------- Model / index clients ----------
 
@@ -114,8 +197,14 @@ async def _hyde_expand(question: str, language: str) -> str:
         ]
     )
     chain = prompt | _llm(temperature=0.3)
-    result = await chain.ainvoke({"question": question, "language": language})
-    text_value = result.content if isinstance(result.content, str) else str(result.content)
+    async with _record_llm_call(
+        call="hyde_expand",
+        model=_ANTHROPIC_MODEL,
+        input_chars=len(question) + len(language),
+    ) as rec:
+        result = await chain.ainvoke({"question": question, "language": language})
+        text_value = result.content if isinstance(result.content, str) else str(result.content)
+        rec["output_chars"] = len(text_value)
     # Only store on success — a thrown exception above bypasses this.
     _hyde_cache[key] = text_value
     return text_value
@@ -140,7 +229,19 @@ async def _dense_search(
     jurisdiction: str | None,
     top_k: int,
 ) -> list[dict[str, Any]]:
-    embedding = await _embedder().aembed_query(query_text)
+    # Embedding call is the OpenAI dollar driver on the read path.
+    # Logging input length lets per-org spend rollups account for
+    # query-volume x query-size, which is the actual cost dimension.
+    async with _record_llm_call(
+        call="embed_query",
+        model=_EMBED_MODEL,
+        input_chars=len(query_text),
+    ) as rec:
+        embedding = await _embedder().aembed_query(query_text)
+        # Embedding response is a fixed-dim vector; record the dim as a
+        # crude proxy for "did we get a real vector back" rather than
+        # output text length.
+        rec["output_chars"] = len(embedding) if embedding else 0
     vec_literal = "[" + ",".join(f"{x:.7f}" for x in embedding) + "]"
 
     where_clauses = ["1=1"]
@@ -544,13 +645,23 @@ async def answer_regulation_query(
             ]
         )
         chain = prompt | _llm(temperature=0.1) | JsonOutputParser()
-        raw = await chain.ainvoke(
-            {
-                "language": state.language,
-                "question": state.question,
-                "context": _format_context(state.candidates),
-            }
-        )
+        context_str = _format_context(state.candidates)
+        async with _record_llm_call(
+            call="qa_generate",
+            model=_ANTHROPIC_MODEL,
+            input_chars=len(state.question) + len(context_str),
+        ) as rec:
+            raw = await chain.ainvoke(
+                {
+                    "language": state.language,
+                    "question": state.question,
+                    "context": context_str,
+                }
+            )
+            # JsonOutputParser returns a dict, not a string; serialise
+            # to JSON for character-count fidelity (output_chars then
+            # tracks the raw model output we're paying tokens for).
+            rec["output_chars"] = len(json.dumps(raw, ensure_ascii=False))
 
         # Citations pass through _ground_citations — the single choke point
         # that rejects hallucinated section refs and excerpts (see its docstring).
@@ -669,30 +780,46 @@ async def answer_regulation_query_stream(
 
         prev_answer = ""
         last_partial: dict[str, Any] | None = None
-        async for partial in chain.astream(
-            {
-                "language": lang,
-                "question": question,
-                "context": _format_context(candidates),
-            }
-        ):
-            if not isinstance(partial, dict):
-                continue
-            last_partial = partial
-            cur = partial.get("answer", "")
-            if not isinstance(cur, str) or cur == prev_answer:
-                continue
-            # Emit only the delta. In normal LLM streaming `cur` always
-            # extends `prev_answer`, but defend against a parser
-            # regenerating the prefix by falling back to the full string
-            # when the prefix invariant is broken.
-            if cur.startswith(prev_answer):
-                delta = cur[len(prev_answer) :]
-            else:
-                delta = cur
-            prev_answer = cur
-            if delta:
-                yield ("token", delta)
+        context_str = _format_context(candidates)
+        # `_record_llm_call` wraps the entire astream loop, so latency
+        # captures end-to-end generation time and `output_chars` reflects
+        # the final accumulated JSON. A streaming-aware "first token"
+        # metric would be more informative but requires a second log
+        # event — keeping shape symmetric with the non-streaming path
+        # for now so per-call cost rollups are uniform.
+        async with _record_llm_call(
+            call="qa_generate_stream",
+            model=_ANTHROPIC_MODEL,
+            input_chars=len(question) + len(context_str),
+        ) as rec:
+            async for partial in chain.astream(
+                {
+                    "language": lang,
+                    "question": question,
+                    "context": context_str,
+                }
+            ):
+                if not isinstance(partial, dict):
+                    continue
+                last_partial = partial
+                cur = partial.get("answer", "")
+                if not isinstance(cur, str) or cur == prev_answer:
+                    continue
+                # Emit only the delta. In normal LLM streaming `cur` always
+                # extends `prev_answer`, but defend against a parser
+                # regenerating the prefix by falling back to the full string
+                # when the prefix invariant is broken.
+                if cur.startswith(prev_answer):
+                    delta = cur[len(prev_answer) :]
+                else:
+                    delta = cur
+                prev_answer = cur
+                if delta:
+                    yield ("token", delta)
+
+            rec["output_chars"] = (
+                len(json.dumps(last_partial, ensure_ascii=False)) if last_partial is not None else 0
+            )
 
         if last_partial is None:
             yield ("error", "LLM produced no output")
@@ -797,14 +924,21 @@ async def auto_scan_project(
             ]
         )
         chain = prompt | _llm(temperature=0.0) | JsonOutputParser()
+        scan_context = _format_context(chunks)
         try:
-            raw = await chain.ainvoke(
-                {
-                    "category": category.value,
-                    "params": param_summary,
-                    "context": _format_context(chunks),
-                }
-            )
+            async with _record_llm_call(
+                call=f"scan_generate.{category.value}",
+                model=_ANTHROPIC_MODEL,
+                input_chars=len(param_summary) + len(scan_context),
+            ) as rec:
+                raw = await chain.ainvoke(
+                    {
+                        "category": category.value,
+                        "params": param_summary,
+                        "context": scan_context,
+                    }
+                )
+                rec["output_chars"] = len(json.dumps(raw, ensure_ascii=False))
         except Exception:
             continue
 
@@ -917,17 +1051,26 @@ async def auto_scan_project_stream(
                 [("system", _SCAN_SYSTEM), ("human", _SCAN_USER)]
             )
             chain = prompt | _llm(temperature=0.0) | JsonOutputParser()
+            scan_context = _format_context(chunks)
             try:
-                raw = await chain.ainvoke(
-                    {
-                        "category": category.value,
-                        "params": param_summary,
-                        "context": _format_context(chunks),
-                    }
-                )
+                async with _record_llm_call(
+                    call=f"scan_generate_stream.{category.value}",
+                    model=_ANTHROPIC_MODEL,
+                    input_chars=len(param_summary) + len(scan_context),
+                ) as rec:
+                    raw = await chain.ainvoke(
+                        {
+                            "category": category.value,
+                            "params": param_summary,
+                            "context": scan_context,
+                        }
+                    )
+                    rec["output_chars"] = len(json.dumps(raw, ensure_ascii=False))
             except Exception as exc:
                 # Same per-category swallow as the non-streaming path —
-                # one bad category shouldn't kill the whole scan.
+                # one bad category shouldn't kill the whole scan. The
+                # `_record_llm_call` context manager already logged the
+                # failure to the telemetry stream before re-raising.
                 logger.warning(
                     "codeguard: scan stream — LLM call for category=%s failed: %s",
                     category.value,
@@ -1038,13 +1181,19 @@ async def generate_permit_checklist(
         ]
     )
     chain = prompt | _llm(temperature=0.2) | JsonOutputParser()
-    raw = await chain.ainvoke(
-        {
-            "jurisdiction": jurisdiction,
-            "project_type": project_type,
-            "params": params_summary,
-        }
-    )
+    async with _record_llm_call(
+        call="checklist_generate",
+        model=_ANTHROPIC_MODEL,
+        input_chars=len(jurisdiction) + len(project_type) + len(params_summary),
+    ) as rec:
+        raw = await chain.ainvoke(
+            {
+                "jurisdiction": jurisdiction,
+                "project_type": project_type,
+                "params": params_summary,
+            }
+        )
+        rec["output_chars"] = len(json.dumps(raw, ensure_ascii=False))
 
     items: list[ChecklistItem] = []
     for i, item in enumerate(raw.get("items", [])):
