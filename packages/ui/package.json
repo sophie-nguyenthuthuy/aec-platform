@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "clsx": "^2.1.1",
-    "tailwind-merge": "^2.5.2",
+    "tailwind-merge": "^3.5.0",
     "class-variance-authority": "^0.7.0",
     "lucide-react": "^0.445.0",
     "recharts": "^2.12.7"
