@@ -1,7 +1,7 @@
 # Ray Serve deployment for the SiteEye YOLOv8m safety model.
 # The image bundles ultralytics + torch + ray[serve]; weights are pulled at runtime
 # from S3 (`SITEEYE_YOLO_WEIGHTS`) by `apps/ml/serve/siteeye_safety.py`.
-FROM python:3.11-slim
+FROM python:3.14-slim
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
