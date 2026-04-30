@@ -107,8 +107,10 @@ exclude_lines = [
     "raise NotImplementedError",
     "if __name__ == .__main__.:",
 ]
-# Don't fail the run on low coverage today. Pin a `fail_under` once
-# we've established a baseline (likely 60-70 — the fast unit lane
-# can't reach 100 because the integration-only paths are excluded).
 show_missing = true
 skip_covered = true
+# Coverage floor — a PR that drops the global average below 80% red-gates
+# in CI. Baseline as of 2026-05-01: 80% (over 662 tests). When you raise
+# this, raise it by what you actually achieve, not what you aspire to —
+# an aspirational floor that's never met just trains people to ignore it.
+fail_under = 80

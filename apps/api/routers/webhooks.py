@@ -8,6 +8,7 @@ A small `/webhooks/{id}/test` endpoint enqueues a synthetic event so
 the customer can verify their receiver works without waiting for a
 real action to happen in the platform.
 """
+
 from __future__ import annotations
 
 from typing import Annotated
@@ -31,7 +32,6 @@ from schemas.webhooks import (
     WebhookSubscriptionUpdate,
 )
 from services.webhooks import enqueue_event, generate_secret
-
 
 router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
 
@@ -106,9 +106,7 @@ async def list_webhooks(
         .scalars()
         .all()
     )
-    return ok(
-        [WebhookSubscriptionOut.model_validate(r).model_dump(mode="json") for r in rows]
-    )
+    return ok([WebhookSubscriptionOut.model_validate(r).model_dump(mode="json") for r in rows])
 
 
 # ---------- Update (toggle / change events) ----------
@@ -236,6 +234,4 @@ async def list_deliveries(
         .scalars()
         .all()
     )
-    return ok(
-        [WebhookDeliveryOut.model_validate(r).model_dump(mode="json") for r in rows]
-    )
+    return ok([WebhookDeliveryOut.model_validate(r).model_dump(mode="json") for r in rows])

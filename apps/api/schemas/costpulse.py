@@ -289,6 +289,11 @@ class RfqOut(BaseModel):
     sent_to: list[UUID] = Field(default_factory=list)
     responses: list[dict[str, Any]] = Field(default_factory=list)
     deadline: date | None = None
+    # Buyer's accepted-quote columns from migration 0024_rfq_acceptance.
+    # The frontend QuoteComparisonTable matches `accepted_supplier_id`
+    # against each column to render the "✓ Accepted" badge.
+    accepted_supplier_id: UUID | None = None
+    accepted_at: datetime | None = None
     created_at: datetime
 
 

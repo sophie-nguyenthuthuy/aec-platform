@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
-from enum import Enum
-from typing import Any
+from enum import StrEnum
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+# Provenance of a hybrid-search result. Set by `_rrf_fuse` based on
+# which retrieval arm(s) produced the row:
+#   * "keyword" — only the ILIKE arm hit
+#   * "vector"  — only the pgvector arm hit
+#   * "both"    — RRF fused contributions from both arms
+#   * None      — keyword-only scope (defects, proposals) or no
+#                  embedding key configured. Distinguishes "we tried
+#                  vector and it didn't match" from "we never tried".
+MatchedOn = Literal["keyword", "vector", "both"]
 
-class SearchScope(str, Enum):
+
+class SearchScope(StrEnum):
     """Modules the search can fan out across. Each maps to one backend
     function in `services/search.py`. Adding a scope is one entry here +
     one function there + one test."""
@@ -58,6 +68,10 @@ class SearchResult(BaseModel):
     # `score` field is a placeholder so the response shape is forward-
     # compatible with a hybrid (keyword + pgvector) ranker.
     score: float = 1.0
+    # Which retrieval arm(s) produced this row. None when the scope
+    # has no vector arm at all (defects/proposals) — distinguishes
+    # "keyword-only scope" from "vector found nothing".
+    matched_on: MatchedOn | None = None
     route: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 

@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import text
 
 from core.envelope import ok, paginated
@@ -213,6 +213,7 @@ async def update_package(
     package_id: UUID,
     payload: HandoverPackageUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
+    request: Request,
 ):
     assigns: list[str] = []
     params: dict[str, Any] = {"id": str(package_id), "org": str(auth.organization_id)}
@@ -278,14 +279,23 @@ async def update_package(
                     },
                 )
 
+        # Capture prior status in the same UPDATE round-trip via a CTE.
+        # Doing this in one statement (rather than a SELECT-then-UPDATE)
+        # avoids racing with a concurrent writer on the same row and
+        # keeps the test fixture queue layout simple — each handler call
+        # corresponds to one queued execute() result.
         row = (
             (
                 await session.execute(
                     text(
                         f"""
+                    WITH prev AS (
+                      SELECT status AS prior_status FROM handover_packages
+                      WHERE id = :id AND organization_id = :org
+                    )
                     UPDATE handover_packages SET {", ".join(assigns)}
                     WHERE id = :id AND organization_id = :org
-                    RETURNING *
+                    RETURNING handover_packages.*, (SELECT prior_status FROM prev) AS prior_status
                     """
                     ),
                     params,
@@ -296,7 +306,40 @@ async def update_package(
         )
     if row is None:
         raise HTTPException(status_code=404, detail="package_not_found")
-    return ok(HandoverPackage.model_validate(dict(row)).model_dump(mode="json"))
+
+    # Audit: a delivery is the terminal "owner accepted closeout" gate,
+    # so the transition INTO `delivered` (and not the no-op re-PATCH on
+    # an already-delivered package) is the auditable event. The
+    # `prior_status != delivered` guard avoids duplicate rows when a
+    # client retries an already-delivered package.
+    prior_status = row.get("prior_status")
+    if (
+        payload.status == PackageStatus.delivered
+        and prior_status is not None
+        and prior_status != PackageStatus.delivered.value
+    ):
+        from services import audit as _audit
+
+        async with TenantAwareSession(auth.organization_id) as audit_session:
+            await _audit.record(
+                audit_session,
+                organization_id=auth.organization_id,
+                actor_user_id=auth.user_id,
+                action="handover.package.deliver",
+                resource_type="handover_packages",
+                resource_id=package_id,
+                before={"status": prior_status},
+                after={
+                    "status": PackageStatus.delivered.value,
+                    "delivered_at": params["delivered_at"].isoformat(),
+                },
+                request=request,
+            )
+
+    # Strip the synthetic `prior_status` column before pydantic validation —
+    # the schema doesn't know about it.
+    pkg_dict = {k: v for k, v in dict(row).items() if k != "prior_status"}
+    return ok(HandoverPackage.model_validate(pkg_dict).model_dump(mode="json"))
 
 
 @router.get("/packages/{package_id}/preconditions")

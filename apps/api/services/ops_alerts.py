@@ -9,10 +9,15 @@ need to know about happens:
   * (Future) Weekly cron crash, Redis backlog spike, S3 upload
     failures from the dispatcher, etc.
 
-Recipients come from the `OPS_ALERT_EMAILS` env (comma-separated),
-NOT from `org_members` — drift is global ops data, not a tenant
-concern. Empty list disables alerts entirely (the alert site falls
-back to log-only via `_maybe_log_drift`).
+Recipient resolution (in priority order):
+
+  1. **Per-user opt-in** via `notification_preferences.key="scraper_drift"`
+     with `email_enabled=true`. Joined to `users.email` cross-tenant
+     (drift IS global ops data; users opt in once per org and we
+     dedupe by email so a user with the pref in 3 orgs gets 1 email).
+  2. **Fallback to `OPS_ALERT_EMAILS` env var** when nobody has opted
+     in. Keeps existing prod deploys working — the table-driven
+     opt-in is purely additive.
 
 Best-effort: each delivery is wrapped so a single SMTP failure
 doesn't propagate or block the originating job. The dispatcher logs
@@ -34,9 +39,68 @@ logger = logging.getLogger(__name__)
 # email is meant to be a "go look" prompt, not the forensic record.
 _MAX_SAMPLES_IN_EMAIL = 10
 
+# Pref key the drift alert reads. Mirrors the value in
+# `routers/notifications.py::_KNOWN_PREF_KEYS` and the user-facing
+# copy in the dashboard's settings page. Constant rather than ad-hoc
+# string so a future rename has one editing site.
+_DRIFT_PREF_KEY = "scraper_drift"
+
+
+async def _resolve_drift_recipients() -> list[str]:
+    """Build the dedup'd recipient list for a drift alert.
+
+    Reads opt-ins from `notification_preferences` first; falls back to
+    `OPS_ALERT_EMAILS` only when nobody has explicitly opted in. The
+    fallback is what keeps a green-field deploy with zero prefs rows
+    still alerting — once the first user hits the prefs UI, the env
+    var is no longer consulted.
+
+    Cross-tenant by design: this is global ops data, not a per-tenant
+    notification. Uses `AdminSessionFactory` for the same reason as
+    `weekly_report_cron` / `evaluate_price_alerts`. Best-effort —
+    a DB outage falls through to the env list.
+    """
+    explicit: list[str] = []
+    try:
+        from sqlalchemy import select
+
+        from db.session import AdminSessionFactory
+        from models.core import NotificationPreference, User
+
+        async with AdminSessionFactory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(User.email)
+                        .join(
+                            NotificationPreference,
+                            NotificationPreference.user_id == User.id,
+                        )
+                        .where(
+                            NotificationPreference.key == _DRIFT_PREF_KEY,
+                            NotificationPreference.email_enabled.is_(True),
+                        )
+                        .distinct()
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            explicit = [r for r in rows if r]
+    except Exception as exc:  # pragma: no cover — defensive against a temporarily-down ops DB
+        logger.warning("ops_alerts.drift: pref-resolution failed: %s", exc)
+
+    if explicit:
+        return explicit
+
+    # No opt-ins → legacy fallback. The buyer-facing UI shows "(no
+    # subscribers — falls back to OPS_ALERT_EMAILS)" so this isn't
+    # invisible.
+    return list(get_settings().ops_alert_emails)
+
 
 async def send_drift_alert(*, slug: str, summary: dict) -> int:
-    """Email each `OPS_ALERT_EMAILS` recipient about a drift event.
+    """Email opted-in users (or `OPS_ALERT_EMAILS` fallback) about a drift event.
 
     `summary` is the same dict `services.price_scrapers.run_scraper`
     returns — needs `slug`, `scraped`, `unmatched`, `unmatched_sample`.
@@ -44,22 +108,19 @@ async def send_drift_alert(*, slug: str, summary: dict) -> int:
     whose SMTP fails is logged + skipped).
 
     Returns 0 cleanly when:
-      * `OPS_ALERT_EMAILS` is empty (alerts disabled).
+      * Nobody has opted in AND `OPS_ALERT_EMAILS` is empty.
       * SMTP isn't configured (mailer skips, returns delivered=False).
-      * Every send raised — exceptions are swallowed per-recipient
-        so one bad address can't deny others.
+      * Every send raised — exceptions swallowed per-recipient.
     """
-    settings = get_settings()
-    if not settings.ops_alert_emails:
-        # Don't even render the email body — keeps the no-recipients
-        # case off the hot path.
-        logger.info("ops_alerts.drift skipped — no OPS_ALERT_EMAILS configured")
+    recipients = await _resolve_drift_recipients()
+    if not recipients:
+        logger.info("ops_alerts.drift skipped — no opted-in users and no OPS_ALERT_EMAILS")
         return 0
 
     subject, text_body = _render_drift_alert(slug=slug, summary=summary)
 
     delivered = 0
-    for addr in settings.ops_alert_emails:
+    for addr in recipients:
         try:
             result = await send_mail(to=addr, subject=subject, text_body=text_body)
             if result.get("delivered"):

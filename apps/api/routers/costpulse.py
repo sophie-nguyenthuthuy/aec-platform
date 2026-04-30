@@ -277,6 +277,27 @@ async def import_boq_xlsx(
     await db.execute(delete(BoqItem).where(BoqItem.estimate_id == estimate_id))
     total = _persist_items(db, estimate_id, items_in, recompute=True)
     estimate.total_vnd = int(total)
+
+    # Audit before the commit so the audit row + BOQ rewrite land
+    # atomically. `after.row_count` + `total_vnd` give the activity
+    # feed enough to render "imported 47 lines, total 120M VND"
+    # without dumping every row in `before`/`after`.
+    from services.audit import record as record_audit
+
+    await record_audit(
+        db,
+        organization_id=auth.organization_id,
+        actor_user_id=auth.user_id,
+        action="costpulse.boq.import",
+        resource_type="estimate",
+        resource_id=estimate_id,
+        after={
+            "filename": file.filename,
+            "row_count": len(items_in),
+            "total_vnd": int(total),
+        },
+    )
+
     await db.commit()
 
     detail = await _load_estimate_detail(db, estimate_id)
@@ -675,6 +696,29 @@ async def import_suppliers(
                 )
             )
             inserted += 1
+
+    # Audit before commit: "user imported supplier list with N rows".
+    # Resource id is null because the import touches many rows; the
+    # counts in `after` are the meaningful summary for an activity
+    # feed entry.
+    from services.audit import record as record_audit
+
+    await record_audit(
+        db,
+        organization_id=auth.organization_id,
+        actor_user_id=auth.user_id,
+        action="costpulse.suppliers.import",
+        resource_type="supplier_directory",
+        resource_id=None,
+        after={
+            "filename": file.filename,
+            "format": "xlsx" if is_xlsx else "csv",
+            "inserted": inserted,
+            "updated": updated,
+            "skipped": skipped,
+            "total": len(rows),
+        },
+    )
 
     await db.commit()
 
@@ -1122,6 +1166,81 @@ async def _emit_variance_change_order(
     db.add(co)
     await db.flush()
     return co
+
+
+async def _load_writable_estimate(
+    db: AsyncSession,
+    auth: AuthContext,
+    estimate_id: UUID,
+) -> Estimate:
+    """Load an Estimate scoped to the caller's org and refuse if it's
+    immutable.
+
+    Used by `update_boq` (PUT /estimates/{id}/boq) — that route forks a
+    new version row, so the source estimate must be in a state that
+    *can* be superseded:
+
+      * 404 if the estimate doesn't exist or belongs to another org.
+      * 409 if it's already `superseded` (newer version exists) or
+        `approved` (locked for change-order workflow). Approved
+        estimates require an unapprove step before BOQ edits.
+    """
+    estimate = (
+        await db.execute(
+            select(Estimate).where(
+                Estimate.id == estimate_id,
+                Estimate.organization_id == auth.organization_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if estimate is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Estimate not found")
+    if estimate.status in ("superseded", "approved"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Estimate is {estimate.status} and cannot be edited",
+        )
+    return estimate
+
+
+def _supersede_and_clone(
+    db: AsyncSession,
+    estimate: Estimate,
+    actor_user_id: UUID | None,
+) -> Estimate:
+    """Mark `estimate` as superseded and add a fresh draft clone with
+    `version = old.version + 1`.
+
+    Returns the *new* Estimate (not yet flushed — caller must flush
+    before referencing `new.id`). The old BOQ items stay attached to
+    the old estimate id; that's the audit trail. The new estimate
+    starts empty — `update_boq` immediately calls `_persist_items`
+    against it.
+
+    `actor_user_id` is recorded on the new row's `created_by` so the
+    audit log can answer "who started this revision."
+    """
+    estimate.status = "superseded"
+
+    new_estimate = Estimate(
+        id=uuid4(),
+        organization_id=estimate.organization_id,
+        project_id=estimate.project_id,
+        name=estimate.name,
+        version=estimate.version + 1,
+        status="draft",
+        # `total_vnd` deliberately starts None — `_persist_items` returns
+        # the recomputed total which `update_boq` writes back here. If we
+        # carried over the old total it would briefly be wrong (between
+        # this clone and the items being inserted).
+        total_vnd=None,
+        confidence=estimate.confidence,
+        method=estimate.method,
+        created_by=actor_user_id,
+        approved_by=None,  # new draft, not yet approved
+    )
+    db.add(new_estimate)
+    return new_estimate
 
 
 def _persist_items(

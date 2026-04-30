@@ -7,7 +7,7 @@ strictly the push-channel opt-in.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -256,6 +256,13 @@ async def upsert_preference(
         )
     ).scalar_one_or_none()
 
+    # Snapshot the prior values BEFORE mutating so the audit row's
+    # `before` is the actual previous state, not the post-update value.
+    # For a brand-new row both flags default to False; that's the
+    # correct "before" for an opt-in.
+    before_email = existing.email_enabled if existing else False
+    before_slack = existing.slack_enabled if existing else False
+
     from datetime import UTC, datetime
 
     now = datetime.now(UTC)
@@ -277,6 +284,33 @@ async def upsert_preference(
         if payload.slack_enabled is not None:
             existing.slack_enabled = payload.slack_enabled
         existing.updated_at = now
+
+    # Audit. Notification opt-out is GDPR / VN-personal-data-law
+    # adjacent — we want a record of when a user enabled or disabled
+    # a channel. `before` / `after` carry only the flags the request
+    # actually touched so the activity feed renders "Alice turned email
+    # ON for scraper_drift" cleanly.
+    from services.audit import record as record_audit
+
+    before_diff: dict[str, bool] = {}
+    after_diff: dict[str, Any] = {"key": existing.key}
+    if payload.email_enabled is not None:
+        before_diff["email_enabled"] = before_email
+        after_diff["email_enabled"] = existing.email_enabled
+    if payload.slack_enabled is not None:
+        before_diff["slack_enabled"] = before_slack
+        after_diff["slack_enabled"] = existing.slack_enabled
+
+    await record_audit(
+        db,
+        organization_id=auth.organization_id,
+        actor_user_id=auth.user_id,
+        action="notifications.preference.update",
+        resource_type="notification_preference",
+        resource_id=existing.id,
+        before=before_diff,
+        after=after_diff,
+    )
 
     await db.commit()
     await db.refresh(existing)

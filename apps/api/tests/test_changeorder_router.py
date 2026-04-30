@@ -46,10 +46,18 @@ def _scalar(v: Any) -> MagicMock:
 class _ProgrammableSession:
     def __init__(self) -> None:
         self._queue: list[Any] = []
+        # `add()` is called by services.audit.record (and friends) to
+        # push ORM rows into the session before commit. Tests don't need
+        # to assert on the rows themselves — just don't crash. Capture
+        # them so a curious test can introspect when needed.
+        self.added: list[Any] = []
 
     def queue(self, result: Any) -> _ProgrammableSession:
         self._queue.append(result)
         return self
+
+    def add(self, obj: Any) -> None:
+        self.added.append(obj)
 
     async def execute(self, *_a: Any, **_k: Any) -> Any:
         if self._queue:

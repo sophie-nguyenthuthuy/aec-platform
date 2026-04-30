@@ -39,6 +39,15 @@ logger = logging.getLogger(__name__)
 AuditAction = Literal[
     # CostPulse
     "costpulse.estimate.approve",
+    # Bulk-load actions are auditable because they touch tens of rows
+    # at once — a "who imported the wrong supplier list?" question
+    # otherwise has no answer.
+    "costpulse.boq.import",
+    "costpulse.suppliers.import",
+    # Cron-driven side effects with governance bearing — when a slot
+    # auto-expires, the buyer's RFQ inbox loses a row; we want a
+    # trail. Actor is null (system).
+    "costpulse.rfq.slots_expired",
     # ProjectPulse
     "pulse.change_order.approve",
     "pulse.change_order.reject",
@@ -48,8 +57,26 @@ AuditAction = Literal[
     "org.invitation.create",
     "org.invitation.revoke",
     "org.invitation.accept",
+    # Notifications — opt-out has compliance bearing (GDPR / VN
+    # personal-data law), so we audit when a user toggles a channel.
+    "notifications.preference.update",
     # Handover
     "handover.package.deliver",
+    # Punch list
+    #
+    # `sign_off` is the terminal "owner has accepted the closeout" gate.
+    # The list-level transition is the auditable event (item-level marks
+    # are too noisy and aren't governance-bearing on their own).
+    "punchlist.list.sign_off",
+    # Submittals
+    #
+    # The four reviewer verdicts. Resubmittal is also tracked because it
+    # carries a binding "this version is a no-go" decision even though
+    # the submittal stays open.
+    "submittals.review.approve",
+    "submittals.review.approve_as_noted",
+    "submittals.review.revise_resubmit",
+    "submittals.review.reject",
 ]
 
 

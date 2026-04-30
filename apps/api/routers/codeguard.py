@@ -1012,3 +1012,84 @@ async def list_project_checks(
         stmt = stmt.where(ComplianceCheckModel.check_type == check_type.value)
     rows = (await db.execute(stmt)).scalars().all()
     return ok([ComplianceCheck.model_validate(r) for r in rows])
+
+
+@router.get("/quota")
+async def get_codeguard_quota(
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Return the caller's org's quota + current-month usage with
+    per-dimension percent-of-cap.
+
+    The frontend's `<QuotaStatusBanner>` consumes this to render an
+    in-line warning at 80%+ (yellow) and 95%+ (red), letting users see
+    their cap approaching instead of finding out via a 429 in the
+    middle of an answer. Unlimited orgs (no quota row, or NULL on a
+    dimension) get `quota.percent_of_cap.<dim> = null` and the banner
+    stays hidden.
+
+    Read-only — no LLM calls, no DB writes. Reuses the same SQL shape
+    as `services.codeguard_quotas.check_org_quota` but returns both
+    dimensions' state rather than just the binding one (the banner
+    needs both to render the per-dimension progress bar).
+    """
+    from sqlalchemy import text as sa_text
+
+    row = (
+        await db.execute(
+            sa_text(
+                """
+                SELECT
+                  q.monthly_input_token_limit  AS in_lim,
+                  q.monthly_output_token_limit AS out_lim,
+                  COALESCE(u.input_tokens, 0)  AS in_used,
+                  COALESCE(u.output_tokens, 0) AS out_used,
+                  u.period_start
+                FROM codeguard_org_quotas q
+                LEFT JOIN codeguard_org_usage u
+                  ON u.organization_id = q.organization_id
+                  AND u.period_start = date_trunc('month', NOW())::date
+                WHERE q.organization_id = :org
+                """
+            ),
+            {"org": str(auth.organization_id)},
+        )
+    ).first()
+
+    if row is None:
+        # No quota row → unlimited. Banner consumes this and renders
+        # nothing; we still surface the org_id + the "unlimited"
+        # marker so client-side analytics / debugging tools can tell
+        # the difference between "haven't loaded yet" and "no cap
+        # configured for this org."
+        return ok(
+            {
+                "organization_id": str(auth.organization_id),
+                "unlimited": True,
+                "input": None,
+                "output": None,
+                "period_start": None,
+            }
+        )
+
+    def _dim(used: int, lim: int | None) -> dict:
+        if lim is None or lim <= 0:
+            # Unlimited on this dimension → percent is null. Component
+            # treats null-percent as "don't render this dimension's bar."
+            return {"used": used, "limit": lim, "percent": None}
+        return {
+            "used": used,
+            "limit": lim,
+            "percent": round(100.0 * used / lim, 1),
+        }
+
+    return ok(
+        {
+            "organization_id": str(auth.organization_id),
+            "unlimited": False,
+            "input": _dim(row.in_used, row.in_lim),
+            "output": _dim(row.out_used, row.out_lim),
+            "period_start": row.period_start.isoformat() if row.period_start else None,
+        }
+    )

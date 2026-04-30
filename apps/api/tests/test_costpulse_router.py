@@ -631,15 +631,20 @@ def _build_boq_xlsx_bytes(rows: list[tuple[str, str, str, float, float]]) -> byt
 async def test_import_boq_xlsx_replaces_items_and_recomputes_total(client, fake_db):
     """Happy path: an .xlsx with two rows lands as two BoqItem inserts."""
     estimate = _estimate_row(status="draft")
-    # The handler issues four execute() calls in order:
-    #   1. SELECT Estimate          (auth check)
-    #   2. DELETE BoqItem           (wipe old rows; return value unused)
-    #   3. SELECT Estimate          (in _load_estimate_detail; .scalar_one())
-    #   4. SELECT BoqItem           (in _load_estimate_detail; .scalars().all())
+    # The handler issues five execute() calls in order:
+    #   1. SELECT Estimate           (auth check)
+    #   2. DELETE BoqItem            (wipe old rows; return value unused)
+    #   3. SELECT webhook_subs       (audit → webhook outbox enqueue)
+    #   4. SELECT Estimate           (in _load_estimate_detail; .scalar_one())
+    #   5. SELECT BoqItem            (in _load_estimate_detail; .scalars().all())
     q_estimate = MagicMock()
     q_estimate.scalar_one_or_none.return_value = estimate
     fake_db.push_execute(q_estimate)
     fake_db.push_execute(MagicMock())  # DELETE — no consumer cares
+    # Webhook-outbox query has no matching subscriptions in tests.
+    webhook_subs_q = MagicMock()
+    webhook_subs_q.scalars.return_value.all.return_value = []
+    fake_db.push_execute(webhook_subs_q)
     detail_q = MagicMock()
     detail_q.scalar_one.return_value = estimate
     fake_db.push_execute(detail_q)
@@ -966,3 +971,170 @@ async def test_diff_404_when_either_id_missing(client, fake_db):
 
     res = await client.get(f"/api/v1/costpulse/estimates/{a_id}/diff?to={b_id}")
     assert res.status_code == 404
+
+
+# ---------- _persist_items: recompute behavior ----------
+#
+# `_persist_items(recompute=True)` is the contract every save path
+# relies on (create / PUT BOQ / Excel import / quote-clone). These
+# tests pin the recompute math directly — a refactor that drops the
+# recompute flag would otherwise silently land stale totals in
+# material_prices and the buyer's estimate display.
+
+
+def test_persist_items_recomputes_line_total_when_qty_and_unit_price_set():
+    """qty * unit_price should override any pre-existing total when
+    `recompute=True`. Without this, an Excel import where the formula
+    column was stale would persist the wrong total."""
+    from routers.costpulse import _persist_items
+    from schemas.costpulse import BoqItemIn
+
+    class _Sink:
+        added: list = []
+
+        def add(self, obj):
+            self.added.append(obj)
+
+    sink = _Sink()
+    items = [
+        BoqItemIn(
+            id=None,
+            parent_id=None,
+            sort_order=0,
+            code="1.1",
+            description="Bê tông C30",
+            unit="m3",
+            quantity=Decimal("120"),
+            unit_price_vnd=Decimal("2000000"),
+            # Caller passed a stale total — the recompute should win.
+            total_price_vnd=Decimal("999"),
+            material_code="CONC_C30",
+        )
+    ]
+    total = _persist_items(sink, uuid4(), items, recompute=True)
+
+    # 120 * 2_000_000 = 240_000_000 — recompute wins over the stale 999.
+    assert total == Decimal("240000000")
+    persisted = sink.added[0]
+    assert persisted.total_price_vnd == Decimal("240000000")
+
+
+def test_persist_items_keeps_explicit_total_when_recompute_false():
+    """`recompute=False` is the escape hatch for "trust the caller's total"
+    — used when the buyer manually overrode a single line. Pin that the
+    flag actually gates the recompute."""
+    from routers.costpulse import _persist_items
+    from schemas.costpulse import BoqItemIn
+
+    class _Sink:
+        added: list = []
+
+        def add(self, obj):
+            self.added.append(obj)
+
+    sink = _Sink()
+    items = [
+        BoqItemIn(
+            id=None,
+            parent_id=None,
+            sort_order=0,
+            code="1.1",
+            description="x",
+            unit="m3",
+            quantity=Decimal("10"),
+            unit_price_vnd=Decimal("100"),
+            total_price_vnd=Decimal("9999"),  # buyer-provided
+            material_code=None,
+        )
+    ]
+    total = _persist_items(sink, uuid4(), items, recompute=False)
+
+    # qty*unit_price = 1000, but recompute is off → explicit 9999 kept.
+    assert total == Decimal("9999")
+    assert sink.added[0].total_price_vnd == Decimal("9999")
+
+
+def test_persist_items_skips_recompute_when_qty_or_unit_price_missing():
+    """A line that only has a top-line total (no qty/unit_price) must
+    NOT have its total nulled out by the recompute branch — that would
+    silently drop the value."""
+    from routers.costpulse import _persist_items
+    from schemas.costpulse import BoqItemIn
+
+    class _Sink:
+        added: list = []
+
+        def add(self, obj):
+            self.added.append(obj)
+
+    sink = _Sink()
+    items = [
+        BoqItemIn(
+            id=None,
+            parent_id=None,
+            sort_order=0,
+            code="2.1",
+            description="Lump sum",
+            unit="lot",
+            quantity=None,  # ← missing
+            unit_price_vnd=None,  # ← missing
+            total_price_vnd=Decimal("5000000"),
+            material_code=None,
+        )
+    ]
+    total = _persist_items(sink, uuid4(), items, recompute=True)
+
+    # No qty * price math possible → keeps the explicit total.
+    assert total == Decimal("5000000")
+    assert sink.added[0].total_price_vnd == Decimal("5000000")
+
+
+def test_persist_items_only_top_level_rolls_up_to_estimate_total():
+    """Sub-items (parent_id set) get their line_total recomputed but do
+    NOT contribute to `estimate.total_vnd`. Without this gate the
+    estimate's total would double-count children + parent."""
+    from routers.costpulse import _persist_items
+    from schemas.costpulse import BoqItemIn
+
+    class _Sink:
+        added: list = []
+
+        def add(self, obj):
+            self.added.append(obj)
+
+    parent_id = uuid4()
+    sink = _Sink()
+    items = [
+        BoqItemIn(
+            id=parent_id,
+            parent_id=None,
+            sort_order=0,
+            code="1",
+            description="Concrete works",
+            quantity=None,
+            unit_price_vnd=None,
+            total_price_vnd=Decimal("100"),
+            material_code=None,
+            unit=None,
+        ),
+        BoqItemIn(
+            id=None,
+            parent_id=parent_id,
+            sort_order=1,
+            code="1.1",
+            description="Sub-item",
+            quantity=Decimal("5"),
+            unit_price_vnd=Decimal("50"),
+            total_price_vnd=None,
+            material_code=None,
+            unit="m3",
+        ),
+    ]
+    total = _persist_items(sink, uuid4(), items, recompute=True)
+
+    # Only the parent (no parent_id) contributes — sub-items are
+    # children of an existing line.
+    assert total == Decimal("100")
+    # Sub-item still got its own line total recomputed.
+    sub = next(a for a in sink.added if a.code == "1.1")
+    assert sub.total_price_vnd == Decimal("250")

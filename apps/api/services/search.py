@@ -98,8 +98,16 @@ async def search(
                 # hub note for the same issue).
                 keyword_hits = await keyword_task
                 vector_hits = await vector_task
-                return _rrf_fuse([keyword_hits, vector_hits], cap=per_scope)
-            return await keyword_task
+                return _rrf_fuse(
+                    [("keyword", keyword_hits), ("vector", vector_hits)],
+                    cap=per_scope,
+                )
+            # Keyword-only path: stamp matched_on so the frontend can
+            # still render a chip. Defects/proposals always land here.
+            keyword_hits = await keyword_task
+            for r in keyword_hits:
+                r.matched_on = "keyword"
+            return keyword_hits
 
     fan_out = await asyncio.gather(*(_run(s) for s in selected))
     merged: list[SearchResult] = []
@@ -150,31 +158,53 @@ async def _embed_query(query: str) -> list[float] | None:
 # ---------- RRF fusion ----------
 
 
-def _rrf_fuse(rankers: list[list[SearchResult]], *, cap: int) -> list[SearchResult]:
-    """Reciprocal-rank fusion across arbitrary rankers.
+def _rrf_fuse(
+    labelled_rankers: list[tuple[str, list[SearchResult]]],
+    *,
+    cap: int,
+) -> list[SearchResult]:
+    """Reciprocal-rank fusion across labelled rankers.
 
-    For each result `r` and each ranker, contribute `1 / (k + rank_in_ranker)`
-    to `r.score`. A row that's ranked highly in BOTH the keyword and the
-    vector arm beats one that's #1 in only one — exactly the property
-    we want for hybrid recall.
+    `labelled_rankers` is `[(label, ranked_results), …]` where `label`
+    is one of `"keyword"` / `"vector"`. For each result and each ranker
+    that contained it, we add `1 / (k + rank_in_ranker)` to the row's
+    score. A row appearing high in BOTH arms beats one #1 in only one
+    — that's the property hybrid recall depends on.
 
-    Result identity is keyed by `(scope, id)`. The first ranker's copy
-    wins when both produce the same row (both will have identical
-    presentational fields anyway; only `score` differs).
+    The fused row's `matched_on` is set to:
+      * `"keyword"` if only the keyword arm produced it
+      * `"vector"`  if only the vector arm produced it
+      * `"both"`    if both did
+    Frontend renders that as a chip on each row so users can see
+    *why* a hit landed in the list.
+
+    Result identity is `(scope, id)`. First ranker's copy wins when
+    both produce the same row (both will have identical presentational
+    fields; only the score + matched_on differ).
     """
     by_key: dict[tuple[SearchScope, UUID], SearchResult] = {}
     fused_score: dict[tuple[SearchScope, UUID], float] = {}
-    for ranker in rankers:
+    contributors: dict[tuple[SearchScope, UUID], set[str]] = {}
+    for label, ranker in labelled_rankers:
         for rank, result in enumerate(ranker, start=1):
             key = (result.scope, result.id)
             fused_score[key] = fused_score.get(key, 0.0) + 1.0 / (_RRF_K + rank)
+            contributors.setdefault(key, set()).add(label)
             if key not in by_key:
-                # First copy wins. Stamp the fused score below.
                 by_key[key] = result
 
-    fused = []
+    fused: list[SearchResult] = []
     for key, result in by_key.items():
         result.score = fused_score[key]
+        labels = contributors[key]
+        if labels == {"keyword"}:
+            result.matched_on = "keyword"
+        elif labels == {"vector"}:
+            result.matched_on = "vector"
+        elif labels == {"keyword", "vector"}:
+            result.matched_on = "both"
+        # Any other label set means the caller passed something
+        # unexpected — leave matched_on unchanged.
         fused.append(result)
     fused.sort(key=lambda r: r.score, reverse=True)
     return fused[:cap]

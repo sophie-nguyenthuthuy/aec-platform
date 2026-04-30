@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import text
 
 from core.envelope import ok, paginated
@@ -220,6 +220,7 @@ async def sign_off(
     list_id: UUID,
     payload: SignOffRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
+    request: Request,
 ):
     """Owner signs off a punch list. All items must be `verified` or
     `waived` — open/in-progress/fixed items block sign-off so a partial
@@ -266,6 +267,26 @@ async def sign_off(
         ).one_or_none()
         if row is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Punch list not found")
+
+        # Audit: sign-off is the terminal "owner accepted closeout" gate
+        # for the punch list. Captured in the same transaction as the
+        # status update so a rolled-back sign-off rolls back the audit
+        # too. handover.package.deliver later in the workflow walks back
+        # to this row when the /settings/audit timeline groups events
+        # by resource chain.
+        from services import audit as _audit
+
+        await _audit.record(
+            session,
+            organization_id=auth.organization_id,
+            actor_user_id=auth.user_id,
+            action="punchlist.list.sign_off",
+            resource_type="punch_lists",
+            resource_id=list_id,
+            before={"status": "in_review"},  # the only legal predecessor
+            after={"status": "signed_off", "notes": payload.notes},
+            request=request,
+        )
         await session.commit()
     base = _row_to_dict(row)
     base.update({"total_items": 0, "open_items": 0, "fixed_items": 0, "verified_items": 0})

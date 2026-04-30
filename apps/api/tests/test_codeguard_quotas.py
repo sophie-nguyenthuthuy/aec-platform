@@ -418,3 +418,71 @@ async def test_query_route_passes_through_when_org_under_quota(client, monkeypat
     )
     assert res.status_code == 200
     assert res.json()["data"]["answer"]
+
+
+# ---------- GET /quota -------------------------------------------------
+
+
+async def test_quota_route_returns_unlimited_when_no_quota_row(client, fake_db, fake_auth):
+    """Org with no quota row → `unlimited=true`, both dimensions null.
+    Pin so the frontend banner can rely on `unlimited` to short-circuit
+    rendering instead of having to interpret null percents itself."""
+    # Pre-program the SELECT to return a Result whose `.first()` is None —
+    # the "no quota row" shape from the LEFT JOIN. FakeAsyncSession's
+    # default execute mock doesn't set `.first()`, so without this the
+    # route's `if row is None:` short-circuit never fires and the
+    # MagicMock attributes TypeError on `<=` comparison.
+    no_row_result = MagicMock()
+    no_row_result.first.return_value = None
+    fake_db.set_execute_result(no_row_result)
+
+    res = await client.get("/api/v1/codeguard/quota")
+    assert res.status_code == 200
+    body = res.json()["data"]
+    assert body["unlimited"] is True
+    assert body["input"] is None
+    assert body["output"] is None
+    assert body["organization_id"] == str(fake_auth.organization_id)
+
+
+async def test_quota_route_returns_per_dimension_percent_when_quota_set(client, fake_db, fake_auth):
+    """Org with a quota row → both dimensions populated with usage,
+    limit, and computed percent. Frontend uses the percent for the
+    progress-bar fill + the yellow/red threshold checks."""
+    result = MagicMock()
+    result.first.return_value = MagicMock(
+        in_lim=1_000_000,
+        out_lim=200_000,
+        in_used=500_000,
+        out_used=160_000,
+        period_start=__import__("datetime").date(2026, 5, 1),
+    )
+    fake_db.set_execute_result(result)
+
+    res = await client.get("/api/v1/codeguard/quota")
+    assert res.status_code == 200
+    body = res.json()["data"]
+    assert body["unlimited"] is False
+    assert body["input"] == {"used": 500_000, "limit": 1_000_000, "percent": 50.0}
+    assert body["output"] == {"used": 160_000, "limit": 200_000, "percent": 80.0}
+    assert body["period_start"] == "2026-05-01"
+
+
+async def test_quota_route_handles_null_dimension_limit(client, fake_db):
+    """One dimension NULL (unlimited on that axis) → that dimension's
+    `percent` is null, the other dimension's percent computed normally."""
+    result = MagicMock()
+    result.first.return_value = MagicMock(
+        in_lim=None,  # input unlimited
+        out_lim=200_000,
+        in_used=999_999,  # huge, but no cap
+        out_used=50_000,
+        period_start=__import__("datetime").date(2026, 5, 1),
+    )
+    fake_db.set_execute_result(result)
+
+    res = await client.get("/api/v1/codeguard/quota")
+    body = res.json()["data"]
+    assert body["input"]["limit"] is None
+    assert body["input"]["percent"] is None
+    assert body["output"]["percent"] == 25.0

@@ -61,8 +61,11 @@ logger = logging.getLogger(__name__)
 # *gate* subscribers on it — they can register for any string they
 # want, and the dispatcher just won't fire on unknown types.
 _KNOWN_EVENT_TYPES: set[str] = {
-    # Audit-mirrored
+    # Audit-mirrored — keep in sync with `services/audit.AuditAction`
     "costpulse.estimate.approve",
+    "costpulse.boq.import",
+    "costpulse.suppliers.import",
+    "costpulse.rfq.slots_expired",
     "pulse.change_order.approve",
     "pulse.change_order.reject",
     "org.member.role_change",
@@ -70,13 +73,23 @@ _KNOWN_EVENT_TYPES: set[str] = {
     "org.invitation.create",
     "org.invitation.revoke",
     "org.invitation.accept",
+    "notifications.preference.update",
     "handover.package.deliver",
+    "punchlist.list.sign_off",
+    "submittals.review.approve",
+    "submittals.review.approve_as_noted",
+    "submittals.review.revise_resubmit",
+    "submittals.review.reject",
     # Non-audit creations (not gated by RBAC; carry no actor
     # before/after diff, so they're awkward to log to audit but
     # high-value to webhook)
     "project.created",
     "siteeye.safety_incident.detected",
     "handover.defect.reported",
+    # Test-fire from the `/webhooks/{id}/test` endpoint. Same payload
+    # shape as a real event so receivers can't distinguish (and thus
+    # can't be tricked into trusting a spoofed flag).
+    "webhook.test",
 }
 
 

@@ -510,6 +510,104 @@ async def test_rrf_recency_sort_still_applies_across_scopes(fake_db, patch_embed
     assert body["results"][0]["id"] == str(newer_defect_id)
 
 
+# ---------- Provenance: matched_on ----------
+
+
+async def test_matched_on_is_keyword_when_only_keyword_arm_hits(fake_db, patch_embedder):
+    """A row that's only in the keyword arm gets matched_on='keyword'.
+    Pin so the frontend chip renders correctly."""
+    kw_q = MagicMock()
+    kw_q.mappings.return_value.all.return_value = [_doc_row(name="kw-only")]
+    fake_db.push(kw_q)
+    vec_q = MagicMock()
+    vec_q.mappings.return_value.all.return_value = []
+    fake_db.push(vec_q)
+
+    app = _build_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(
+            "/api/v1/search",
+            json={"query": "tower", "scopes": ["documents"]},
+        )
+    assert res.status_code == 200
+    [hit] = res.json()["data"]["results"]
+    assert hit["matched_on"] == "keyword"
+
+
+async def test_matched_on_is_vector_when_only_vector_arm_hits(fake_db, patch_embedder):
+    kw_q = MagicMock()
+    kw_q.mappings.return_value.all.return_value = []
+    fake_db.push(kw_q)
+    vec_q = MagicMock()
+    vec_q.mappings.return_value.all.return_value = [{**_doc_row(name="vec-only"), "score": 0.85}]
+    fake_db.push(vec_q)
+
+    app = _build_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(
+            "/api/v1/search",
+            json={"query": "fire egress", "scopes": ["documents"]},
+        )
+    assert res.status_code == 200
+    [hit] = res.json()["data"]["results"]
+    assert hit["matched_on"] == "vector"
+
+
+async def test_matched_on_is_both_when_arms_overlap(fake_db, patch_embedder):
+    """High-confidence case: row appears in BOTH arms → chip reads 'both'."""
+    shared_id = uuid4()
+    kw_q = MagicMock()
+    kw_q.mappings.return_value.all.return_value = [_doc_row(id=shared_id, name="s")]
+    fake_db.push(kw_q)
+    vec_q = MagicMock()
+    vec_q.mappings.return_value.all.return_value = [{**_doc_row(id=shared_id, name="s"), "score": 0.9}]
+    fake_db.push(vec_q)
+
+    app = _build_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(
+            "/api/v1/search",
+            json={"query": "anything", "scopes": ["documents"]},
+        )
+    assert res.status_code == 200
+    [hit] = res.json()["data"]["results"]
+    assert hit["matched_on"] == "both"
+
+
+async def test_matched_on_is_keyword_for_keyword_only_scope(fake_db, patch_embedder):
+    """`defects` has no embeddings table → matched_on is 'keyword'
+    even when an embed key is configured (proves the keyword-only
+    branch in `_run` stamps the field)."""
+    kw_q = MagicMock()
+    kw_q.mappings.return_value.all.return_value = [
+        {
+            "id": uuid4(),
+            "title": "Leak in basement",
+            "description": "D",
+            "project_id": uuid4(),
+            "priority": "high",
+            "status": "open",
+            "reported_at": datetime(2026, 4, 27, tzinfo=UTC),
+            "project_name": "Tower A",
+        }
+    ]
+    fake_db.push(kw_q)
+
+    app = _build_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(
+            "/api/v1/search",
+            json={"query": "leak", "scopes": ["defects"]},
+        )
+    assert res.status_code == 200
+    [hit] = res.json()["data"]["results"]
+    assert hit["matched_on"] == "keyword"
+
+
 # ---------- Auth ----------
 
 

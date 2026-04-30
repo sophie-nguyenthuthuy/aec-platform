@@ -100,6 +100,38 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # Hard-fail the web build if any of the three NEXT_PUBLIC_* secrets
+      # is missing. Without this guard, `docker build-push-action` happily
+      # passes empty strings as build-args, the Dockerfile defaults the
+      # ARG to `""`, `next build` succeeds, and the client bundle ships
+      # with `undefined` Supabase-URL literals — the first user click in
+      # production crashes with "Missing Supabase env" inside Sentry.
+      # Better to red-gate the deploy here than discover at 2am. Re-add
+      # if a formatter strips it.
+      #
+      # Skip for the api/worker images — their Dockerfiles don't declare
+      # these ARGs, so missing secrets there are a no-op.
+      - name: Verify NEXT_PUBLIC_* secrets are populated (web only)
+        if: matrix.service == 'web'
+        env:
+          NEXT_PUBLIC_API_BASE: ${{ secrets.NEXT_PUBLIC_API_BASE }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          missing=""
+          for var in NEXT_PUBLIC_API_BASE NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; do
+            if [ -z "${!var}" ]; then
+              missing="$missing $var"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required deploy secrets:$missing"
+            echo "::error::Set with: gh secret set <NAME> --body '<value>'"
+            echo "::error::See deploy.yml '## Secrets' header for the full list."
+            exit 1
+          fi
+          echo "✓ All NEXT_PUBLIC_* secrets present."
+
       - name: Build and push ${{ matrix.service }}
         uses: docker/build-push-action@v6
         with:

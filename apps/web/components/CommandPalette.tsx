@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import {
+  type MatchedOn,
   type SearchResult,
   type SearchScope,
   useSearch,
@@ -274,9 +275,12 @@ export function CommandPalette() {
                         {SCOPE_META[r.scope].label}
                       </span>
                       <div className="flex-1 min-w-0">
-                        <p className="truncate text-sm font-medium text-slate-900">
-                          {r.title}
-                        </p>
+                        <div className="flex items-baseline gap-2">
+                          <p className="truncate text-sm font-medium text-slate-900">
+                            {r.title}
+                          </p>
+                          <MatchChip matchedOn={r.matched_on} />
+                        </div>
                         {r.snippet && (
                           <p className="mt-0.5 truncate text-xs text-slate-500">
                             {r.snippet}
@@ -310,6 +314,34 @@ export function CommandPalette() {
         </div>
       </div>
     </div>
+  );
+}
+
+
+/**
+ * Provenance chip for a search result. Tells the user *why* this row
+ * landed in the list — exact text match, semantic match, or both.
+ *
+ * `null` (keyword-only scopes that have no embeddings table, or when
+ * the server skipped the vector arm because no OPENAI_API_KEY was set)
+ * renders nothing — the chip would be a noisy "keyword" everywhere
+ * and we'd lose the signal value of the chip when both arms ran.
+ */
+function MatchChip({ matchedOn }: { matchedOn: MatchedOn | null }) {
+  if (matchedOn === null) return null;
+  const meta: Record<MatchedOn, { label: string; tone: string }> = {
+    keyword: { label: "exact text", tone: "bg-slate-100 text-slate-600" },
+    vector: { label: "semantic", tone: "bg-violet-100 text-violet-700" },
+    both: { label: "exact + semantic", tone: "bg-emerald-100 text-emerald-700" },
+  };
+  const { label, tone } = meta[matchedOn];
+  return (
+    <span
+      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${tone}`}
+      title={`Matched via ${matchedOn}`}
+    >
+      {label}
+    </span>
   );
 }
 

@@ -15,6 +15,16 @@ export type SearchScope =
   | "proposals";
 
 
+/**
+ * Provenance of a search result. Set server-side by RRF fusion:
+ *   * `keyword` — only the ILIKE arm hit
+ *   * `vector`  — only the pgvector arm hit
+ *   * `both`    — both arms hit (highest-confidence)
+ *   * `null`    — keyword-only scope or no embed key configured
+ */
+export type MatchedOn = "keyword" | "vector" | "both";
+
+
 export interface SearchResult {
   scope: SearchScope;
   id: UUID;
@@ -23,6 +33,7 @@ export interface SearchResult {
   project_id: UUID | null;
   project_name: string | null;
   score: number;
+  matched_on: MatchedOn | null;
   route: string | null;
   metadata: Record<string, unknown>;
 }
