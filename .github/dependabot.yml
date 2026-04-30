@@ -49,6 +49,10 @@ updates:
       # ESLint 8 → 9 requires flat-config migration.
       - dependency-name: "eslint"
         update-types: ["version-update:semver-major"]
+      # tailwind-merge 2 → 3 changes the conflict-resolution algorithm; needs
+      # visual review of every shared component using `cn()`.
+      - dependency-name: "tailwind-merge"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: pip
     directory: "/apps/api"
@@ -70,6 +74,10 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "langgraph"
         update-types: ["version-update:semver-major"]
+      # pytest 8 → 9 has known fixture-scope + asyncio-plugin breakage that
+      # needs the conftest auditing pass we don't have time for right now.
+      - dependency-name: "pytest"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: pip
     directory: "/apps/worker"
@@ -79,15 +87,47 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "sqlalchemy"
         update-types: ["version-update:semver-major"]
+      # redis-py 5 → 7 changes async client semantics + retry behavior;
+      # warrants a deliberate worker test pass.
+      - dependency-name: "redis"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule: { interval: weekly }
+    ignore:
+      # Major bumps to actions/* sometimes drop Node 16/20 support or
+      # rename inputs (action-setup, setup-node, upload-artifact have all
+      # done this). Take them with a deliberate test on a feature branch,
+      # not as a Monday auto-PR.
+      - dependency-name: "actions/checkout"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "actions/setup-node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "actions/upload-artifact"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pnpm/action-setup"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "hashicorp/setup-terraform"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directory: "/infra/docker"
     schedule: { interval: weekly }
+    ignore:
+      # Base-image majors (python 3.x → 3.y, node 20 → 25) bring kernel,
+      # libc, and OpenSSL changes that need a smoke run before deploy.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: terraform
     directory: "/infra/terraform"
     schedule: { interval: weekly }
+    ignore:
+      # AWS provider 5 → 6 reshapes the schema for several resources we
+      # use (eks, rds, cloudfront). Plan + apply against a non-prod
+      # workspace before bumping.
+      - dependency-name: "hashicorp/aws"
+        update-types: ["version-update:semver-major"]
