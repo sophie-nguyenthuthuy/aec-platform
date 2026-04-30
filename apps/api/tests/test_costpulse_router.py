@@ -821,3 +821,148 @@ async def test_filename_for_export_replaces_unsafe_chars():
     assert "—" not in _filename_for_export("Tower X — Schematic v1", ext="xlsx")
     # Empty estimate name still produces a usable default.
     assert _filename_for_export("", ext="pdf") == "boq.pdf"
+
+
+# ---------- Estimate version history & diff ----------
+
+
+def _boq_item(estimate_id: UUID, **overrides):
+    base = dict(
+        id=uuid4(),
+        estimate_id=estimate_id,
+        parent_id=None,
+        sort_order=0,
+        code=None,
+        description="",
+        unit="m3",
+        quantity=Decimal("100"),
+        unit_price_vnd=Decimal("1000"),
+        total_price_vnd=Decimal("100000"),
+        material_code=None,
+        source=None,
+        notes=None,
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+async def test_list_versions_returns_chain_descending(client, fake_db):
+    pivot = _estimate_row(version=2, status="draft")
+    other_versions = [
+        _estimate_row(id=uuid4(), version=2, status="draft", project_id=pivot.project_id, name=pivot.name),
+        _estimate_row(id=uuid4(), version=1, status="superseded", project_id=pivot.project_id, name=pivot.name),
+    ]
+    pivot_q = MagicMock()
+    pivot_q.scalar_one_or_none.return_value = pivot
+    chain_q = MagicMock()
+    chain_q.scalars.return_value.all.return_value = other_versions
+    fake_db.push_execute(pivot_q)
+    fake_db.push_execute(chain_q)
+
+    res = await client.get(f"/api/v1/costpulse/estimates/{pivot.id}/versions")
+    assert res.status_code == 200, res.text
+    data = res.json()["data"]
+    assert [r["version"] for r in data] == [2, 1]
+
+
+async def test_list_versions_404_for_other_org(client, fake_db):
+    q = MagicMock()
+    q.scalar_one_or_none.return_value = None
+    fake_db.push_execute(q)
+    res = await client.get(f"/api/v1/costpulse/estimates/{uuid4()}/versions")
+    assert res.status_code == 404
+
+
+async def test_diff_versions_buckets_added_changed_removed(client, fake_db):
+    """Pair items by `material_code` first; bucket the deltas."""
+    base_id = uuid4()
+    target_id = uuid4()
+    proj = uuid4()
+    base = _estimate_row(id=base_id, project_id=proj, name="Tower X", version=1, total_vnd=100)
+    target = _estimate_row(id=target_id, project_id=proj, name="Tower X", version=2, total_vnd=200)
+
+    # base has CONC_C30 + REBAR_CB500; target has CONC_C30 (with bumped
+    # qty) + a new BRICK_RED. So we expect one changed (concrete),
+    # one added (brick), one removed (rebar).
+    base_items = [
+        _boq_item(
+            base_id,
+            description="Bê tông C30",
+            material_code="CONC_C30",
+            quantity=Decimal("100"),
+            unit_price_vnd=Decimal("2000000"),
+        ),
+        _boq_item(
+            base_id,
+            description="Thép CB500",
+            material_code="REBAR_CB500",
+            quantity=Decimal("8000"),
+            unit_price_vnd=Decimal("20000"),
+        ),
+    ]
+    target_items = [
+        _boq_item(
+            target_id,
+            description="Bê tông C30",
+            material_code="CONC_C30",
+            quantity=Decimal("120"),  # bumped
+            unit_price_vnd=Decimal("2000000"),
+        ),
+        _boq_item(
+            target_id,
+            description="Gạch đỏ",
+            material_code="BRICK_RED",
+            quantity=Decimal("5000"),
+            unit_price_vnd=Decimal("1200"),
+        ),
+    ]
+
+    estimates_q = MagicMock()
+    estimates_q.scalars.return_value.all.return_value = [base, target]
+    base_items_q = MagicMock()
+    base_items_q.scalars.return_value.all.return_value = base_items
+    target_items_q = MagicMock()
+    target_items_q.scalars.return_value.all.return_value = target_items
+    fake_db.push_execute(estimates_q)
+    fake_db.push_execute(base_items_q)
+    fake_db.push_execute(target_items_q)
+
+    res = await client.get(f"/api/v1/costpulse/estimates/{base_id}/diff?to={target_id}")
+    assert res.status_code == 200, res.text
+    body = res.json()["data"]
+    assert body["from_version"] == 1
+    assert body["to_version"] == 2
+
+    rows_by_kind = {r["kind"]: r for r in body["rows"]}
+    assert set(rows_by_kind.keys()) == {"added", "changed", "removed"}
+    assert rows_by_kind["added"]["material_code"] == "BRICK_RED"
+    assert rows_by_kind["removed"]["material_code"] == "REBAR_CB500"
+    changed = rows_by_kind["changed"]
+    assert changed["material_code"] == "CONC_C30"
+    assert changed["from_qty"] == "100"
+    assert changed["to_qty"] == "120"
+
+
+async def test_diff_400_when_estimates_in_different_chains(client, fake_db):
+    """Different `(project, name)` family → 400, not a nonsense diff."""
+    a_id, b_id = uuid4(), uuid4()
+    a = _estimate_row(id=a_id, name="Tower X", project_id=uuid4(), version=1)
+    b = _estimate_row(id=b_id, name="Tower Y", project_id=uuid4(), version=1)
+    estimates_q = MagicMock()
+    estimates_q.scalars.return_value.all.return_value = [a, b]
+    fake_db.push_execute(estimates_q)
+
+    res = await client.get(f"/api/v1/costpulse/estimates/{a_id}/diff?to={b_id}")
+    assert res.status_code == 400
+
+
+async def test_diff_404_when_either_id_missing(client, fake_db):
+    """Caller's org has only one of the two ids → 404."""
+    a_id, b_id = uuid4(), uuid4()
+    only_a = _estimate_row(id=a_id, name="Tower X", project_id=uuid4(), version=1)
+    estimates_q = MagicMock()
+    estimates_q.scalars.return_value.all.return_value = [only_a]
+    fake_db.push_execute(estimates_q)
+
+    res = await client.get(f"/api/v1/costpulse/estimates/{a_id}/diff?to={b_id}")
+    assert res.status_code == 404

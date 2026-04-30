@@ -30,3 +30,29 @@ class WatchedProject(BaseModel):
     project_id: UUID
     project_name: str
     created_at: datetime
+
+
+# ---------- Notification preferences ----------
+
+
+class NotificationPreferenceOut(BaseModel):
+    """Per-user, per-org opt-in for an alert `key`."""
+
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    key: str
+    email_enabled: bool
+    slack_enabled: bool
+    updated_at: datetime
+
+
+class NotificationPreferenceUpdate(BaseModel):
+    """Both channel flags are optional; omit one to leave it unchanged.
+
+    PUT-shaped (idempotent overwrite of the requested fields) rather
+    than PATCH so the two UI checkboxes can each fire independently
+    without an unstable interleaving of partial PATCHes.
+    """
+
+    email_enabled: bool | None = None
+    slack_enabled: bool | None = None

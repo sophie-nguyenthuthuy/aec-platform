@@ -192,6 +192,59 @@ class UpdateBoqRequest(BaseModel):
     recompute_totals: bool = True
 
 
+# ---------- Version diff ----------
+
+
+class BoqDiffRow(BaseModel):
+    """One line in a BOQ-version diff.
+
+    `kind` is the verb the UI renders:
+      * `added`   — present in `to`, not in `from`.
+      * `removed` — present in `from`, not in `to`.
+      * `changed` — present in both, but `(qty, unit_price, description)`
+                    differs. The "from" + "to" snapshots are filled so
+                    the UI can show side-by-side cells.
+      * `unchanged` — same on both sides. Excluded from the response by
+                      default; a `?include_unchanged=true` query param
+                      would surface them, but the typical buyer view is
+                      "what actually changed" so we keep the payload
+                      lean.
+
+    Match key: `material_code` first (canonical), falling back to a
+    fold of `(code, description)` so a row a buyer typed by hand can
+    still pair across versions even without a material catalogue match.
+    """
+
+    kind: Literal["added", "removed", "changed"]
+    material_code: str | None = None
+    code: str | None = None
+    description: str
+    """Always set — for added rows it's `to.description`, for removed
+    rows `from.description`, for changed rows `to.description`. The UI
+    displays this as the row label."""
+
+    from_qty: Decimal | None = None
+    to_qty: Decimal | None = None
+    from_unit_price_vnd: Decimal | None = None
+    to_unit_price_vnd: Decimal | None = None
+    from_total_price_vnd: Decimal | None = None
+    to_total_price_vnd: Decimal | None = None
+    from_unit: str | None = None
+    to_unit: str | None = None
+
+
+class EstimateDiff(BaseModel):
+    """`GET /estimates/{a_id}/diff?to={b_id}` payload."""
+
+    from_version: int
+    to_version: int
+    from_total_vnd: int | None = None
+    to_total_vnd: int | None = None
+    rows: list[BoqDiffRow]
+    """Sorted: added first, then changed, then removed; within each
+    bucket by description so the diff is stable across reruns."""
+
+
 # ---------- Suppliers ----------
 
 

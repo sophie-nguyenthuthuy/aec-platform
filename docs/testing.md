@@ -9,19 +9,35 @@ Six lanes, six invocations. Use the Make target — it sets the env, picks the r
 | API unit | every commit | `make test-api` | Python only |
 | API integration | before merging RLS / arq / scraper changes | `make test-api-integration` | docker compose up |
 | UI components | `packages/ui/*` changes | `make test-ui` | pnpm |
+| Web lib | `apps/web/lib/*` changes | `make test-web-unit` | pnpm |
 | Web E2E | UI changes | `make test-web` | pnpm + chromium |
 | Worker tasks | Celery / beat changes | `pytest apps/worker/tests` | Python + celery |
 | Everything | pre-push sanity | `make test` | pnpm + chromium |
 
-`make test` runs `test-api` + `test-ui` + `test-web`. The integration lane is opt-in because it needs the docker stack — running it implicitly would surprise people on a fresh clone.
+`make test` runs `test-api` + `test-ui` + `test-web-unit` + `test-web`. The integration lane is opt-in because it needs the docker stack — running it implicitly would surprise people on a fresh clone.
 
 ## API unit lane (`make test-api`)
 
-~340 tests under `apps/api/tests/`. Fully self-contained: every router is mounted onto a local `FastAPI()` with `require_auth` + `get_db` dependency-overridden to a `FakeAsyncSession`. ML pipelines are mocked at their public entry points (`apps.ml.pipelines.X.Y`) via `monkeypatch.setattr` or `sys.modules` stubs.
+~620 tests under `apps/api/tests/`. Fully self-contained: every router is mounted onto a local `FastAPI()` with `require_auth` + `get_db` dependency-overridden to a `FakeAsyncSession`. ML pipelines are mocked at their public entry points (`apps.ml.pipelines.X.Y`) via `monkeypatch.setattr` or `sys.modules` stubs.
 
-No Postgres, no Redis, no LLM, no S3 — all mocked. Runs in ~5 seconds.
+No Postgres, no Redis, no LLM, no S3 — all mocked. Runs in ~10 seconds.
 
 The 12 `@pytest.mark.integration`-tagged tests are deselected (not skipped, so they don't show up as noise).
+
+### Coverage (`make test-api-cov`)
+
+`make test-api-cov` runs the same suite with `pytest-cov` measuring branch + line coverage over `apps/api/{core,db,middleware,models,routers,schemas,services,workers}`. Configuration in `apps/api/pyproject.toml::[tool.coverage.*]`. Reports:
+
+- `apps/api/test-results/coverage.xml` — Cobertura XML, what CI uploads.
+- `apps/api/test-results/coverage/index.html` — clickable HTML, easiest to triage gaps with.
+- terminal — files with <100% coverage and the missing line numbers (`skip_covered = true` keeps the noise down).
+
+CI runs the full suite (`--integration -q --cov`) on every PR; coverage XML is uploaded as part of the `pytest-results` artifact on failure. **Baseline: 78% line+branch over 619 tests**. Top gaps to attack first (all `services/`):
+
+- `invitation_email.py` 0%, `price_alerts.py` 0%, `webhooks.py` 0% — never exercised by any test.
+- `winwork.py` 30%, `price_scrapers/hcmc.py` 24%, `mailer.py` 40% — partial.
+
+Pin `--cov-fail-under=78` in `[tool.coverage.report]` once the three 0%-covered services have test coverage. Doing it today would gate on a baseline that already includes 0%-covered files; the floor would just match where we are.
 
 ## API integration lane (`make test-api-integration`)
 
@@ -49,6 +65,21 @@ The split with the Web E2E lane is intentional:
 Test files live alongside their subject under `__tests__/<Name>.test.tsx` — same convention as `apps/api/tests/test_<router>.py`. The Vitest config (`packages/ui/vitest.config.ts`) forces `esbuild.jsx: "automatic"` so test files don't need `import React`; the repo's tsconfig sets `jsx: "preserve"` (Next handles the transform downstream) which would otherwise leave JSX untransformed at test time.
 
 CI runs this lane in the Node job, between Lint and "Build web" — fast enough that the cost of running it on every PR is negligible. See `.github/workflows/ci.yml::node`.
+
+## Web lib lane (`make test-web-unit`)
+
+25 tests across 2 specs in `apps/web/lib/__tests__/` covering both fetch wrappers — `apiFetch` (used by every TanStack hook outside SiteEye) and `apiRequest` / `apiRequestWithMeta` (the SiteEye + mobile-portal client). Vitest in jsdom, ~2s.
+
+What the contract pins:
+
+- **URL construction** — relative paths join `NEXT_PUBLIC_API_URL`; absolute paths pass through; `query`/`params` become search-string entries; `null` and `undefined` values are dropped (not stringified to `"null"` / `"undefined"`).
+- **Headers** — `Authorization: Bearer <token>` always present; `X-Org-ID` always set in `apiFetch`, optional in `api-client.ts` (the public RFQ supplier portal is anonymous).
+- **Body shapes** — `body: undefined` → no body sent (critical for query-only POSTs like `usePriceAlert`); explicit `body: null` is JSON-stringified to `"null"` (documented behaviour, pinned by test).
+- **Error envelope** — non-2xx → `ApiError` with `status` / `code` / `message` / `field` from `errors[0]`, falling back to `res.statusText` when the body is empty or non-JSON.
+
+Why this is a separate lane from the UI components: Vitest in jsdom can't faithfully model Next's server-side request scope (cookies/headers/middleware). Library helpers that don't depend on that scope go here; full-page workflows go through Playwright. The `apps/web/vitest.config.ts` `exclude` list keeps the Playwright suite from being picked up by Vitest.
+
+CI runs this lane in the Node job, right after the UI component lane.
 
 ## Web E2E lane (`make test-web`)
 

@@ -139,77 +139,14 @@ def render_boq_pdf(estimate_name: str, rows: list[BoqRow]) -> bytes:
 # ---------- Unicode font registration ----------
 
 
-# Names the registered TTFs go under in reportlab's process-global font
-# table. Picking a stable identifier means second-and-onward calls to
-# `_ensure_unicode_fonts` are free (the registration cache hits).
-_FONT_NORMAL = "AECDejaVuSans"
-_FONT_BOLD = "AECDejaVuSans-Bold"
-
-
+# Font registration moved to `services._pdf_fonts` so the codeguard PDF
+# renderer can share the same DejaVu Sans setup. The thin alias below
+# preserves the existing call-sites in this module without paying the
+# import-cycle cost of pulling `_pdf_fonts` at module top.
 def _ensure_unicode_fonts() -> tuple[str, str]:
-    """Register the bundled Vietnamese-capable TTFs once per process.
+    from .._pdf_fonts import ensure_unicode_fonts
 
-    Returns the (normal, bold) font names to use in TableStyle / paragraph
-    styles. Idempotent — registering the same name twice is silently a
-    no-op in reportlab, so calling on every render is fine.
-
-    Falls back to (Helvetica, Helvetica-Bold) when the bundled TTFs are
-    missing or reportlab's TTFont machinery raises. That's a degraded
-    state — Vietnamese diacritics will render as `?` — but rendering
-    the BOQ as ASCII-mangled English is still better than 500ing the
-    export endpoint. The fallback is logged at WARNING so it surfaces
-    in the slow-query / observability stream.
-    """
-    try:
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
-    except ImportError:  # pragma: no cover — gated by `import reportlab` above
-        return "Helvetica", "Helvetica-Bold"
-
-    # Already registered? `getRegisteredFontNames` returns a set on
-    # modern reportlab; also tolerate the older list shape.
-    try:
-        registered = set(pdfmetrics.getRegisteredFontNames())
-    except Exception:  # pragma: no cover — defensive
-        registered = set()
-    if _FONT_NORMAL in registered and _FONT_BOLD in registered:
-        return _FONT_NORMAL, _FONT_BOLD
-
-    import os
-
-    fonts_dir = os.path.join(os.path.dirname(__file__), "fonts")
-    normal_path = os.path.join(fonts_dir, "DejaVuSans.ttf")
-    bold_path = os.path.join(fonts_dir, "DejaVuSans-Bold.ttf")
-
-    if not (os.path.exists(normal_path) and os.path.exists(bold_path)):
-        logger.warning(
-            "boq_io.pdf: bundled DejaVu fonts not found at %s — "
-            "Vietnamese diacritics will be mangled. Re-deploy with the fonts/ "
-            "directory present.",
-            fonts_dir,
-        )
-        return "Helvetica", "Helvetica-Bold"
-
-    try:
-        pdfmetrics.registerFont(TTFont(_FONT_NORMAL, normal_path))
-        pdfmetrics.registerFont(TTFont(_FONT_BOLD, bold_path))
-        # Family registration so reportlab's `<b>...</b>` markup picks
-        # the bold variant automatically inside `Paragraph` text.
-        pdfmetrics.registerFontFamily(
-            _FONT_NORMAL,
-            normal=_FONT_NORMAL,
-            bold=_FONT_BOLD,
-            italic=_FONT_NORMAL,  # no italic variant bundled — fall back to upright
-            boldItalic=_FONT_BOLD,
-        )
-    except Exception as exc:  # pragma: no cover — TTFont read errors
-        logger.warning(
-            "boq_io.pdf: TTFont registration failed (%s); falling back to Helvetica",
-            exc,
-        )
-        return "Helvetica", "Helvetica-Bold"
-
-    return _FONT_NORMAL, _FONT_BOLD
+    return ensure_unicode_fonts()
 
 
 def _pretty_cell(value: object) -> str:

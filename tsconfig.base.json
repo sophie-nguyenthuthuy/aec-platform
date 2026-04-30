@@ -16,7 +16,9 @@
     "incremental": true,
     "baseUrl": ".",
     "paths": {
+      "@aec/ui": ["packages/ui/index.ts"],
       "@aec/ui/*": ["packages/ui/*"],
+      "@aec/types": ["packages/types/index.ts"],
       "@aec/types/*": ["packages/types/*"]
     }
   }

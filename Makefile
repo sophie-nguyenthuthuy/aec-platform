@@ -1,4 +1,4 @@
-.PHONY: seed-codeguard eval-codeguard test test-api test-api-integration test-api-integration-up test-web hooks lint
+.PHONY: seed-codeguard seed-demo eval-codeguard test test-api test-api-integration test-api-integration-up test-ui test-web test-web-unit hooks lint
 
 # Install local pre-commit hooks. Run once per clone. After this, every
 # `git commit` runs ruff check + ruff format + basic hygiene checks on
@@ -29,6 +29,21 @@ seed-codeguard:
 		--effective 2022-10-25 \
 		--language vi
 
+# Bootstrap a demo organization populated across every major workflow:
+# project, site visits + photos, an approved estimate, two change orders
+# (approved + draft), two RFIs, two defects, a won proposal. Idempotent —
+# re-running upserts existing rows by stable natural keys, so it's safe
+# to run on a tenant that's already been seeded once.
+#
+# Useful for sales demos and for new contributors who need a populated
+# environment to evaluate the platform without manually creating data
+# across 13 modules. Prints a dev JWT + org/project IDs at the end so
+# you can hit the API immediately.
+#
+# Requires DATABASE_URL pointing at a writable DB at migration head.
+seed-demo:
+	cd apps/api && PYTHONPATH=".:../:../ml" python -m scripts.seed_demo
+
 # Tier 4 quality eval — runs the curated Q&A pairs against the seeded
 # QCVN 06:2022/BXD fixture using the *real* LLM (OpenAI embeddings +
 # Anthropic generation). Burns ~25–40¢ per run; gate this on manual or
@@ -57,10 +72,22 @@ eval-codeguard:
 #
 # `pnpm exec playwright install` ensures the chromium build is on the
 # machine; subsequent runs no-op when already installed.
-test: test-api test-ui test-web
+test: test-api test-ui test-web-unit test-web
 
 test-api:
 	cd apps/api && pytest -q
+
+# Run the API unit lane with coverage measurement. Branch + line coverage
+# over apps/api/{core,db,middleware,models,routers,schemas,services,workers}.
+# Configuration lives in apps/api/pyproject.toml `[tool.coverage.*]`.
+# The `--cov-report=term-missing:skip-covered` flag prints only files
+# that DON'T have full coverage — keeps the output focused on gaps.
+test-api-cov:
+	cd apps/api && pytest -q \
+	    --cov \
+	    --cov-report=term-missing:skip-covered \
+	    --cov-report=html:test-results/coverage \
+	    --cov-report=xml:test-results/coverage.xml
 
 # Component-level tests for `packages/ui` — Vitest + React Testing Library
 # in jsdom. Fast (~2s), no browser, runs every PR via the Node CI job.
@@ -68,6 +95,14 @@ test-api:
 # Vitest covers prop / state / event-handler logic in isolation.
 test-ui:
 	pnpm --filter @aec/ui test
+
+# Library-level Vitest tests for `apps/web/lib/*` — the fetch wrappers
+# (apiFetch, apiRequest, apiRequestWithMeta) and other pure-function
+# helpers. Catches contract regressions (e.g. `usePriceAlert` sending
+# query-string vs JSON body) at unit-test speed instead of waiting for
+# Playwright to surface them.
+test-web-unit:
+	pnpm --filter @aec/web test
 
 test-web:
 	pnpm --filter @aec/web exec playwright install chromium

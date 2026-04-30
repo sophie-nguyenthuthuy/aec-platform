@@ -62,6 +62,17 @@ _ALLOWLIST: dict[str, str] = {
     # Material-price cross-tenant table — see 0002_costpulse for the
     # rationale (one supplier price feeds many tenants).
     "material_prices": "shared price catalogue; no organization_id by design",
+    # CodeGuard quota / usage counters — see migration 0023_codeguard_quotas
+    # for rationale. High-write cost-tracking tables touched on every LLM
+    # call by the route layer's quota dependency, which uses the superuser
+    # session (not user-facing). Enforcement is application-side; RLS would
+    # add per-request overhead with no security gain.
+    "codeguard_org_quotas": (
+        "ops-managed quota config, written via superuser session only — see 0023_codeguard_quotas migration docstring"
+    ),
+    "codeguard_org_usage": (
+        "high-write monthly counter, written via superuser session only — see 0023_codeguard_quotas migration docstring"
+    ),
 }
 
 

@@ -275,6 +275,77 @@ async def _check_quota_or_raise(db: AsyncSession, organization_id: UUID) -> None
         )
 
 
+import contextlib as _contextlib  # noqa: E402  — local alias to avoid clobbering
+
+
+@_contextlib.asynccontextmanager
+async def _with_usage_recording(db: AsyncSession, organization_id: UUID):
+    """Bind a per-request `TelemetryAccumulator`, drain it on exit.
+
+    Yields the accumulator so handlers can inspect token counts mid-
+    flight if needed. On exit, persists the accumulated totals to
+    `codeguard_org_usage` via `services.codeguard_quotas.record_org_usage`
+    — the increment that lets the *next* request's `check_org_quota`
+    see real spend.
+
+    Without this drain the cap-enforcement story is purely defensive:
+    `check_org_quota` reads from a usage table that nothing populates,
+    so `over_limit` is never True except for orgs whose admin manually
+    pre-populated rows. The pre-flight check would never trip in real
+    traffic. This helper closes that gap.
+
+    Best-effort write: a transient DB error during `record_org_usage`
+    is logged at WARNING and swallowed. Without the swallow a flaky
+    bookkeeping write would 502 a request whose LLM work already
+    succeeded; the user-visible response was already returned (or
+    streamed), and refusing to commit it because the counter write
+    failed is the wrong tradeoff. Worst case: under-counted spend
+    by at most one request's worth.
+
+    Token-less calls (HyDE cache hits, embedding-only paths) leave
+    the accumulator at (0, 0); `record_org_usage` short-circuits on
+    both-zero, so we don't pay a write for free requests.
+
+    Why not a FastAPI dependency: streaming routes return a
+    StreamingResponse whose generator runs *after* the dependency's
+    `yield` resumes. The drain has to happen after the generator
+    finishes, which means the route owns the wrap. A `dependencies=
+    [Depends(...)]` would drain too early — before any LLM call has
+    happened.
+    """
+    from ml.pipelines.codeguard import (
+        TelemetryAccumulator,
+        clear_telemetry_accumulator,
+        set_telemetry_accumulator,
+    )
+
+    from services import codeguard_quotas as _q
+
+    acc = TelemetryAccumulator()
+    token = set_telemetry_accumulator(acc)
+    try:
+        yield acc
+    finally:
+        clear_telemetry_accumulator(token)
+        if acc.input_tokens or acc.output_tokens:
+            try:
+                await _q.record_org_usage(
+                    db,
+                    organization_id,
+                    input_tokens=acc.input_tokens,
+                    output_tokens=acc.output_tokens,
+                )
+            except Exception:
+                import logging as _logging
+
+                _logging.getLogger(__name__).warning(
+                    "codeguard_quotas.record_org_usage failed for org=%s (in=%d, out=%d) — request already served",
+                    organization_id,
+                    acc.input_tokens,
+                    acc.output_tokens,
+                )
+
+
 # ---------- Q&A ----------
 
 
@@ -286,43 +357,31 @@ async def codeguard_query(
 ) -> dict:
     from ml.pipelines.codeguard import answer_regulation_query
 
-    from services import codeguard_quotas as _q
-
     await _check_quota_or_raise(db, auth.organization_id)
 
-    try:
-        result = await answer_regulation_query(
-            db=db,
-            question=payload.question,
-            language=payload.language,
-            jurisdiction=payload.jurisdiction,
-            categories=payload.categories,
-            top_k=payload.top_k,
-            as_of_date=payload.as_of_date,
-        )
-    except HTTPException:
-        # Don't wrap our own quota 429 (or any other deliberate raise) into
-        # a 502 — those are intentional, not pipeline failures.
-        raise
-    except Exception as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Q&A pipeline failed: {exc}") from exc
-
-    # Best-effort usage recording. If the row write fails (e.g. transient
-    # DB hiccup), don't fail the user's already-served query — just log.
-    try:
-        await _q.record_org_usage(
-            db,
-            auth.organization_id,
-            in_tok=getattr(result, "input_tokens", 0) or 0,
-            out_tok=getattr(result, "output_tokens", 0) or 0,
-        )
-    except Exception:  # noqa: BLE001
-        import logging as _logging
-
-        _logging.getLogger(__name__).warning(
-            "codeguard_quotas.record_org_usage failed for org=%s — query already served",
-            auth.organization_id,
-        )
+    # Bind the accumulator BEFORE invoking the pipeline so token counts
+    # captured at every `_record_llm_call` site (HyDE, generate, etc.)
+    # land on `acc`. The helper's exit calls `record_org_usage` with
+    # the correct kwarg names — replacing the previous broken call
+    # that always passed `(0, 0)` because `result.input_tokens` doesn't
+    # exist on the `QueryResponse` schema.
+    async with _with_usage_recording(db, auth.organization_id):
+        try:
+            result = await answer_regulation_query(
+                db=db,
+                question=payload.question,
+                language=payload.language,
+                jurisdiction=payload.jurisdiction,
+                categories=payload.categories,
+                top_k=payload.top_k,
+                as_of_date=payload.as_of_date,
+            )
+        except HTTPException:
+            # Don't wrap our own quota 429 (or any other deliberate raise) into
+            # a 502 — those are intentional, not pipeline failures.
+            raise
+        except Exception as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Q&A pipeline failed: {exc}") from exc
 
     check = ComplianceCheckModel(
         id=uuid4(),
@@ -386,59 +445,68 @@ async def codeguard_query_stream(
     await _check_quota_or_raise(db, auth.organization_id)
 
     async def sse_stream():
-        try:
-            response: QueryResponse | None = None
-            async for event_name, event_payload in answer_regulation_query_stream(
-                db=db,
-                question=payload.question,
-                language=payload.language,
-                jurisdiction=payload.jurisdiction,
-                categories=payload.categories,
-                top_k=payload.top_k,
-                as_of_date=payload.as_of_date,
-            ):
-                if event_name == "token":
-                    # `delta` is plain text; json.dumps escapes any
-                    # newlines or quotes that would otherwise break the
-                    # SSE framing (which is line-delimited).
-                    yield f"event: token\ndata: {json.dumps({'delta': event_payload})}\n\n"
-                elif event_name == "done":
-                    response = event_payload
-                elif event_name == "error":
-                    yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
+        # `_with_usage_recording` binds an accumulator that captures token
+        # counts at every `_record_llm_call` site reached during the
+        # generator's execution (HyDE expansion + token-streaming
+        # generation). The drain in its finally fires when the
+        # generator exits — including on the early `return` when an
+        # `error` event is emitted. Without this wrap, the per-org
+        # usage table never gets the streaming-route increment and the
+        # cap can never trip for streaming clients.
+        async with _with_usage_recording(db, auth.organization_id):
+            try:
+                response: QueryResponse | None = None
+                async for event_name, event_payload in answer_regulation_query_stream(
+                    db=db,
+                    question=payload.question,
+                    language=payload.language,
+                    jurisdiction=payload.jurisdiction,
+                    categories=payload.categories,
+                    top_k=payload.top_k,
+                    as_of_date=payload.as_of_date,
+                ):
+                    if event_name == "token":
+                        # `delta` is plain text; json.dumps escapes any
+                        # newlines or quotes that would otherwise break the
+                        # SSE framing (which is line-delimited).
+                        yield f"event: token\ndata: {json.dumps({'delta': event_payload})}\n\n"
+                    elif event_name == "done":
+                        response = event_payload
+                    elif event_name == "error":
+                        yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
+                        return
+
+                if response is None:
+                    # Helper exited without emitting `done` or `error` —
+                    # shouldn't happen, but defend rather than leaving the
+                    # client hanging waiting for a terminal event.
+                    yield ('event: error\ndata: {"message": "pipeline produced no terminal event"}\n\n')
                     return
 
-            if response is None:
-                # Helper exited without emitting `done` or `error` —
-                # shouldn't happen, but defend rather than leaving the
-                # client hanging waiting for a terminal event.
-                yield ('event: error\ndata: {"message": "pipeline produced no terminal event"}\n\n')
-                return
+                # Persist the ComplianceCheck row before the terminal `done`
+                # event so the check_id we surface is committed audit state,
+                # not a hypothetical UUID. Same shape as the non-streaming
+                # /query endpoint — the audit trail is identical.
+                check = ComplianceCheckModel(
+                    id=uuid4(),
+                    organization_id=auth.organization_id,
+                    project_id=payload.project_id,
+                    check_type=CheckType.manual_query.value,
+                    status=CheckStatus.completed.value,
+                    input=payload.model_dump(mode="json"),
+                    findings=response.model_dump(mode="json"),
+                    regulations_referenced=[c.regulation_id for c in response.citations],
+                    created_by=auth.user_id,
+                    created_at=datetime.now(UTC),
+                )
+                db.add(check)
+                await db.flush()
+                await db.refresh(check)
+                response.check_id = check.id
 
-            # Persist the ComplianceCheck row before the terminal `done`
-            # event so the check_id we surface is committed audit state,
-            # not a hypothetical UUID. Same shape as the non-streaming
-            # /query endpoint — the audit trail is identical.
-            check = ComplianceCheckModel(
-                id=uuid4(),
-                organization_id=auth.organization_id,
-                project_id=payload.project_id,
-                check_type=CheckType.manual_query.value,
-                status=CheckStatus.completed.value,
-                input=payload.model_dump(mode="json"),
-                findings=response.model_dump(mode="json"),
-                regulations_referenced=[c.regulation_id for c in response.citations],
-                created_by=auth.user_id,
-                created_at=datetime.now(UTC),
-            )
-            db.add(check)
-            await db.flush()
-            await db.refresh(check)
-            response.check_id = check.id
-
-            yield f"event: done\ndata: {response.model_dump_json()}\n\n"
-        except Exception as exc:  # pragma: no cover — defensive catch
-            yield (f"event: error\ndata: {json.dumps({'message': f'Q&A pipeline failed: {exc}'})}\n\n")
+                yield f"event: done\ndata: {response.model_dump_json()}\n\n"
+            except Exception as exc:  # pragma: no cover — defensive catch
+                yield (f"event: error\ndata: {json.dumps({'message': f'Q&A pipeline failed: {exc}'})}\n\n")
 
     return StreamingResponse(
         sse_stream(),
@@ -484,17 +552,21 @@ async def codeguard_scan(
     db.add(check)
     await db.flush()
 
-    try:
-        findings, reg_ids = await auto_scan_project(
-            db=db,
-            parameters=payload.parameters,
-            categories=payload.categories,
-            as_of_date=payload.as_of_date,
-        )
-    except Exception as exc:
-        check.status = CheckStatus.failed.value
-        await db.flush()
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Auto-scan failed: {exc}") from exc
+    # Wrap the (potentially many) LLM calls — scan can fire one
+    # generation per category — so the accumulator captures the full
+    # spend for this request, not just one category.
+    async with _with_usage_recording(db, auth.organization_id):
+        try:
+            findings, reg_ids = await auto_scan_project(
+                db=db,
+                parameters=payload.parameters,
+                categories=payload.categories,
+                as_of_date=payload.as_of_date,
+            )
+        except Exception as exc:
+            check.status = CheckStatus.failed.value
+            await db.flush()
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Auto-scan failed: {exc}") from exc
 
     pass_count = sum(1 for f in findings if f.status == "PASS")
     warn_count = sum(1 for f in findings if f.status == "WARN")
@@ -558,67 +630,72 @@ async def codeguard_scan_stream(
     await _check_quota_or_raise(db, auth.organization_id)
 
     async def sse_stream():
-        try:
-            all_findings: list = []
-            all_reg_ids: list = []
+        # Same accumulator wrap as /query/stream. Scan is the costliest
+        # surface (one LLM call per category), so the per-month usage
+        # increment from a streaming scan is the largest single
+        # contributor to the cap calculation.
+        async with _with_usage_recording(db, auth.organization_id):
+            try:
+                all_findings: list = []
+                all_reg_ids: list = []
 
-            async for event_name, event_payload in auto_scan_project_stream(
-                db=db,
-                parameters=payload.parameters,
-                categories=payload.categories,
-                as_of_date=payload.as_of_date,
-            ):
-                if event_name == "category_start":
-                    yield (f"event: category_start\ndata: {json.dumps({'category': event_payload.value})}\n\n")
-                elif event_name == "category_done":
-                    cat = event_payload["category"]
-                    findings = event_payload["findings"]
-                    all_findings.extend(findings)
-                    all_reg_ids.extend(event_payload["reg_ids"])
-                    body = {
-                        "category": cat.value,
-                        "findings": [f.model_dump(mode="json") for f in findings],
-                    }
-                    yield f"event: category_done\ndata: {json.dumps(body)}\n\n"
-                elif event_name == "error":
-                    yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
-                    return
+                async for event_name, event_payload in auto_scan_project_stream(
+                    db=db,
+                    parameters=payload.parameters,
+                    categories=payload.categories,
+                    as_of_date=payload.as_of_date,
+                ):
+                    if event_name == "category_start":
+                        yield (f"event: category_start\ndata: {json.dumps({'category': event_payload.value})}\n\n")
+                    elif event_name == "category_done":
+                        cat = event_payload["category"]
+                        findings = event_payload["findings"]
+                        all_findings.extend(findings)
+                        all_reg_ids.extend(event_payload["reg_ids"])
+                        body = {
+                            "category": cat.value,
+                            "findings": [f.model_dump(mode="json") for f in findings],
+                        }
+                        yield f"event: category_done\ndata: {json.dumps(body)}\n\n"
+                    elif event_name == "error":
+                        yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
+                        return
 
-            # All categories done — persist the ComplianceCheck row
-            # before emitting the terminal `done`. Mirrors the
-            # non-streaming /scan persistence shape exactly so audit
-            # consumers (history page, /checks endpoint) treat both
-            # paths identically.
-            pass_count = sum(1 for f in all_findings if f.status == "PASS")
-            warn_count = sum(1 for f in all_findings if f.status == "WARN")
-            fail_count = sum(1 for f in all_findings if f.status == "FAIL")
+                # All categories done — persist the ComplianceCheck row
+                # before emitting the terminal `done`. Mirrors the
+                # non-streaming /scan persistence shape exactly so audit
+                # consumers (history page, /checks endpoint) treat both
+                # paths identically.
+                pass_count = sum(1 for f in all_findings if f.status == "PASS")
+                warn_count = sum(1 for f in all_findings if f.status == "WARN")
+                fail_count = sum(1 for f in all_findings if f.status == "FAIL")
 
-            check = ComplianceCheckModel(
-                id=uuid4(),
-                organization_id=auth.organization_id,
-                project_id=payload.project_id,
-                check_type=CheckType.auto_scan.value,
-                status=CheckStatus.completed.value,
-                input=payload.model_dump(mode="json"),
-                findings=[f.model_dump(mode="json") for f in all_findings],
-                regulations_referenced=list({rid for rid in all_reg_ids}),
-                created_by=auth.user_id,
-                created_at=datetime.now(UTC),
-            )
-            db.add(check)
-            await db.flush()
-            await db.refresh(check)
+                check = ComplianceCheckModel(
+                    id=uuid4(),
+                    organization_id=auth.organization_id,
+                    project_id=payload.project_id,
+                    check_type=CheckType.auto_scan.value,
+                    status=CheckStatus.completed.value,
+                    input=payload.model_dump(mode="json"),
+                    findings=[f.model_dump(mode="json") for f in all_findings],
+                    regulations_referenced=list({rid for rid in all_reg_ids}),
+                    created_by=auth.user_id,
+                    created_at=datetime.now(UTC),
+                )
+                db.add(check)
+                await db.flush()
+                await db.refresh(check)
 
-            done_body = {
-                "check_id": str(check.id),
-                "total": len(all_findings),
-                "pass_count": pass_count,
-                "warn_count": warn_count,
-                "fail_count": fail_count,
-            }
-            yield f"event: done\ndata: {json.dumps(done_body)}\n\n"
-        except Exception as exc:  # pragma: no cover — defensive
-            yield (f"event: error\ndata: {json.dumps({'message': f'Auto-scan failed: {exc}'})}\n\n")
+                done_body = {
+                    "check_id": str(check.id),
+                    "total": len(all_findings),
+                    "pass_count": pass_count,
+                    "warn_count": warn_count,
+                    "fail_count": fail_count,
+                }
+                yield f"event: done\ndata: {json.dumps(done_body)}\n\n"
+            except Exception as exc:  # pragma: no cover — defensive
+                yield (f"event: error\ndata: {json.dumps({'message': f'Auto-scan failed: {exc}'})}\n\n")
 
     return StreamingResponse(
         sse_stream(),
@@ -642,15 +719,16 @@ async def create_permit_checklist(
     # but a 429 still beats a 502 from the pipeline failing partway.
     await _check_quota_or_raise(db, auth.organization_id)
 
-    try:
-        items = await generate_permit_checklist(
-            db=db,
-            jurisdiction=payload.jurisdiction,
-            project_type=payload.project_type,
-            parameters=payload.parameters,
-        )
-    except Exception as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Checklist generation failed: {exc}") from exc
+    async with _with_usage_recording(db, auth.organization_id):
+        try:
+            items = await generate_permit_checklist(
+                db=db,
+                jurisdiction=payload.jurisdiction,
+                project_type=payload.project_type,
+                parameters=payload.parameters,
+            )
+        except Exception as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Checklist generation failed: {exc}") from exc
 
     record = PermitChecklistModel(
         id=uuid4(),
@@ -705,48 +783,50 @@ async def codeguard_permit_checklist_stream(
     await _check_quota_or_raise(db, auth.organization_id)
 
     async def sse_stream():
-        try:
-            items: list = []
-            async for event_name, event_payload in generate_permit_checklist_stream(
-                db=db,
-                jurisdiction=payload.jurisdiction,
-                project_type=payload.project_type,
-                parameters=payload.parameters,
-            ):
-                if event_name == "item_done":
-                    body = event_payload.model_dump(mode="json")
-                    yield f"event: item\ndata: {json.dumps(body)}\n\n"
-                elif event_name == "done":
-                    items = event_payload
-                elif event_name == "error":
-                    yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
-                    return
+        # Same accumulator wrap as the other streaming routes.
+        async with _with_usage_recording(db, auth.organization_id):
+            try:
+                items: list = []
+                async for event_name, event_payload in generate_permit_checklist_stream(
+                    db=db,
+                    jurisdiction=payload.jurisdiction,
+                    project_type=payload.project_type,
+                    parameters=payload.parameters,
+                ):
+                    if event_name == "item_done":
+                        body = event_payload.model_dump(mode="json")
+                        yield f"event: item\ndata: {json.dumps(body)}\n\n"
+                    elif event_name == "done":
+                        items = event_payload
+                    elif event_name == "error":
+                        yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
+                        return
 
-            # Persist the PermitChecklistModel after all items are in,
-            # so the `done` event can carry a stable checklist_id that
-            # the frontend's mark-item flow targets.
-            now = datetime.now(UTC)
-            record = PermitChecklistModel(
-                id=uuid4(),
-                organization_id=auth.organization_id,
-                project_id=payload.project_id,
-                jurisdiction=payload.jurisdiction,
-                project_type=payload.project_type,
-                items=[i.model_dump(mode="json") for i in items],
-                generated_at=now,
-            )
-            db.add(record)
-            await db.flush()
-            await db.refresh(record)
+                # Persist the PermitChecklistModel after all items are in,
+                # so the `done` event can carry a stable checklist_id that
+                # the frontend's mark-item flow targets.
+                now = datetime.now(UTC)
+                record = PermitChecklistModel(
+                    id=uuid4(),
+                    organization_id=auth.organization_id,
+                    project_id=payload.project_id,
+                    jurisdiction=payload.jurisdiction,
+                    project_type=payload.project_type,
+                    items=[i.model_dump(mode="json") for i in items],
+                    generated_at=now,
+                )
+                db.add(record)
+                await db.flush()
+                await db.refresh(record)
 
-            done_body = {
-                "checklist_id": str(record.id),
-                "total": len(items),
-                "generated_at": record.generated_at.isoformat(),
-            }
-            yield f"event: done\ndata: {json.dumps(done_body)}\n\n"
-        except Exception as exc:  # pragma: no cover — defensive
-            yield (f"event: error\ndata: {json.dumps({'message': f'Checklist generation failed: {exc}'})}\n\n")
+                done_body = {
+                    "checklist_id": str(record.id),
+                    "total": len(items),
+                    "generated_at": record.generated_at.isoformat(),
+                }
+                yield f"event: done\ndata: {json.dumps(done_body)}\n\n"
+            except Exception as exc:  # pragma: no cover — defensive
+                yield (f"event: error\ndata: {json.dumps({'message': f'Checklist generation failed: {exc}'})}\n\n")
 
     return StreamingResponse(
         sse_stream(),

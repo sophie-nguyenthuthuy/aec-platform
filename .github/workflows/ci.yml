@@ -62,6 +62,15 @@ jobs:
       - name: Vitest (packages/ui — component tests)
         run: pnpm --filter @aec/ui test
 
+      # Library-level tests for `apps/web/lib/*` — apiFetch + the
+      # api-client.ts wrapper. Pure-function unit tests, ~1-2s in jsdom.
+      # The contract these enforce (URL building, header merging,
+      # body=undefined → no body, error envelope unwrap) is what every
+      # TanStack hook in the app depends on; a regression here breaks
+      # every dashboard page. See docs/testing.md §"Web lib lane".
+      - name: Vitest (apps/web — lib unit tests)
+        run: pnpm --filter @aec/web test
+
       - name: Build web
         run: pnpm --filter @aec/web build
         env:
@@ -207,7 +216,7 @@ jobs:
           alembic downgrade base
           alembic upgrade head
 
-      - name: Pytest (unit + integration)
+      - name: Pytest (unit + integration, with coverage)
         working-directory: apps/api
         # `--integration` opts the 12 lane-tagged tests into the run. The lane
         # is wired by apps/api/tests/conftest.py — without the flag those
@@ -218,7 +227,19 @@ jobs:
         # `--junitxml` writes a structured report into test-results/ so the
         # upload-artifact step below has something to publish on failure.
         # Mirrors the Playwright trace upload in the Node job.
-        run: pytest --integration -q --junitxml=test-results/junit.xml
+        #
+        # `--cov` opts coverage measurement on; configuration (which dirs
+        # to measure, which lines to exclude) lives in pyproject.toml
+        # [tool.coverage.*]. Baseline as of 2026-05-01: 78% line+branch
+        # over 619 tests. We don't `--cov-fail-under` today — pin a
+        # threshold once the 0%-covered services (invitation_email,
+        # price_alerts, webhooks) get test coverage.
+        run: |
+          pytest --integration -q \
+            --junitxml=test-results/junit.xml \
+            --cov \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=xml:test-results/coverage.xml
 
       # Upload pytest results when the job fails so a CI-only flake doesn't
       # require a re-run with extra logging. Default retention keeps disk

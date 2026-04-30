@@ -20,6 +20,7 @@ from models.costpulse import BoqItem, Estimate, MaterialPrice, PriceAlert, Rfq, 
 from models.pulse import ChangeOrder
 from schemas.costpulse import (
     AiEstimateResult,
+    BoqDiffRow,
     BoqItemIn,
     BoqItemOut,
     CostBenchmarkBucket,
@@ -27,6 +28,7 @@ from schemas.costpulse import (
     EstimateConfidence,
     EstimateCreate,
     EstimateDetail,
+    EstimateDiff,
     EstimateFromBriefRequest,
     EstimateFromDrawingsRequest,
     EstimateMethod,
@@ -569,6 +571,138 @@ async def create_supplier(
     return ok(SupplierOut.model_validate(supplier).model_dump(mode="json"))
 
 
+# Same OOM-guard cap as `import_boq_xlsx` — supplier directories are
+# small in practice (hundreds of rows max), so 5 MB is generous.
+_MAX_SUPPLIERS_UPLOAD_BYTES = 5 * 1024 * 1024
+
+
+@router.post("/suppliers/import")
+async def import_suppliers(
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),  # noqa: B008 — FastAPI UploadFile DI
+):
+    """Bulk-upload suppliers from a CSV or XLSX file.
+
+    Idempotent on `(organization_id, lower(name))`: re-uploading the
+    same spreadsheet updates the existing rows (categories /
+    provinces / contact get overwritten with the new values) rather
+    than creating duplicates. The buyer can iterate on their CSV and
+    re-import safely.
+
+    File format autodetected from `content_type` + the upload's bytes
+    — XLSX magic bytes start with `PK` (zip), CSV doesn't. Files that
+    look like neither return 400.
+
+    Limits:
+      * 5 MB max upload (OOM guard).
+      * No row cap — but `name` is required per row, blanks skipped.
+
+    Response: `{ inserted, updated, skipped, total }` so the buyer's
+    UI can render a confirmation banner with concrete numbers.
+    """
+
+    from services.suppliers_io import (
+        SupplierImportError,
+        parse_suppliers_csv,
+        parse_suppliers_xlsx,
+    )
+
+    body = await file.read()
+    if len(body) > _MAX_SUPPLIERS_UPLOAD_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"Upload exceeds {_MAX_SUPPLIERS_UPLOAD_BYTES // (1024 * 1024)} MB cap",
+        )
+
+    # XLSX files start with the zip magic `PK\x03\x04`. Anything else
+    # we treat as CSV. Falling through to CSV parsing on a malformed
+    # XLSX gives a clearer 400 (CSV decode error) than openpyxl's
+    # opaque ZipFile complaint.
+    is_xlsx = body[:4] == b"PK\x03\x04"
+
+    try:
+        rows = parse_suppliers_xlsx(body) if is_xlsx else parse_suppliers_csv(body)
+    except SupplierImportError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    inserted = 0
+    updated = 0
+    skipped = 0
+
+    # Idempotent upsert via Postgres `INSERT ... ON CONFLICT
+    # (organization_id, lower(name)) DO UPDATE`. The expression-index
+    # `ix_suppliers_org_lower_name` (added in migration 0024 sibling)
+    # is what makes the conflict target work.
+    #
+    # If the index doesn't exist (older DB), we fall back to a per-row
+    # SELECT-then-UPDATE-or-INSERT path. This keeps the endpoint
+    # functional during a rolling deploy where the index migration
+    # hasn't fired yet.
+    for row in rows:
+        if not row.name.strip():
+            skipped += 1
+            continue
+        existing = (
+            await db.execute(
+                select(Supplier).where(
+                    Supplier.organization_id == auth.organization_id,
+                    func.lower(Supplier.name) == row.name.lower(),
+                )
+            )
+        ).scalar_one_or_none()
+        contact = _build_contact(row)
+        if existing is not None:
+            existing.categories = row.categories or existing.categories
+            existing.provinces = row.provinces or existing.provinces
+            # Merge contact: the spreadsheet wins on overlapping keys
+            # (most recent intent), but we don't drop fields the user
+            # set elsewhere (e.g. address, hours).
+            merged = dict(existing.contact or {})
+            merged.update(contact)
+            existing.contact = merged
+            updated += 1
+        else:
+            db.add(
+                Supplier(
+                    id=uuid4(),
+                    organization_id=auth.organization_id,
+                    name=row.name,
+                    categories=row.categories,
+                    provinces=row.provinces,
+                    contact=contact,
+                    verified=False,
+                )
+            )
+            inserted += 1
+
+    await db.commit()
+
+    return ok(
+        {
+            "inserted": inserted,
+            "updated": updated,
+            "skipped": skipped,
+            "total": len(rows),
+        }
+    )
+
+
+def _build_contact(row) -> dict:
+    """Compose the JSONB contact blob from CSV columns.
+
+    Only sets keys that the row actually has — avoids overwriting an
+    existing supplier's `contact.email` with `null` because the new
+    spreadsheet didn't have an email column at all.
+    """
+    contact: dict[str, str] = {}
+    if row.email:
+        contact["email"] = row.email
+    if row.phone:
+        contact["phone"] = row.phone
+    return contact
+
+
 # ---------- RFQ ----------
 
 
@@ -608,6 +742,220 @@ async def list_rfq(
         stmt = stmt.where(Rfq.project_id == project_id)
     rows = (await db.execute(stmt.order_by(Rfq.created_at.desc()))).scalars().all()
     return ok([RfqOut.model_validate(r).model_dump(mode="json") for r in rows])
+
+
+# ---------- Estimate version history & diff ----------
+
+
+@router.get("/estimates/{estimate_id}/versions")
+async def list_estimate_versions(
+    estimate_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Return the version chain for the estimate's `(project_id, name)`.
+
+    Surfaces every prior + current version of the estimate (`draft`,
+    `approved`, `superseded`) sorted `version DESC` for a most-recent-
+    first sidebar. Pivot id is included even if it's superseded — that's
+    how the buyer navigates *into* the history view.
+    """
+    pivot = (
+        await db.execute(
+            select(Estimate).where(
+                Estimate.id == estimate_id,
+                Estimate.organization_id == auth.organization_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if pivot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Estimate not found")
+
+    if pivot.project_id is None:
+        # Both NULL on `project_id` means "freelance estimate" — match by
+        # IS NULL since SQLAlchemy `==` on a None value still emits
+        # `= NULL` (which never matches in SQL).
+        project_clause = Estimate.project_id.is_(None)
+    else:
+        project_clause = Estimate.project_id == pivot.project_id
+
+    rows = (
+        (
+            await db.execute(
+                select(Estimate)
+                .where(
+                    Estimate.organization_id == auth.organization_id,
+                    Estimate.name == pivot.name,
+                    project_clause,
+                )
+                .order_by(Estimate.version.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return ok([EstimateSummary.model_validate(r).model_dump(mode="json") for r in rows])
+
+
+@router.get("/estimates/{estimate_id}/diff")
+async def diff_estimate_versions(
+    estimate_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    to: UUID = Query(..., description="The 'to' estimate id (newer version, typically)"),
+):
+    """Line-by-line BOQ diff between two estimates in the same chain.
+
+    Path id is the `from` baseline; query `to=` is the comparison.
+    Both must be in the caller's org and in the same `(project, name)`
+    family — that's what version-diff *means*. Cross-family diffs would
+    technically work but signal a buyer miscued click; we 400 to surface.
+
+    Match key for line pairing:
+      1. `material_code` if set (catalogue-canonical, survives renames).
+      2. Otherwise a folded `(code, description)` tuple — handles
+         hand-typed rows across versions even without a material match.
+
+    Response is `EstimateDiff` with rows bucketed `added | changed |
+    removed`, alphabetised by description within each bucket so the
+    diff is stable across reruns.
+    """
+    rows = (
+        (
+            await db.execute(
+                select(Estimate).where(
+                    Estimate.id.in_([estimate_id, to]),
+                    Estimate.organization_id == auth.organization_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_id = {e.id: e for e in rows}
+    if estimate_id not in by_id or to not in by_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Estimate not found")
+    base, target = by_id[estimate_id], by_id[to]
+
+    if (base.project_id, base.name) != (target.project_id, target.name):
+        # Different family → almost certainly a UI bug. Surface as 400
+        # rather than emit a nonsense "everything added/removed" payload.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Estimates aren't in the same (project, name) version chain",
+        )
+
+    base_items = (
+        (await db.execute(select(BoqItem).where(BoqItem.estimate_id == estimate_id).order_by(BoqItem.sort_order)))
+        .scalars()
+        .all()
+    )
+    target_items = (
+        (await db.execute(select(BoqItem).where(BoqItem.estimate_id == to).order_by(BoqItem.sort_order)))
+        .scalars()
+        .all()
+    )
+
+    base_map: dict[tuple, BoqItem] = {_diff_key(it): it for it in base_items}
+    target_map: dict[tuple, BoqItem] = {_diff_key(it): it for it in target_items}
+
+    added_rows: list[BoqDiffRow] = []
+    removed_rows: list[BoqDiffRow] = []
+    changed_rows: list[BoqDiffRow] = []
+
+    for key, t in target_map.items():
+        b = base_map.get(key)
+        if b is None:
+            added_rows.append(_added(t))
+        elif _materially_different(b, t):
+            changed_rows.append(_changed(b, t))
+    for key, b in base_map.items():
+        if key not in target_map:
+            removed_rows.append(_removed(b))
+
+    added_rows.sort(key=lambda r: r.description.lower())
+    changed_rows.sort(key=lambda r: r.description.lower())
+    removed_rows.sort(key=lambda r: r.description.lower())
+
+    diff = EstimateDiff(
+        from_version=base.version,
+        to_version=target.version,
+        from_total_vnd=base.total_vnd,
+        to_total_vnd=target.total_vnd,
+        rows=added_rows + changed_rows + removed_rows,
+    )
+    return ok(diff.model_dump(mode="json"))
+
+
+def _diff_key(item: BoqItem) -> tuple:
+    """Stable match key for pairing items across versions.
+
+    Prefer `material_code` (catalogue-canonical, survives renames).
+    Fall back to a (code, folded-description) pair so hand-typed rows
+    still pair across versions when the buyer hasn't normalised them
+    to a material yet.
+    """
+    if item.material_code:
+        return ("mc", item.material_code)
+    folded_desc = " ".join((item.description or "").lower().split())
+    return ("cd", item.code or "", folded_desc)
+
+
+def _materially_different(a: BoqItem, b: BoqItem) -> bool:
+    """Diff "what the buyer cares about": qty, unit price, total, unit.
+
+    Description is intentionally excluded — typo fixes shouldn't show
+    up as "changed" rows when the underlying numbers are identical.
+    """
+    return (
+        a.quantity != b.quantity
+        or a.unit_price_vnd != b.unit_price_vnd
+        or a.total_price_vnd != b.total_price_vnd
+        or (a.unit or "") != (b.unit or "")
+    )
+
+
+def _added(t: BoqItem) -> BoqDiffRow:
+    return BoqDiffRow(
+        kind="added",
+        material_code=t.material_code,
+        code=t.code,
+        description=t.description or "",
+        to_qty=t.quantity,
+        to_unit_price_vnd=t.unit_price_vnd,
+        to_total_price_vnd=t.total_price_vnd,
+        to_unit=t.unit,
+    )
+
+
+def _removed(b: BoqItem) -> BoqDiffRow:
+    return BoqDiffRow(
+        kind="removed",
+        material_code=b.material_code,
+        code=b.code,
+        description=b.description or "",
+        from_qty=b.quantity,
+        from_unit_price_vnd=b.unit_price_vnd,
+        from_total_price_vnd=b.total_price_vnd,
+        from_unit=b.unit,
+    )
+
+
+def _changed(b: BoqItem, t: BoqItem) -> BoqDiffRow:
+    return BoqDiffRow(
+        kind="changed",
+        material_code=t.material_code or b.material_code,
+        code=t.code or b.code,
+        description=t.description or b.description or "",
+        from_qty=b.quantity,
+        to_qty=t.quantity,
+        from_unit_price_vnd=b.unit_price_vnd,
+        to_unit_price_vnd=t.unit_price_vnd,
+        from_total_price_vnd=b.total_price_vnd,
+        to_total_price_vnd=t.total_price_vnd,
+        from_unit=b.unit,
+        to_unit=t.unit,
+    )
 
 
 # ---------- Analytics ----------

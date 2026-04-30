@@ -20,5 +20,6 @@ def register_all() -> None:
         schedulepilot,  # noqa: F401
         siteeye,  # noqa: F401
         submittals,  # noqa: F401
+        webhooks,  # noqa: F401
         winwork,  # noqa: F401
     )

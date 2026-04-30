@@ -18,13 +18,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.envelope import ok
 from db.deps import get_db
 from middleware.auth import AuthContext, require_auth
-from models.core import Project, ProjectWatch
+from models.core import NotificationPreference, Project, ProjectWatch
 from schemas.notifications import (
-    ProjectWatch as ProjectWatchOut,
-)
-from schemas.notifications import (
+    NotificationPreferenceOut,
+    NotificationPreferenceUpdate,
     ProjectWatchCreate,
     WatchedProject,
+)
+from schemas.notifications import (
+    ProjectWatch as ProjectWatchOut,
 )
 
 router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
@@ -161,3 +163,121 @@ async def delete_watch(
     await db.delete(watch)
     await db.commit()
     return None
+
+
+# ---------- Per-user notification preferences ----------
+
+
+# Stable, ops-curated list of alert kinds the UI exposes. Adding a new
+# alert: bump this list + tell `services.ops_alerts.send_*` to read
+# from the new key. The endpoint accepts arbitrary keys (so an
+# experiment can ship an alert kind without UI churn) but the GET
+# pre-fills these so a user sees every available switch even before
+# their first opt-in.
+_KNOWN_PREF_KEYS: tuple[str, ...] = (
+    "scraper_drift",
+    "rfq_deadline_summary",
+    "weekly_digest_email",
+)
+
+
+@router.get("/preferences")
+async def list_preferences(
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Return the caller's preferences in the current org.
+
+    Pre-fills every key in `_KNOWN_PREF_KEYS` with `email_enabled=False`,
+    `slack_enabled=False` so the UI can render every switch even when
+    the user hasn't touched them. Persisted rows override the defaults.
+    """
+    rows = (
+        (
+            await db.execute(
+                select(NotificationPreference).where(
+                    NotificationPreference.user_id == auth.user_id,
+                    NotificationPreference.organization_id == auth.organization_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_key = {r.key: r for r in rows}
+    out: list[dict] = []
+    for key in _KNOWN_PREF_KEYS:
+        existing = by_key.pop(key, None)
+        if existing is not None:
+            out.append(NotificationPreferenceOut.model_validate(existing).model_dump(mode="json"))
+        else:
+            out.append(
+                {
+                    # Synthetic id of all-zero so the UI can key on it
+                    # for React lists; the real id arrives on first save.
+                    "id": "00000000-0000-0000-0000-000000000000",
+                    "key": key,
+                    "email_enabled": False,
+                    "slack_enabled": False,
+                    "updated_at": None,
+                }
+            )
+    # Surface any extra keys the user has rows for (experimental alerts
+    # not in the curated list yet) — keeps the UI from silently losing
+    # their preference if `_KNOWN_PREF_KEYS` shrinks.
+    for extra in by_key.values():
+        out.append(NotificationPreferenceOut.model_validate(extra).model_dump(mode="json"))
+    return ok(out)
+
+
+@router.put("/preferences/{key}")
+async def upsert_preference(
+    key: str,
+    payload: NotificationPreferenceUpdate,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Idempotent upsert of one preference row.
+
+    Both channel flags are optional in the body: omitting one leaves
+    the existing value alone, so the UI can fire a single-checkbox
+    update without round-tripping the other.
+    """
+    if not key or len(key) > 64:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid key")
+
+    existing = (
+        await db.execute(
+            select(NotificationPreference).where(
+                NotificationPreference.user_id == auth.user_id,
+                NotificationPreference.organization_id == auth.organization_id,
+                NotificationPreference.key == key,
+            )
+        )
+    ).scalar_one_or_none()
+
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    if existing is None:
+        existing = NotificationPreference(
+            id=uuid4(),
+            user_id=auth.user_id,
+            organization_id=auth.organization_id,
+            key=key,
+            email_enabled=bool(payload.email_enabled) if payload.email_enabled is not None else False,
+            slack_enabled=bool(payload.slack_enabled) if payload.slack_enabled is not None else False,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(existing)
+    else:
+        if payload.email_enabled is not None:
+            existing.email_enabled = payload.email_enabled
+        if payload.slack_enabled is not None:
+            existing.slack_enabled = payload.slack_enabled
+        existing.updated_at = now
+
+    await db.commit()
+    await db.refresh(existing)
+    return ok(NotificationPreferenceOut.model_validate(existing).model_dump(mode="json"))

@@ -1,0 +1,420 @@
+"""Tests for `services.codeguard_quotas` and route-level 429 enforcement.
+
+The quota helpers (`check_org_quota`, `record_org_usage`) are tested
+against a stubbed AsyncSession so we don't need a live Postgres for
+Tier 2. The route-level enforcement test confirms that an over-quota
+org gets a structured 429 from the codeguard endpoints — the load-
+bearing user-visible behaviour.
+
+The integration test for the actual SQL (UPSERT semantics, `date_trunc`
+behaviour) lives in Tier 3 and runs against the service-container DB
+in CI; it's the equivalent of how other modules split helper logic
+(unit-tested with mocks) from SQL semantics (integration-tested with
+the real DB).
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+import pytest
+
+pytestmark = pytest.mark.asyncio
+
+
+# ---------- check_org_quota ------------------------------------------------
+
+
+class _RowStub:
+    """Mimics `Row` so `.first()` returns something with attribute access."""
+
+    def __init__(self, **fields):
+        for k, v in fields.items():
+            setattr(self, k, v)
+
+
+def _execute_returning_first(row):
+    """Build an AsyncMock for `db.execute` that returns a Result whose
+    `.first()` gives back the supplied row stub. Mirrors how
+    SQLAlchemy's async path actually shapes results."""
+    result = MagicMock()
+    result.first.return_value = row
+    return AsyncMock(return_value=result)
+
+
+async def test_check_quota_returns_unlimited_when_no_quota_row():
+    """The opt-in enforcement contract: orgs without an explicit quota
+    row are not blocked. Pin so the rollout doesn't accidentally start
+    rejecting unrelated tenants."""
+    from services.codeguard_quotas import check_org_quota
+
+    db = MagicMock()
+    db.execute = _execute_returning_first(None)  # no row → unlimited
+
+    result = await check_org_quota(db, uuid4())
+    assert result.over_limit is False
+    assert result.limit_kind == "unlimited"
+    assert result.limit is None
+
+
+async def test_check_quota_under_limit_passes():
+    """Quota row exists, usage is below the limit on both dimensions →
+    `over_limit=False`."""
+    from services.codeguard_quotas import check_org_quota
+
+    db = MagicMock()
+    db.execute = _execute_returning_first(
+        _RowStub(
+            monthly_input_token_limit=1_000_000,
+            monthly_output_token_limit=200_000,
+            input_used=300_000,
+            output_used=50_000,
+        )
+    )
+
+    result = await check_org_quota(db, uuid4())
+    assert result.over_limit is False
+    assert result.limit_kind == "unlimited"
+
+
+async def test_check_quota_blocks_when_input_limit_crossed():
+    """The binding dimension surfaces in `limit_kind` so the 429
+    message can point at the right cap. Input crossed first."""
+    from services.codeguard_quotas import check_org_quota
+
+    db = MagicMock()
+    db.execute = _execute_returning_first(
+        _RowStub(
+            monthly_input_token_limit=1_000_000,
+            monthly_output_token_limit=200_000,
+            input_used=1_000_000,  # at the limit
+            output_used=50_000,
+        )
+    )
+
+    result = await check_org_quota(db, uuid4())
+    assert result.over_limit is True
+    assert result.limit_kind == "input"
+    assert result.used == 1_000_000
+    assert result.limit == 1_000_000
+
+
+async def test_check_quota_blocks_when_output_limit_crossed():
+    """Output limit alone is enough to block — orgs typically pin on
+    output (Anthropic prices output ~5× input). Pin both code paths."""
+    from services.codeguard_quotas import check_org_quota
+
+    db = MagicMock()
+    db.execute = _execute_returning_first(
+        _RowStub(
+            monthly_input_token_limit=10_000_000,  # nowhere near
+            monthly_output_token_limit=200_000,
+            input_used=500_000,
+            output_used=210_000,  # over
+        )
+    )
+
+    result = await check_org_quota(db, uuid4())
+    assert result.over_limit is True
+    assert result.limit_kind == "output"
+    assert result.used == 210_000
+
+
+async def test_check_quota_handles_null_limit_per_dimension():
+    """A quota row with NULL on one dimension means "unlimited on that
+    dimension." Org pins only on the dimension that has a number."""
+    from services.codeguard_quotas import check_org_quota
+
+    db = MagicMock()
+    db.execute = _execute_returning_first(
+        _RowStub(
+            monthly_input_token_limit=None,  # unlimited input
+            monthly_output_token_limit=200_000,
+            input_used=999_999_999,  # huge but no cap
+            output_used=50_000,
+        )
+    )
+
+    result = await check_org_quota(db, uuid4())
+    assert result.over_limit is False
+    assert result.limit_kind == "unlimited"
+
+
+async def test_check_quota_handles_quota_with_no_usage_row():
+    """Org has a quota assigned but never spent any tokens — the LEFT
+    JOIN gives 0 used, not an error. First-use case for newly-created
+    orgs."""
+    from services.codeguard_quotas import check_org_quota
+
+    db = MagicMock()
+    db.execute = _execute_returning_first(
+        _RowStub(
+            monthly_input_token_limit=1_000_000,
+            monthly_output_token_limit=200_000,
+            input_used=0,  # COALESCE handled this in SQL
+            output_used=0,
+        )
+    )
+
+    result = await check_org_quota(db, uuid4())
+    assert result.over_limit is False
+
+
+# ---------- record_org_usage -----------------------------------------------
+
+
+async def test_record_usage_skips_db_write_when_zero_tokens():
+    """A request that consumed nothing (e.g. pure HyDE cache hit, or
+    an early-aborted call) skips the DB hit entirely. Verified by
+    asserting `db.execute` is NOT called — the no-op guard is what
+    keeps free-cache requests truly free of DB load."""
+    from services.codeguard_quotas import record_org_usage
+
+    db = MagicMock()
+    db.execute = AsyncMock()
+
+    await record_org_usage(db, uuid4(), input_tokens=0, output_tokens=0)
+    db.execute.assert_not_called()
+
+
+async def test_record_usage_calls_db_when_tokens_present():
+    """Non-zero tokens → exactly one DB execute (the UPSERT). The
+    actual SQL semantics (ON CONFLICT, date_trunc) are validated by
+    the Tier 3 integration test against a real Postgres."""
+    from services.codeguard_quotas import record_org_usage
+
+    db = MagicMock()
+    db.execute = AsyncMock()
+
+    org_id = uuid4()
+    await record_org_usage(db, org_id, input_tokens=500, output_tokens=100)
+    assert db.execute.call_count == 1
+    # Inspect the parameters bound to the UPSERT — pin the param shape
+    # so a future refactor of the SQL doesn't accidentally swap
+    # input/output token assignment.
+    args, _ = db.execute.call_args
+    params = args[1]
+    assert params["org_id"] == str(org_id)
+    assert params["in_tok"] == 500
+    assert params["out_tok"] == 100
+
+
+# ---------- Route enforcement: structured 429 ------------------------------
+
+
+async def test_query_route_returns_429_when_org_over_quota(client, monkeypatch):
+    """End-to-end: an over-quota org calling /query gets a 429 with the
+    standard envelope shape. The pipeline is NOT invoked — proven by
+    not setting up `mock_llm.query`, which would fail loudly if the
+    route somehow reached the LLM layer."""
+    from services.codeguard_quotas import QuotaCheckResult
+
+    # Force the quota check to report over-limit. We patch at the
+    # service-module level so the route's import resolves to our stub.
+    async def _over_quota(_db, _org_id):
+        return QuotaCheckResult(over_limit=True, limit_kind="output", used=210_000, limit=200_000)
+
+    monkeypatch.setattr("services.codeguard_quotas.check_org_quota", _over_quota)
+
+    # Defensive: if record_usage somehow gets called, no-op (the dep
+    # raises before reaching it, but pin the contract).
+    async def _noop_record(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr("services.codeguard_quotas.record_org_usage", _noop_record)
+
+    res = await client.post(
+        "/api/v1/codeguard/query",
+        json={"question": "Will not be answered, quota exceeded"},
+    )
+    assert res.status_code == 429
+    body = res.json()
+    assert body["errors"] is not None
+    msg = body["errors"][0]["message"]
+    assert "output" in msg
+    assert "quota" in msg.lower()
+    assert "210,000" in msg
+    assert "200,000" in msg
+
+
+@pytest.mark.parametrize(
+    "method,path,body",
+    [
+        # Each LLM-invoking route must apply the same quota gate. The
+        # parametrise covers the five routes that were previously
+        # unprotected — only `/query` had the inline check originally,
+        # leaving the other five as free bypasses for over-quota orgs.
+        ("post", "/api/v1/codeguard/query/stream", {"question": "blocked stream"}),
+        (
+            "post",
+            "/api/v1/codeguard/scan",
+            {
+                "project_id": "11111111-1111-1111-1111-111111111111",
+                "parameters": {"project_type": "residential"},
+            },
+        ),
+        (
+            "post",
+            "/api/v1/codeguard/scan/stream",
+            {
+                "project_id": "11111111-1111-1111-1111-111111111111",
+                "parameters": {"project_type": "residential"},
+            },
+        ),
+        (
+            "post",
+            "/api/v1/codeguard/permit-checklist",
+            {
+                "project_id": "11111111-1111-1111-1111-111111111111",
+                "jurisdiction": "Hồ Chí Minh",
+                "project_type": "residential",
+            },
+        ),
+        (
+            "post",
+            "/api/v1/codeguard/permit-checklist/stream",
+            {
+                "project_id": "11111111-1111-1111-1111-111111111111",
+                "jurisdiction": "Hồ Chí Minh",
+                "project_type": "residential",
+            },
+        ),
+    ],
+)
+async def test_all_llm_routes_return_429_when_org_over_quota(client, monkeypatch, method, path, body):
+    """Cross-route 429 contract: every LLM-invoking surface (six total —
+    one Q&A, two scan, three checklist when counting both stream/non-stream
+    variants) gates on the same quota check. A regression that drops the
+    pre-flight from any of them re-opens a free bypass for over-quota
+    orgs and would silently ship without this parametrised test catching it.
+
+    The /query route has its own dedicated test above; this one covers
+    the five routes that were unprotected at the start of this round."""
+    from services.codeguard_quotas import QuotaCheckResult
+
+    async def _over_quota(_db, _org_id):
+        return QuotaCheckResult(over_limit=True, limit_kind="input", used=1_500_000, limit=1_000_000)
+
+    monkeypatch.setattr("services.codeguard_quotas.check_org_quota", _over_quota)
+
+    res = await getattr(client, method)(path, json=body)
+    assert res.status_code == 429, (
+        f"{method.upper()} {path} returned {res.status_code} instead of 429 "
+        f"when over quota — the inline _check_quota_or_raise call is "
+        "missing from this route or has been short-circuited."
+    )
+    body_json = res.json()
+    assert body_json["errors"] is not None
+    msg = body_json["errors"][0]["message"]
+    assert "input" in msg
+    assert "quota" in msg.lower()
+
+
+async def test_query_route_drains_telemetry_accumulator_into_record_org_usage(
+    client, monkeypatch, mock_llm, make_query_response
+):
+    """The load-bearing contract for the cap-enforcement story.
+
+    The previous wiring called `record_org_usage(in_tok=..., out_tok=...)`
+    with kwarg names that didn't match the function's signature. Every
+    call raised TypeError, got swallowed by the surrounding try/except,
+    and silently produced a no-op. Result: the usage table never got
+    written, so `check_org_quota` always saw 0 spend and the cap could
+    never trip in real traffic.
+
+    This test stubs the LLM via the `mock_llm` fixture (so no real
+    Anthropic call) and stubs `set_telemetry_accumulator` to record
+    a non-zero accumulator state — proving that the route's
+    `_with_usage_recording` wrap actually drains accumulated tokens
+    into `record_org_usage` with the correct kwarg names. A regression
+    that re-introduces the kwarg mismatch would surface here as a
+    TypeError in `record_org_usage` (visible because we don't swallow
+    in this stub).
+    """
+    from services.codeguard_quotas import QuotaCheckResult
+
+    async def _under_quota(_db, _org_id):
+        return QuotaCheckResult(over_limit=False, limit_kind="unlimited", used=0, limit=None)
+
+    monkeypatch.setattr("services.codeguard_quotas.check_org_quota", _under_quota)
+
+    # Capture every call to record_org_usage so we can assert on the
+    # final invocation. The `_with_usage_recording` helper short-circuits
+    # when both counters are 0, so we need to seed the accumulator with
+    # non-zero counts to prove the drain path actually fires.
+    recorded: list[dict] = []
+
+    async def _capturing_record(_db, org_id, *, input_tokens, output_tokens):
+        recorded.append(
+            {
+                "org_id": org_id,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+            }
+        )
+
+    monkeypatch.setattr("services.codeguard_quotas.record_org_usage", _capturing_record)
+
+    # Have the pipeline's `set_telemetry_accumulator` populate the
+    # accumulator with non-zero counts so the drain path is exercised.
+    # We can't get the LLM mock to populate it (the mock_llm fixture
+    # bypasses `_record_llm_call` entirely), so we hook into the bind
+    # itself to seed the counters.
+    from ml.pipelines import codeguard as cg_pipeline
+
+    real_set = cg_pipeline.set_telemetry_accumulator
+
+    def _set_with_seed(acc):
+        # Mock LLM doesn't accumulate naturally; seed so the drain has
+        # something to write. Real traffic gets these counts via
+        # `_record_llm_call`'s on_llm_end path.
+        if acc is not None:
+            acc.input_tokens = 1234
+            acc.output_tokens = 567
+        return real_set(acc)
+
+    monkeypatch.setattr(cg_pipeline, "set_telemetry_accumulator", _set_with_seed)
+
+    mock_llm.query(returns=make_query_response())
+
+    res = await client.post(
+        "/api/v1/codeguard/query",
+        json={"question": "Should record usage on the way out"},
+    )
+    assert res.status_code == 200, res.text
+
+    # The drain fired exactly once with the seeded counts.
+    assert len(recorded) == 1, (
+        f"expected exactly one record_org_usage call, got {len(recorded)}: "
+        "the route's _with_usage_recording wrap is missing or the helper "
+        "isn't draining on success."
+    )
+    call = recorded[0]
+    assert call["input_tokens"] == 1234
+    assert call["output_tokens"] == 567
+
+
+async def test_query_route_passes_through_when_org_under_quota(client, monkeypatch, mock_llm, make_query_response):
+    """Mirror of the over-quota test: under-quota orgs flow through
+    normally. Pin so a regression that misreads the QuotaCheckResult
+    doesn't accidentally block under-quota requests."""
+    from services.codeguard_quotas import QuotaCheckResult
+
+    async def _under_quota(_db, _org_id):
+        return QuotaCheckResult(over_limit=False, limit_kind="unlimited", used=0, limit=None)
+
+    async def _noop_record(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr("services.codeguard_quotas.check_org_quota", _under_quota)
+    monkeypatch.setattr("services.codeguard_quotas.record_org_usage", _noop_record)
+
+    mock_llm.query(returns=make_query_response())
+
+    res = await client.post(
+        "/api/v1/codeguard/query",
+        json={"question": "Allowed by quota, should answer normally"},
+    )
+    assert res.status_code == 200
+    assert res.json()["data"]["answer"]

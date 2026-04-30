@@ -274,6 +274,127 @@ async def daily_activity_digest_cron(ctx: dict) -> dict:
         return await dispatch_daily_digests(session)
 
 
+async def rfq_deadlines_cron(ctx: dict) -> dict:
+    """Auto-expire RFQ slots whose deadline has passed.
+
+    Why this exists: without it, an RFQ past its deadline silently sits
+    as `sent`/`responded` forever. Buyers see slot status `dispatched`
+    on suppliers who never quoted and have no idea whether to chase
+    them. The cron runs daily and:
+
+      * For each open RFQ (status NOT IN ('closed', 'expired')) whose
+        `deadline + 1 day` is in the past:
+        * Flips per-supplier slots whose status is `dispatched` /
+          `bounced` to `expired` (they had their chance; the buyer
+          shouldn't see them as still-pending).
+        * If NO supplier responded with a quote, flips RFQ status to
+          `expired` so the buyer's inbox doesn't carry deadweight.
+        * If at least one supplier responded, leaves status as
+          `responded` — the buyer can still accept a quote.
+
+    The `+ 1 day` grace is for late submissions: a supplier in a
+    different timezone might respond at 23:59 their time and have it
+    arrive after our 00:00 UTC clock cutoff.
+
+    Cross-tenant by design — runs under `AdminSessionFactory` for the
+    same reason `weekly_report_cron` does. The mutations only touch
+    RFQs whose deadline has already passed; tenant isolation isn't a
+    correctness concern here.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import text as sql_text
+
+    from db.session import AdminSessionFactory
+
+    cutoff = date.today() - timedelta(days=1)
+    expired_slots = 0
+    expired_rfqs = 0
+
+    async with AdminSessionFactory() as session:
+        # Pull RFQs we might need to mutate. The (status, deadline)
+        # combination is bounded — most RFQs close within their
+        # deadline, so the result set is small even at year+ runtime.
+        rows = (
+            (
+                await session.execute(
+                    sql_text(
+                        """
+                        SELECT id, status, sent_to, responses, deadline
+                        FROM rfqs
+                        WHERE status NOT IN ('closed', 'expired')
+                          AND deadline IS NOT NULL
+                          AND deadline < :cutoff
+                        """
+                    ),
+                    {"cutoff": cutoff},
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+        for row in rows:
+            responses = list(row["responses"] or [])
+            mutated = False
+            any_responded = False
+            for entry in responses:
+                if not isinstance(entry, dict):
+                    continue
+                status = entry.get("status")
+                if status == "responded":
+                    any_responded = True
+                elif status in ("dispatched", "bounced", None):
+                    entry["status"] = "expired"
+                    expired_slots += 1
+                    mutated = True
+
+            new_rfq_status = row["status"]
+            if not any_responded:
+                new_rfq_status = "expired"
+                expired_rfqs += 1
+
+            if mutated or new_rfq_status != row["status"]:
+                await session.execute(
+                    sql_text(
+                        """
+                        UPDATE rfqs
+                        SET status = :status, responses = :responses
+                        WHERE id = :id
+                        """
+                    ).bindparams(
+                        sql_bindparam("responses", type_=_JSONB()),
+                    ),
+                    {"id": row["id"], "status": new_rfq_status, "responses": responses},
+                )
+        await session.commit()
+
+    logger.info(
+        "rfq_deadlines_cron: expired %d slot(s) across %d closed RFQ(s)",
+        expired_slots,
+        expired_rfqs,
+    )
+    return {"expired_slots": expired_slots, "expired_rfqs": expired_rfqs}
+
+
+def sql_bindparam(*args, **kwargs):
+    """Local re-export so the cron body doesn't import sqlalchemy at module level.
+
+    Keeps the import lazy (the cron body runs once a day) and the import
+    statement physically next to the call site for readability.
+    """
+    from sqlalchemy import bindparam
+
+    return bindparam(*args, **kwargs)
+
+
+def _JSONB():
+    """Same lazy-import rationale as `sql_bindparam` above."""
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    return JSONB
+
+
 # ---------- Worker settings ----------
 
 
@@ -301,6 +422,11 @@ class WorkerSettings:
         # to every user who has watched at least one project. Empty
         # digests are skipped so a quiet day produces zero email noise.
         cron(daily_activity_digest_cron, hour=0, minute=0),
+        # Every day 01:00 UTC (~08:00 ICT) — auto-expire RFQ slots whose
+        # deadline (+1 day grace) has passed. Without this, the buyer's
+        # inbox carries dispatched-but-never-quoted slots forever and
+        # status filters lose their meaning.
+        cron(rfq_deadlines_cron, hour=1, minute=0),
     ]
     max_jobs = 8
     job_timeout = 900  # 15 min — weekly report with PDF rendering can be slow

@@ -41,6 +41,36 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret")
 
 
+# ---------- Rate limiter bypass ----------
+#
+# `core.rate_limit` is wired into the invitation + /me/orgs endpoints
+# with sub-minute windows (e.g. 10 accepts / 60s). Every test that
+# hits one of those routes shares the same Redis bucket, so the third
+# or fourth test in a module trips the limit and gets 429 instead of
+# the response shape it's pinning. Patch `_acquire` to always-allow at
+# autouse scope.
+#
+# Tests that *want* to exercise the real limiter logic (the unit tests
+# in `test_core_rate_limit.py`) opt out by marking themselves with
+# `@pytest.mark.real_rate_limit`. The marker is registered in
+# `pyproject.toml::tool.pytest.ini_options.markers` to silence the
+# pytest "unknown marker" warning.
+@pytest.fixture(autouse=True)
+def _bypass_rate_limit(request, monkeypatch):
+    if request.node.get_closest_marker("real_rate_limit") is not None:
+        return
+
+    async def _always_allow(*_args, **_kwargs):
+        return True
+
+    try:
+        from core import rate_limit as _rl
+
+        monkeypatch.setattr(_rl, "_acquire", _always_allow)
+    except ImportError:  # pragma: no cover — module always present in our tree
+        pass
+
+
 # ---------- Integration lane ----------
 #
 # Three modules — `test_costpulse_rls.py`, `test_costpulse_pipeline_openai.py`,
