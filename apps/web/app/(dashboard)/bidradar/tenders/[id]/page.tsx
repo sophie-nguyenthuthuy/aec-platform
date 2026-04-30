@@ -1,10 +1,12 @@
 "use client";
-import { use } from "react";
 import Link from "next/link";
 import { useTender } from "@/hooks/bidradar";
 
-export default function TenderDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+// Next.js 14 contract: `params` is a plain object on a "use client" page.
+// `use(params)` (the Next 15 pattern) throws "unsupported type passed to
+// use()" at runtime here — same bug as `app/invite/[token]/page.tsx`.
+export default function TenderDetailPage({ params }: { params: { id: string } }) {
+  const { id } = params;
   const { data, isLoading } = useTender(id);
 
   if (isLoading) {

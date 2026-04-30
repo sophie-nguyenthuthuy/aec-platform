@@ -1,6 +1,6 @@
 # Testing
 
-Five lanes, five invocations. Use the Make target — it sets the env, picks the right working dir, and survives docker-compose port remapping.
+Six lanes, six invocations. Use the Make target — it sets the env, picks the right working dir, and survives docker-compose port remapping.
 
 ## Quick reference
 
@@ -8,11 +8,12 @@ Five lanes, five invocations. Use the Make target — it sets the env, picks the
 | --- | --- | --- | --- |
 | API unit | every commit | `make test-api` | Python only |
 | API integration | before merging RLS / arq / scraper changes | `make test-api-integration` | docker compose up |
+| UI components | `packages/ui/*` changes | `make test-ui` | pnpm |
 | Web E2E | UI changes | `make test-web` | pnpm + chromium |
 | Worker tasks | Celery / beat changes | `pytest apps/worker/tests` | Python + celery |
-| Everything | pre-push sanity | `make test` | both above (no integration) |
+| Everything | pre-push sanity | `make test` | pnpm + chromium |
 
-`make test` runs `test-api` + `test-web`. The integration lane is opt-in because it needs the docker stack — running it implicitly would surprise people on a fresh clone.
+`make test` runs `test-api` + `test-ui` + `test-web`. The integration lane is opt-in because it needs the docker stack — running it implicitly would surprise people on a fresh clone.
 
 ## API unit lane (`make test-api`)
 
@@ -35,6 +36,19 @@ The 12 tests that hit a live Postgres + Redis. Covers:
 The Make recipe runs `docker compose up -d postgres redis`, applies migrations (which provisions `aec_app` via 0010), then derives the host ports from `docker compose port` — so a developer-local `docker-compose.override.yml` remapping Postgres from `5438` to `5437` (because of port collisions) just works. No magic numbers in the env vars.
 
 CI runs this same lane on every PR (`.github/workflows/ci.yml::python-api`). The Postgres + Redis service containers are pre-wired; the env vars in the workflow mirror the Make recipe.
+
+## UI component lane (`make test-ui`)
+
+18 tests across 2 specs in `packages/ui/drawbridge/__tests__/` (DisciplineTag, ConflictCard). Vitest + React Testing Library running in jsdom. **No browser, no dev server, no API mocks** — the lane finishes in ~2 seconds.
+
+The split with the Web E2E lane is intentional:
+
+- **Vitest** covers prop / state / handler-invocation logic in isolation. Easier to assert on with `vi.fn()` than to round-trip through Playwright + `page.route` + a server-rendered page.
+- **Playwright** covers full-page wiring: TanStack Query state, route navigation, form submission against intercepted API endpoints. Things you can only see in a real browser.
+
+Test files live alongside their subject under `__tests__/<Name>.test.tsx` — same convention as `apps/api/tests/test_<router>.py`. The Vitest config (`packages/ui/vitest.config.ts`) forces `esbuild.jsx: "automatic"` so test files don't need `import React`; the repo's tsconfig sets `jsx: "preserve"` (Next handles the transform downstream) which would otherwise leave JSX untransformed at test time.
+
+CI runs this lane in the Node job, between Lint and "Build web" — fast enough that the cost of running it on every PR is negligible. See `.github/workflows/ci.yml::node`.
 
 ## Web E2E lane (`make test-web`)
 
@@ -108,6 +122,8 @@ The "indirect" pipelines have private helper functions (sorting, dedup, prompt b
 | Web | `playwright-traces` (trace.zip + screenshots) | — |
 | Security | — | `security-audit` (pnpm + pip-audit JSON, 30 days) |
 
-The `security` job runs on every PR and is currently **non-blocking** — `continue-on-error: true` plus per-step `|| true` so existing pile of advisories don't red CI. The Critical Next.js middleware-auth bypass (GHSA-f82v-jwr5-mffw) was patched by bumping `next` 14.2.15 → 14.2.35; once the rest of the High-severity backlog is cleared, drop the `|| true` and the `continue-on-error` to ratchet to gating. Recommend `--audit-level critical` as the first gate, not `high`.
+The `security` job runs on every PR. The pnpm leg is **gated on critical**: `pnpm audit --prod --audit-level critical` red-gates the PR if any new critical advisory enters the dependency tree. 0 criticals today (the Next.js middleware-auth bypass GHSA-f82v-jwr5-mffw was patched by bumping `next` 14.2.15 → 14.2.35). Three HIGH advisories remain — 1 is a `glob`-CLI vector that doesn't apply to library usage, 2 are Next.js DoS issues patched in 15.x. Ratcheting the gate to `--audit-level high` is the next step once the Next 15 migration lands — see [`docs/migrations/next-15.md`](./migrations/next-15.md) for the planned upgrade path.
+
+The pip-audit leg is still **non-blocking** because pip-audit lacks a severity filter (all-or-nothing via `--strict`) and the langchain ecosystem ships advisories faster than we can triage them. The JSON report is uploaded on every run for review.
 
 API and Web artifacts retained 7 days; Security retained 30. Download from the failed run's "Summary" page on GitHub.

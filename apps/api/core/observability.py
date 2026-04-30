@@ -209,6 +209,14 @@ def setup_observability(app: FastAPI, settings: Settings) -> None:
     setup_logging(settings)
     init_sentry(settings)
     app.add_middleware(RequestIDMiddleware)
+    # Per-request counter + histogram (Prometheus exposition format).
+    # Registered here so /metrics reflects every inbound request, not just
+    # the ones that reach a handler — this catches 404s and middleware
+    # rejections too. ASGI middleware (not BaseHTTPMiddleware) so it can
+    # observe the response status without buffering the body.
+    from core.metrics import RequestMetricsMiddleware
+
+    app.add_middleware(RequestMetricsMiddleware)
     # Slow-query listener attaches to whichever engines the app uses.
     # Imported lazily to avoid a circular import at module load time
     # (db.session imports core.config which is fine; this would import

@@ -14,13 +14,27 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from core.envelope import ok
+from core.rate_limit import rate_limit
 from db.session import AdminSessionFactory
 from middleware.auth import UserContext, require_user
 
 router = APIRouter(prefix="/api/v1/me", tags=["me"])
 
 
-@router.get("/orgs")
+# Per-user limiter — every dashboard render hits /me/orgs once at SSR.
+# 60/min is comfortably above legitimate usage (page reload + minute of
+# org switches), well below abuse. Keying on user_id rather than IP
+# means a corporate NAT doesn't share the bucket across employees.
+def _user_key(user: UserContext = Depends(require_user)) -> str:
+    return str(user.user_id)
+
+
+_me_orgs_limiter = rate_limit(
+    prefix="me-orgs", limit=60, window_sec=60, key_dep=Depends(_user_key)
+)
+
+
+@router.get("/orgs", dependencies=[Depends(_me_orgs_limiter)])
 async def list_my_orgs(
     user: Annotated[UserContext, Depends(require_user)],
 ) -> dict:

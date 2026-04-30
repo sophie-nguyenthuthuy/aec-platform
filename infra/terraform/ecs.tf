@@ -169,6 +169,50 @@ resource "aws_ecs_task_definition" "worker" {
   }])
 }
 
+# One-shot migration task. The deploy workflow runs this via
+# `aws ecs run-task --task-definition aec-api-migrate ...` after every
+# rollout (.github/workflows/deploy.yml::migrate). Defined as its own
+# task family so:
+#   * Migrations don't block the api service's rolling deploy.
+#   * The task can be triggered manually for backfills
+#     (`aws ecs run-task ... --overrides ...`).
+#   * CloudWatch streams stay separate, so an alembic failure shows up
+#     in /ecs/aec-${env}/migrate cleanly.
+resource "aws_cloudwatch_log_group" "migrate" {
+  name              = "/ecs/aec-${var.environment}/migrate"
+  retention_in_days = 30
+}
+
+resource "aws_ecs_task_definition" "api_migrate" {
+  family                   = "aec-${var.environment}-api-migrate"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "512"
+  memory                   = "1024"
+  execution_role_arn       = aws_iam_role.task_execution.arn
+  task_role_arn            = aws_iam_role.task.arn
+
+  container_definitions = jsonencode([{
+    name        = "aec-api"
+    image       = var.api_image
+    essential   = true
+    # The deploy workflow overrides `command` per invocation
+    # (`alembic upgrade head` for normal rollouts, ad-hoc commands for
+    # backfills). The default here is a no-op so an accidental `run-task`
+    # without overrides exits cleanly instead of starting the api server.
+    command     = ["alembic", "current"]
+    environment = local.common_env
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.migrate.name
+        "awslogs-region"        = var.region
+        "awslogs-stream-prefix" = "migrate"
+      }
+    }
+  }])
+}
+
 resource "aws_lb" "main" {
   name               = "aec-${var.environment}-alb"
   internal           = false

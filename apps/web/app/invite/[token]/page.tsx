@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { use, useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -18,13 +18,19 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
  *  credential for both the GET (preview) and POST (accept) calls — no
  *  user is logged in yet. After a successful accept we sign the user in
  *  with the password they just set, which puts them in the standard
- *  cookie-authed flow. */
+ *  cookie-authed flow.
+ *
+ *  Next.js 14 contract: `params` arrives as a plain object, NOT a
+ *  Promise. Earlier this file used `params: Promise<{token}>` + `use()`
+ *  (the Next 15 pattern); on 14 that throws "unsupported type passed
+ *  to use()" at first render and the entire page crashes — see the
+ *  Playwright trace from the real-auth invitation suite. */
 export default function AcceptInvitePage({
   params,
 }: {
-  params: Promise<{ token: string }>;
+  params: { token: string };
 }) {
-  const { token } = use(params);
+  const { token } = params;
   const router = useRouter();
 
   const [preview, setPreview] = useState<InvitationPreview | null>(null);

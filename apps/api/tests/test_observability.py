@@ -248,3 +248,44 @@ async def test_init_sentry_is_noop_without_dsn():
 
     # If init_sentry imported the SDK, sys.modules would now contain it.
     assert "sentry_sdk" not in sys.modules, "init_sentry imported sentry_sdk despite empty DSN"
+
+
+async def test_init_sentry_calls_sdk_init_when_dsn_set(monkeypatch):
+    """When DSN IS set and the SDK is installed, `sentry_sdk.init` must
+    actually be called with the configured kwargs.
+
+    This catches the prod-deploy regression where someone removes
+    `sentry-sdk` from requirements: `init_sentry` would silently fall
+    through to the ImportError branch (covered by the
+    `test_init_sentry_logs_when_sdk_missing` test) and the deploy
+    would never report errors. Pinning the success-path here means
+    a missing dep fails THIS test loudly.
+    """
+    import sentry_sdk
+
+    from core.config import Settings
+    from core.observability import init_sentry
+
+    init_calls: list[dict] = []
+    monkeypatch.setattr(sentry_sdk, "init", lambda **kwargs: init_calls.append(kwargs))
+
+    settings = Settings(
+        SENTRY_DSN="https://fake@example.com/1",
+        SENTRY_TRACES_SAMPLE_RATE="0.25",
+        AEC_ENV="production",
+    )
+    init_sentry(settings)
+
+    assert len(init_calls) == 1
+    kwargs = init_calls[0]
+    assert kwargs["dsn"] == "https://fake@example.com/1"
+    assert kwargs["environment"] == "production"
+    assert kwargs["traces_sample_rate"] == 0.25
+    # Don't ship request bodies — defence in depth against PII leakage.
+    assert kwargs["send_default_pii"] is False
+    # Both FastAPI + Starlette integrations should be installed; without
+    # them, the captured events would lack route-name + request-id
+    # context the dashboards rely on.
+    integration_classes = {type(i).__name__ for i in kwargs["integrations"]}
+    assert "FastApiIntegration" in integration_classes
+    assert "StarletteIntegration" in integration_classes

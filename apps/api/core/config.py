@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     email_from: str = "no-reply@aec-platform.vn"
 
+    # Recipients for ops drift alerts (codeguard quota drift, queue-depth
+    # alarms, etc.). Empty list disables alerting entirely — services check
+    # this list and short-circuit before rendering bodies. Comma-separated
+    # in env: `OPS_ALERT_EMAILS=ops@x.com,ops2@x.com`.
+    ops_alert_emails: list[str] = Field(default_factory=list, validation_alias="OPS_ALERT_EMAILS")
+
     cors_origins: list[str] = ["http://localhost:3000"]
 
     # Public-facing web URL — used to build supplier-portal links embedded

@@ -55,6 +55,13 @@ jobs:
       - name: Lint
         run: pnpm -r lint
 
+      # Component-level Vitest + React Testing Library suite for
+      # `packages/ui`. Fast (~2s), runs in jsdom, no browser. Catches
+      # prop/state/handler regressions that Playwright can only see via
+      # full-page workflows. See docs/testing.md §"UI component lane".
+      - name: Vitest (packages/ui — component tests)
+        run: pnpm --filter @aec/ui test
+
       - name: Build web
         run: pnpm --filter @aec/web build
         env:

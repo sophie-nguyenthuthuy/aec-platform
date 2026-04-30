@@ -33,7 +33,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -67,8 +67,8 @@ class PunchList(Base):
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
     created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column(TZ)
-    updated_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class PunchItem(Base):
@@ -105,5 +105,5 @@ class PunchItem(Base):
     verified_at: Mapped[datetime | None] = mapped_column(TZ)
     verified_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(TZ)
-    updated_at: Mapped[datetime] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())

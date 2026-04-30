@@ -32,8 +32,8 @@ import argparse
 import json
 import sys
 from collections import defaultdict
-from statistics import median
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 
 def parse_record(line: str) -> dict | None:
@@ -163,10 +163,9 @@ def rollup(records: Iterable[dict]) -> dict[str, Any]:
     # counts (both streaming + non-streaming). A working cache leaves
     # most Q&A calls without a corresponding hyde_expand record.
     hyde_calls = by_call.get("hyde_expand", {}).get("count", 0)
-    qa_calls = (
-        by_call.get("qa_generate", {}).get("count", 0)
-        + by_call.get("qa_generate_stream", {}).get("count", 0)
-    )
+    qa_calls = by_call.get("qa_generate", {}).get("count", 0) + by_call.get(
+        "qa_generate_stream", {}
+    ).get("count", 0)
     hit_rate: float | None = None
     if qa_calls > 0:
         # Floor at 0 because hyde count > qa count happens if HyDE was

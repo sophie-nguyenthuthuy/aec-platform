@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -256,6 +256,23 @@ async def codeguard_query(
 ) -> dict:
     from ml.pipelines.codeguard import answer_regulation_query
 
+    # Pre-flight quota check — over-limit orgs get a structured 429 BEFORE
+    # we touch the LLM. The message names the binding dimension (input vs
+    # output) so a debugger can see *why* they're blocked even when the
+    # other dimension is well under cap. Numbers are comma-formatted so
+    # they're readable in dashboard error logs.
+    from services import codeguard_quotas as _q
+
+    quota = await _q.check_org_quota(db, auth.organization_id)
+    if quota.over_limit:
+        used_fmt = f"{quota.used:,}"
+        limit_fmt = f"{quota.limit:,}" if quota.limit is not None else "?"
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Monthly {quota.limit_kind}-token quota exceeded "
+            f"({used_fmt} / {limit_fmt}). Contact admin to raise the cap.",
+        )
+
     try:
         result = await answer_regulation_query(
             db=db,
@@ -264,9 +281,31 @@ async def codeguard_query(
             jurisdiction=payload.jurisdiction,
             categories=payload.categories,
             top_k=payload.top_k,
+            as_of_date=payload.as_of_date,
         )
+    except HTTPException:
+        # Don't wrap our own quota 429 (or any other deliberate raise) into
+        # a 502 — those are intentional, not pipeline failures.
+        raise
     except Exception as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Q&A pipeline failed: {exc}") from exc
+
+    # Best-effort usage recording. If the row write fails (e.g. transient
+    # DB hiccup), don't fail the user's already-served query — just log.
+    try:
+        await _q.record_org_usage(
+            db,
+            auth.organization_id,
+            in_tok=getattr(result, "input_tokens", 0) or 0,
+            out_tok=getattr(result, "output_tokens", 0) or 0,
+        )
+    except Exception:  # noqa: BLE001
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning(
+            "codeguard_quotas.record_org_usage failed for org=%s — query already served",
+            auth.organization_id,
+        )
 
     check = ComplianceCheckModel(
         id=uuid4(),
@@ -332,6 +371,7 @@ async def codeguard_query_stream(
                 jurisdiction=payload.jurisdiction,
                 categories=payload.categories,
                 top_k=payload.top_k,
+                as_of_date=payload.as_of_date,
             ):
                 if event_name == "token":
                     # `delta` is plain text; json.dumps escapes any
@@ -419,6 +459,7 @@ async def codeguard_scan(
             db=db,
             parameters=payload.parameters,
             categories=payload.categories,
+            as_of_date=payload.as_of_date,
         )
     except Exception as exc:
         check.status = CheckStatus.failed.value
@@ -491,6 +532,7 @@ async def codeguard_scan_stream(
                 db=db,
                 parameters=payload.parameters,
                 categories=payload.categories,
+                as_of_date=payload.as_of_date,
             ):
                 if event_name == "category_start":
                     yield (f"event: category_start\ndata: {json.dumps({'category': event_payload.value})}\n\n")
@@ -671,6 +713,47 @@ async def codeguard_permit_checklist_stream(
     )
 
 
+@router.get("/permit-checklist/{checklist_id}/pdf")
+async def export_permit_checklist_pdf(
+    checklist_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Render an org-owned PermitChecklist as a downloadable PDF.
+
+    Uses 404 (not 403) for cross-org access so we don't leak that
+    a checklist with that id exists in another tenant. Filename
+    embeds the checklist id so multiple exports don't collide in
+    a downloads folder.
+    """
+    from fastapi.responses import Response
+
+    from services.codeguard_pdf import render_permit_checklist_pdf
+
+    checklist = await db.get(PermitChecklistModel, checklist_id)
+    if checklist is None or checklist.organization_id != auth.organization_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Checklist not found")
+
+    pdf_bytes = render_permit_checklist_pdf(
+        checklist_id=str(checklist.id),
+        project_id=str(checklist.project_id) if checklist.project_id else None,
+        jurisdiction=checklist.jurisdiction,
+        project_type=checklist.project_type,
+        items=list(checklist.items or []),
+        generated_at=checklist.generated_at,
+        completed_at=checklist.completed_at,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="permit-checklist-{checklist.id}.pdf"'
+            ),
+        },
+    )
+
+
 @router.post("/checks/{check_id}/mark-item", response_model=Envelope[PermitChecklist])
 async def mark_checklist_item(
     check_id: UUID,
@@ -708,6 +791,50 @@ async def mark_checklist_item(
     await db.flush()
     await db.refresh(checklist)
     return ok(PermitChecklist.model_validate(checklist))
+
+
+@router.get("/permit-checklist/{check_id}/pdf")
+async def download_permit_checklist_pdf(
+    check_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Render the checklist as a PDF and return it as a download.
+
+    Tenant isolation: a 404 (not 403) for cross-org rows so the route
+    doesn't leak the existence of other-org checklists. Same shape as
+    `mark_checklist_item` above.
+
+    Body is generated lazily per request — checklists are small, the
+    cost of regeneration is negligible, and freshness > caching for
+    permit-application artifacts.
+    """
+    checklist = await db.get(PermitChecklistModel, check_id)
+    if checklist is None or checklist.organization_id != auth.organization_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Checklist not found")
+
+    # Lazy import — keeps `reportlab` off the cold-start path for the
+    # 95% of requests that don't export PDFs.
+    from services.codeguard_pdf import render_permit_checklist_pdf
+
+    pdf_bytes = render_permit_checklist_pdf(
+        checklist_id=str(checklist.id),
+        project_id=str(checklist.project_id) if checklist.project_id else None,
+        jurisdiction=checklist.jurisdiction,
+        project_type=checklist.project_type,
+        items=list(checklist.items or []),
+        generated_at=checklist.generated_at,
+        completed_at=checklist.completed_at,
+    )
+
+    # Filename includes the checklist id so multiple exports don't
+    # collide in a downloads folder.
+    filename = f"permit-checklist-{checklist.id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---------- Regulations ----------

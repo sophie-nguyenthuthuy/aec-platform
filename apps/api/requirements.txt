@@ -23,6 +23,14 @@ python-dotenv==1.2.2
 # lookups; pinned here (not via a transitive dep) so the lock pin is stable
 # across langchain bumps.
 cachetools==5.5.0
+# Sentry — `core.observability.init_sentry` imports this lazily, but
+# the lazy import only succeeds in prod if the package is actually
+# installed. Without this pin, prod deploys would silently fall
+# through to the `ImportError` branch and never report errors;
+# `tests/test_observability.py::test_init_sentry_is_noop_without_dsn`
+# wouldn't catch it because the test path hits the no-DSN branch
+# first.
+sentry-sdk[fastapi]==2.18.0
 # AI
 langchain==0.3.1
 langgraph==0.2.28

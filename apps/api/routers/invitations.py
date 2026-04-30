@@ -25,6 +25,7 @@ from sqlalchemy import text
 
 from core.config import get_settings
 from core.envelope import ok
+from core.rate_limit import rate_limit
 from db.session import AdminSessionFactory
 from middleware.auth import AuthContext, require_auth
 from schemas.invitations import (
@@ -188,9 +189,17 @@ async def revoke_invitation(
 
 
 # ---------- Public accept ----------
+#
+# These endpoints are anonymous (the token IS the credential), so they're
+# the most attractive abuse surface in the api. Rate-limit per client IP
+# to blunt timing-based email enumeration and accidental retry storms.
+# Limits are generous enough that a real invitee opening the email and
+# clicking through never trips them.
 
 
-@router.get("/invitations/{token}")
+@router.get("/invitations/{token}", dependencies=[
+    Depends(rate_limit(prefix="invite-preview", limit=30, window_sec=60))
+])
 async def get_invitation(token: UUID) -> dict:
     """Render-time lookup for the accept page — returns just enough for
     the UI ("you're being invited to <Org Name>") without leaking the
@@ -239,7 +248,9 @@ async def get_invitation(token: UUID) -> dict:
     )
 
 
-@router.post("/invitations/{token}/accept")
+@router.post("/invitations/{token}/accept", dependencies=[
+    Depends(rate_limit(prefix="invite-accept", limit=10, window_sec=60))
+])
 async def accept_invitation(token: UUID, payload: InvitationAccept) -> dict:
     """Anonymous endpoint — the token IS the credential.
 

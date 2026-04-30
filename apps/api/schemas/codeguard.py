@@ -89,6 +89,14 @@ class QueryRequest(BaseModel):
     jurisdiction: str | None = None
     categories: list[RegulationCategory] | None = None
     top_k: int = Field(default=8, ge=1, le=20)
+    # Reference date for the regulatory snapshot. Retrieval filters
+    # to regulations that were in effect on this date — see
+    # `_dense_search` for the WHERE clause. Default `None` means
+    # "today" at the pipeline layer; set to a project's permit-
+    # filing date to ensure the answer reflects the rules that
+    # actually applied at that time, even if the corpus has since
+    # been updated to a newer revision.
+    as_of_date: date | None = None
 
 
 class Citation(BaseModel):
@@ -126,6 +134,11 @@ class ScanRequest(BaseModel):
     project_id: UUID
     parameters: ProjectParameters
     categories: list[RegulationCategory] | None = None
+    # See QueryRequest.as_of_date — same semantics. For scans this is
+    # particularly load-bearing: a 2022 project audited against 2026
+    # rules can flag false-positive FAILs on requirements that didn't
+    # yet apply.
+    as_of_date: date | None = None
 
 
 class Finding(BaseModel):

@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import time
+from datetime import date
 from typing import Any
 from uuid import UUID
 
@@ -419,6 +420,7 @@ async def _dense_search(
     categories: list[RegulationCategory] | None,
     jurisdiction: str | None,
     top_k: int,
+    as_of_date: date | None = None,
 ) -> list[dict[str, Any]]:
     # Embedding call is the OpenAI dollar driver on the read path.
     # Logging input length lets per-org spend rollups account for
@@ -443,6 +445,22 @@ async def _dense_search(
     if jurisdiction:
         where_clauses.append("r.jurisdiction = :jurisdiction")
         params["jurisdiction"] = jurisdiction
+
+    # Effective-date filter — surfaces only regulations that were in
+    # force on `as_of_date`. NULL effective_date is treated as
+    # "always in effect" (legacy rows without a known issue date).
+    # NULL expiry_date is treated as "still in effect today" (no
+    # repeal date set). This is the load-bearing correctness fix
+    # for the case where a 2022 project query would otherwise hit a
+    # 2026 revision that wasn't yet in effect.
+    from datetime import date as _date
+
+    effective_at = as_of_date or _date.today()
+    where_clauses.append(
+        "(r.effective_date IS NULL OR r.effective_date <= :as_of) "
+        "AND (r.expiry_date IS NULL OR r.expiry_date > :as_of)"
+    )
+    params["as_of"] = effective_at
 
     # Query the halfvec-generated column so the HNSW index
     # `ix_regulation_chunks_embedding_half_hnsw` (see migration
@@ -555,6 +573,7 @@ async def _hybrid_search(
     jurisdiction: str | None,
     top_k: int,
     sparse_query: str | None = None,
+    as_of_date: date | None = None,
 ) -> list[dict[str, Any]]:
     """Run dense + sparse retrieval concurrently and fuse via RRF.
 
@@ -569,13 +588,21 @@ async def _hybrid_search(
     adds semantic surface area) but should feed only the raw question to
     BM25 (HyDE prose dilutes term signal for keyword match).
 
+    `as_of_date` flows into the dense search's effective-date filter so
+    the corpus is clipped to regulations that were in force on that
+    date. The sparse path doesn't currently filter by date — ES doesn't
+    have the same column structure, and a stale BM25 hit on an
+    out-of-date regulation will get out-ranked by the dense path's
+    fresh hits via RRF. Tightening the sparse filter is a follow-up
+    once the ES index mapping carries effective_date.
+
     If Elasticsearch is unavailable, `_sparse_search` returns `[]` and this
     function effectively becomes dense-only — the graceful-degradation path
     is fully covered by `_reciprocal_rank_fusion([...], [])` returning the
     dense list unchanged (one score term per doc, in dense rank order).
     """
     dense, sparse = await asyncio.gather(
-        _dense_search(db, query_text, categories, jurisdiction, top_k),
+        _dense_search(db, query_text, categories, jurisdiction, top_k, as_of_date=as_of_date),
         _sparse_search(sparse_query or query_text, categories, jurisdiction, top_k),
     )
     return _reciprocal_rank_fusion(dense, sparse)
@@ -611,6 +638,9 @@ class _QAState(BaseModel):
     jurisdiction: str | None = None
     categories: list[RegulationCategory] | None = None
     top_k: int = 8
+    # Reference date for the regulatory snapshot — see _dense_search.
+    # None means "today" at the retrieval layer.
+    as_of_date: date | None = None
     hyde_text: str = ""
     candidates: list[dict[str, Any]] = Field(default_factory=list)
     answer: QueryResponse | None = None
@@ -789,6 +819,7 @@ async def answer_regulation_query(
     jurisdiction: str | None,
     categories: list[RegulationCategory] | None,
     top_k: int,
+    as_of_date: date | None = None,
 ) -> QueryResponse:
     lang = language or _detect_language(question)
 
@@ -808,6 +839,7 @@ async def answer_regulation_query(
             jurisdiction=state.jurisdiction,
             top_k=state.top_k,
             sparse_query=state.question,
+            as_of_date=state.as_of_date,
         )
         state.candidates = await _rerank(state.question, fused, state.top_k)
         return state
@@ -884,6 +916,7 @@ async def answer_regulation_query(
         jurisdiction=jurisdiction,
         categories=categories,
         top_k=top_k,
+        as_of_date=as_of_date,
     )
     final = await app.ainvoke(state)
     result = final["answer"] if isinstance(final, dict) else final.answer
@@ -906,6 +939,7 @@ async def answer_regulation_query_stream(
     jurisdiction: str | None,
     categories: list[RegulationCategory] | None,
     top_k: int,
+    as_of_date: date | None = None,
 ):
     """Streaming variant of `answer_regulation_query`.
 
@@ -947,6 +981,7 @@ async def answer_regulation_query_stream(
             jurisdiction=jurisdiction,
             top_k=top_k,
             sparse_query=question,
+            as_of_date=as_of_date,
         )
         candidates = await _rerank(question, fused, top_k)
 
@@ -1084,6 +1119,7 @@ async def auto_scan_project(
     db: AsyncSession,
     parameters: ProjectParameters,
     categories: list[RegulationCategory] | None,
+    as_of_date: date | None = None,
 ) -> tuple[list[Finding], list[UUID]]:
     target_categories = categories or _CATEGORY_DEFAULTS
     all_findings: list[Finding] = []
@@ -1110,6 +1146,7 @@ async def auto_scan_project(
             categories=[category],
             jurisdiction=jurisdiction,
             top_k=8,
+            as_of_date=as_of_date,
         )
         chunks = await _rerank(query, fused, top_k=6)
         if not chunks:
@@ -1178,6 +1215,7 @@ async def auto_scan_project_stream(
     db: AsyncSession,
     parameters: ProjectParameters,
     categories: list[RegulationCategory] | None,
+    as_of_date: date | None = None,
 ):
     """Streaming variant of `auto_scan_project`.
 
@@ -1235,6 +1273,7 @@ async def auto_scan_project_stream(
                 categories=[category],
                 jurisdiction=jurisdiction,
                 top_k=8,
+                as_of_date=as_of_date,
             )
             chunks = await _rerank(query, fused, top_k=6)
             if not chunks:

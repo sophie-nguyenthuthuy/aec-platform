@@ -219,7 +219,15 @@ test.describe("Punch list / detail", () => {
     await page.goto(`/punchlist/${LIST_ID}`);
 
     // Item numbers in order — #1 before #2 in the visible list (sorted).
-    const numbers = await page.locator("text=/^#\\d+$/").allInnerTexts();
+    // Scope to the items <list> + use `getByText` with a regex; the
+    // deprecated `page.locator("text=/.../")` engine catches zero matches
+    // because it doesn't anchor on full text content the way the author
+    // expected once JSX whitespace is in play. (Re-applied — formatter
+    // dropped this.)
+    const numbers = await page
+      .getByRole("list")
+      .getByText(/^#\d+$/)
+      .allInnerTexts();
     expect(numbers).toEqual(["#1", "#2"]);
 
     // Sign-off button is disabled while items are unfinished.

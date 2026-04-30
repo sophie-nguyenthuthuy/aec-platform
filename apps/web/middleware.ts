@@ -32,10 +32,16 @@ export async function middleware(request: NextRequest) {
   // Test escape hatch — Playwright's webServer block sets this so E2E specs
   // (which mock all `/api/v1/...` traffic via `page.route` and never talk to
   // a real Supabase) don't have to provision real Supabase env or stub
-  // server-side auth handshakes. Production never sets this; the variable
-  // name is intentionally explicit so a stray export couldn't silently
-  // disable auth.
-  if (process.env.E2E_BYPASS_AUTH === "1") {
+  // server-side auth handshakes.
+  //
+  // Defense-in-depth: gate on `NODE_ENV !== "production"` too. Even if the
+  // env var leaks into a prod ECS task definition (or a misconfigured
+  // CI/CD pipeline picks it up), the production build refuses to honour
+  // it. Dev/test contexts always have NODE_ENV=development or test.
+  if (
+    process.env.NODE_ENV !== "production" &&
+    process.env.E2E_BYPASS_AUTH === "1"
+  ) {
     return NextResponse.next({ request });
   }
 

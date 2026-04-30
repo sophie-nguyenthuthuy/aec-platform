@@ -49,9 +49,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // E2E escape hatch — Playwright's webServer block sets this. Skip the
   // Supabase round-trip and inject a deterministic fake session so specs
   // can exercise authenticated pages without provisioning a real Supabase
-  // project. Production never sets this; matches the bypass in
-  // `apps/web/middleware.ts`.
-  if (process.env.E2E_BYPASS_AUTH === "1") {
+  // project. Defense-in-depth: gate on `NODE_ENV !== "production"` too,
+  // so a leaked env var can't silently inject a fake session in prod.
+  // Matches the bypass in `apps/web/middleware.ts`.
+  if (
+    process.env.NODE_ENV !== "production" &&
+    process.env.E2E_BYPASS_AUTH === "1"
+  ) {
     session = {
       token: "e2e-fake-token",
       orgId: "00000000-0000-0000-0000-000000000000",

@@ -10,6 +10,29 @@ name: Deploy
 # secret, and exits cleanly. Once `terraform apply` lands and the secrets
 # are populated (`gh secret set ...`), deploys begin happening on every
 # push to main with no further config changes.
+#
+# ## Secrets
+#
+# AWS credentials (required — no deploy without these):
+#   - AWS_ACCOUNT_ID                       — e.g. "123456789012"
+#   - AWS_DEPLOY_ROLE_ARN                  — IAM role assumed via OIDC
+#   - ECS_NETWORK_CONFIG                   — JSON for `aws ecs run-task` migrate step
+#
+# Web build-time secrets (required for the web build to produce a
+# functional client bundle — see infra/docker/web.Dockerfile for why
+# these are build-args, not runtime env):
+#   - NEXT_PUBLIC_API_BASE                 — public origin of the API, e.g.
+#                                            "https://api.aec.example.com"
+#   - NEXT_PUBLIC_SUPABASE_URL             — Supabase project URL
+#   - NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY — Supabase publishable (anon) key.
+#                                            New name as of @supabase/supabase-js 2.45+;
+#                                            safe to ship publicly.
+#
+# Set with: `gh secret set NEXT_PUBLIC_SUPABASE_URL --body "https://..."`
+# Setting these in the workflow `env:` block (rather than the build-args
+# below) would be wrong — `next build` reads them at build time, and
+# without them the client bundle inlines `undefined` and crashes on
+# first interaction.
 
 on:
   push:
@@ -88,6 +111,15 @@ jobs:
             ${{ env.ECR_REGISTRY }}/aec-${{ matrix.service }}:latest
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,scope=${{ matrix.service }},mode=max
+          # `NEXT_PUBLIC_*` are baked into the client JS bundle by
+          # `next build` (see infra/docker/web.Dockerfile). They're harmless
+          # build args for the api/worker images — Docker silently ignores
+          # ARGs that aren't declared in the Dockerfile, so passing them
+          # uniformly across the matrix is fine.
+          build-args: |
+            NEXT_PUBLIC_API_BASE=${{ secrets.NEXT_PUBLIC_API_BASE }}
+            NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+            NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
 
   deploy:
     name: Roll ECS services

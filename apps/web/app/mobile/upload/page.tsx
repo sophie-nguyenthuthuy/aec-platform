@@ -2,8 +2,8 @@
 import { useState } from "react";
 
 import { MobileUploader } from "@aec/ui/siteeye";
-import { apiRequest } from "@/lib/api-client";
 import { useSession } from "@/lib/auth-context";
+import { useProjects } from "@/hooks/projects";
 import { useUploadPhotos } from "@/hooks/siteeye";
 
 interface FilesUploadResponse {
@@ -12,12 +12,27 @@ interface FilesUploadResponse {
   thumbnail_url: string | null;
 }
 
+/**
+ * Field-crew photo upload. Hits this from a phone on a job site.
+ *
+ * Replaced the prior typed-UUID inputs with a project picker driven by
+ * `useProjects` — typing a 36-char UUID on a 5-inch screen with a
+ * grease-gloved finger was never going to work. Visit ID stays
+ * optional and free-form because not every visit has a synced UUID
+ * yet (you might capture photos during an unscheduled walk).
+ */
 export default function MobileUploadPage() {
   const { token } = useSession();
   const upload = useUploadPhotos();
+  // Recent active projects come back from `/api/v1/projects` already
+  // filtered to caller's org. We pull the top 50 — anything beyond
+  // that is stale enough that re-typing the name in search is fine.
+  const { data: projectsData } = useProjects({ status: "active", per_page: 50 });
   const [projectId, setProjectId] = useState<string>("");
   const [visitId, setVisitId] = useState<string>("");
   const [lastJob, setLastJob] = useState<string | null>(null);
+
+  const projects = projectsData?.data ?? [];
 
   async function handleUpload(
     files: File[],
@@ -67,20 +82,40 @@ export default function MobileUploadPage() {
       </header>
 
       <div className="space-y-2">
-        <input
-          type="text"
-          placeholder="Project ID"
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value.trim())}
-          className="w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm"
-        />
-        <input
-          type="text"
-          placeholder="Visit ID (optional)"
-          value={visitId}
-          onChange={(e) => setVisitId(e.target.value.trim())}
-          className="w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm"
-        />
+        {/* Project picker — `<select>` because native iOS / Android
+            controls handle long lists better than custom comboboxes
+            on small screens, and it's keyboard-free. */}
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-gray-700">
+            Project
+          </span>
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">— Choose a project —</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-gray-700">
+            Visit ID <span className="text-gray-400">(optional)</span>
+          </span>
+          <input
+            type="text"
+            inputMode="text"
+            autoComplete="off"
+            placeholder="e.g. visit-2026-04-28"
+            value={visitId}
+            onChange={(e) => setVisitId(e.target.value.trim())}
+            className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+          />
+        </label>
       </div>
 
       {projectId ? (
@@ -91,7 +126,7 @@ export default function MobileUploadPage() {
           onUpload={handleUpload}
         />
       ) : (
-        <p className="text-sm text-gray-500">Enter a project ID to begin.</p>
+        <p className="text-sm text-gray-500">Choose a project to begin.</p>
       )}
 
       {lastJob ? (

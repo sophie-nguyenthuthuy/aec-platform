@@ -50,17 +50,24 @@ eval-codeguard:
 	TEST_DATABASE_URL=$${TEST_DATABASE_URL:-postgresql+asyncpg://aec:aec@localhost:5438/aec} \
 		pytest apps/ml/tests/test_codeguard_quality_eval.py -v
 
-# Run every test in the repo: API unit lane + web Playwright. The
-# integration lane is intentionally NOT included — it requires the
-# docker-compose stack to be up. Run `make test-api-integration` for
-# that. Mirrors what CI does on every PR (see .github/workflows/ci.yml).
+# Run every test in the repo: API unit lane + UI component lane + web
+# Playwright. The integration lane is intentionally NOT included — it
+# requires the docker-compose stack to be up. Run `make test-api-integration`
+# for that. Mirrors what CI does on every PR (see .github/workflows/ci.yml).
 #
 # `pnpm exec playwright install` ensures the chromium build is on the
 # machine; subsequent runs no-op when already installed.
-test: test-api test-web
+test: test-api test-ui test-web
 
 test-api:
 	cd apps/api && pytest -q
+
+# Component-level tests for `packages/ui` — Vitest + React Testing Library
+# in jsdom. Fast (~2s), no browser, runs every PR via the Node CI job.
+# Complements the Playwright suite: Playwright covers full-page wiring,
+# Vitest covers prop / state / event-handler logic in isolation.
+test-ui:
+	pnpm --filter @aec/ui test
 
 test-web:
 	pnpm --filter @aec/web exec playwright install chromium

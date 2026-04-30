@@ -17,6 +17,7 @@ Responses shape (per-supplier entry):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from uuid import UUID
 
@@ -30,6 +31,57 @@ from services.rfq_tokens import build_response_url
 logger = logging.getLogger(__name__)
 
 _MAX_BOQ_LINES = 15
+
+# Transport-retry knobs. Three attempts is enough to ride out a transient
+# SMTP blip without holding up the worker; linear-1s backoff keeps the
+# total worst-case under 4s so the dispatcher coroutine doesn't starve
+# its arq concurrency budget.
+_MAX_SEND_ATTEMPTS = 3
+_BACKOFF_BASE_SECONDS = 1.0
+
+# Slot statuses that indicate the supplier has already been served by a
+# prior dispatch pass and must NOT be re-emailed on a re-enqueue.
+# `bounced` is intentionally NOT in this set — those are the retry
+# candidates the hourly cron picks up.
+_TERMINAL_SLOT_STATUSES = frozenset({"dispatched", "responded"})
+
+
+async def _send_with_retry(
+    *, to: str, subject: str, text_body: str, html_body: str | None = None
+) -> tuple[dict, int]:
+    """Send with up to `_MAX_SEND_ATTEMPTS` retries on transient transport errors.
+
+    Returns `(last_delivery_dict, attempts_made)`. The `delivery` dict is
+    whatever `send_mail` returned for the attempt we stopped on — i.e. the
+    successful one if any attempt delivered, otherwise the last failure.
+
+    Short-circuit cases (return after attempt 1, no backoff):
+      * `smtp_not_configured` — config issue, retry won't help.
+      * `delivered=True` — obvious win.
+
+    Otherwise we sleep `_BACKOFF_BASE_SECONDS * attempt` between tries
+    (linear backoff — 1s, 2s — total ~3s in the worst case).
+    """
+    last_delivery: dict | None = None
+    for attempt in range(1, _MAX_SEND_ATTEMPTS + 1):
+        last_delivery = await send_mail(
+            to=to, subject=subject, text_body=text_body, html_body=html_body
+        )
+        if last_delivery["delivered"]:
+            return last_delivery, attempt
+        reason = last_delivery.get("reason") or ""
+        if reason == "smtp_not_configured":
+            logger.info(
+                "rfq_dispatch._send_with_retry no_retry to=%s reason=%s",
+                to,
+                reason,
+            )
+            return last_delivery, attempt
+        if attempt < _MAX_SEND_ATTEMPTS:
+            await asyncio.sleep(_BACKOFF_BASE_SECONDS * attempt)
+    # All attempts exhausted — return the last failure.
+    assert last_delivery is not None  # loop ran at least once
+    return last_delivery, _MAX_SEND_ATTEMPTS
 
 
 async def dispatch_rfq(*, organization_id: UUID, rfq_id: UUID) -> dict:
@@ -84,6 +136,14 @@ async def dispatch_rfq(*, organization_id: UUID, rfq_id: UUID) -> dict:
                 },
             )
 
+            # Idempotency: skip slots already in a terminal state. A re-enqueue
+            # of dispatch (e.g. the hourly bounced-retry cron picking up a
+            # sibling slot) must NOT re-email a supplier who's already been
+            # served or has already submitted a quote.
+            if entry.get("status") in _TERMINAL_SLOT_STATUSES:
+                existing_by_supplier[str(sid)] = entry
+                continue
+
             if supplier is None:
                 entry.update(
                     {
@@ -115,11 +175,16 @@ async def dispatch_rfq(*, organization_id: UUID, rfq_id: UUID) -> dict:
                 boq_digest=boq_digest,
                 response_url=response_url,
             )
-            delivery = await send_mail(to=email, subject=subject, text_body=body)
+            delivery, attempts = await _send_with_retry(to=email, subject=subject, text_body=body)
+            # Carry forward the `attempts` counter from any prior pass (e.g.
+            # the slot was `bounced` from a previous run) so we have a true
+            # running total of mail-server hits per supplier.
+            prior_attempts = int(entry.get("attempts", 0) or 0)
             entry.update(
                 {
                     "status": "dispatched" if delivery["delivered"] else "bounced",
                     "dispatched_at": delivery["dispatched_at"],
+                    "attempts": prior_attempts + attempts,
                     "delivery": {
                         "to": delivery["to"],
                         "subject": delivery["subject"],

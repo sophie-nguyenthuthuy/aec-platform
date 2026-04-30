@@ -238,7 +238,26 @@ def mock_llm(monkeypatch):
     Usage:
         mock_llm.query(returns=make_query_response())
         mock_llm.scan(findings=[...], regs=[...])
+
+    Side effect: also stubs `services.codeguard_quotas.check_org_quota` /
+    `record_org_usage` to a no-op "unlimited" pass-through. The `/query`
+    route now does a quota pre-flight that would otherwise hit the
+    fake_db's MagicMock-flavoured execute() and crash on the int compare.
+    Tests that specifically exercise quota enforcement use their own
+    explicit monkeypatch of `check_org_quota` (see test_codeguard_quotas)
+    which overrides this default.
     """
+    from services.codeguard_quotas import QuotaCheckResult
+
+    async def _unlimited(_db, _org_id):
+        return QuotaCheckResult(over_limit=False, limit_kind="unlimited", used=0, limit=None)
+
+    async def _noop_record(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr("services.codeguard_quotas.check_org_quota", _unlimited)
+    monkeypatch.setattr("services.codeguard_quotas.record_org_usage", _noop_record)
+
     installed: dict[str, AsyncMock] = {}
 
     class _Installer:

@@ -12,6 +12,26 @@ WORKDIR /app
 RUN corepack enable
 COPY --from=deps /app /app
 COPY . .
+
+# `NEXT_PUBLIC_*` env vars are inlined into the client JS bundle at
+# `next build` time (the very point of the prefix). Without them, the
+# bundle ships with `undefined` literals and `supabaseBrowser()` /
+# `lib/supabase-env.ts::readSupabaseEnv()` throw on the first user
+# interaction in production. Take them in as build args so the deploy
+# workflow can wire them from secrets (see .github/workflows/deploy.yml
+# `## Secrets`).
+#
+# Default values are intentional: empty strings (not unset) so the
+# `if (!url || !publishableKey)` check inside `readSupabaseEnv` short-
+# circuits to a clear runtime error message. Unset would still throw
+# but with a confusing "process.env.X is undefined" instead.
+ARG NEXT_PUBLIC_API_BASE=""
+ARG NEXT_PUBLIC_SUPABASE_URL=""
+ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=""
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE \
+    NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+
 RUN pnpm --filter @aec/web build
 
 FROM node:20-alpine AS runner
