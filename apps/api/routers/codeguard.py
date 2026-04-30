@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -245,6 +245,36 @@ async def codeguard_health(
     }
 
 
+# ---------- Quota helper ----------
+
+
+async def _check_quota_or_raise(db: AsyncSession, organization_id: UUID) -> None:
+    """Pre-flight quota check shared by every LLM-invoking route.
+
+    Raises a structured 429 if the org is over their monthly cap. The
+    message names the binding dimension (input vs output) so debugging a
+    block doesn't require cross-referencing two dashboards. Numbers are
+    comma-formatted for readability in error logs.
+
+    Putting this in a single helper rather than copying the inline check
+    into six routes means a future tweak (caching, soft-warn band, etc.)
+    lands in one place. Tests can monkeypatch
+    `services.codeguard_quotas.check_org_quota` to control behaviour
+    without having to know which routes wire the gate.
+    """
+    from services import codeguard_quotas as _q
+
+    quota = await _q.check_org_quota(db, organization_id)
+    if quota.over_limit:
+        used_fmt = f"{quota.used:,}"
+        limit_fmt = f"{quota.limit:,}" if quota.limit is not None else "?"
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Monthly {quota.limit_kind}-token quota exceeded "
+            f"({used_fmt} / {limit_fmt}). Contact admin to raise the cap.",
+        )
+
+
 # ---------- Q&A ----------
 
 
@@ -256,22 +286,9 @@ async def codeguard_query(
 ) -> dict:
     from ml.pipelines.codeguard import answer_regulation_query
 
-    # Pre-flight quota check — over-limit orgs get a structured 429 BEFORE
-    # we touch the LLM. The message names the binding dimension (input vs
-    # output) so a debugger can see *why* they're blocked even when the
-    # other dimension is well under cap. Numbers are comma-formatted so
-    # they're readable in dashboard error logs.
     from services import codeguard_quotas as _q
 
-    quota = await _q.check_org_quota(db, auth.organization_id)
-    if quota.over_limit:
-        used_fmt = f"{quota.used:,}"
-        limit_fmt = f"{quota.limit:,}" if quota.limit is not None else "?"
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            f"Monthly {quota.limit_kind}-token quota exceeded "
-            f"({used_fmt} / {limit_fmt}). Contact admin to raise the cap.",
-        )
+    await _check_quota_or_raise(db, auth.organization_id)
 
     try:
         result = await answer_regulation_query(
@@ -361,6 +378,13 @@ async def codeguard_query_stream(
     """
     from ml.pipelines.codeguard import answer_regulation_query_stream
 
+    # Pre-flight quota check before constructing the StreamingResponse.
+    # Putting it here means an over-quota org gets a clean HTTP 429
+    # rather than an SSE `error` event mid-stream — the former is what
+    # ops dashboards filter on, and the latter would hand the client a
+    # 200-with-trailing-error-frame that's awkward to handle.
+    await _check_quota_or_raise(db, auth.organization_id)
+
     async def sse_stream():
         try:
             response: QueryResponse | None = None
@@ -440,6 +464,12 @@ async def codeguard_scan(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
     from ml.pipelines.codeguard import auto_scan_project
+
+    # Pre-flight quota check — scan is the costliest LLM surface (one
+    # generate call per category, up to 5), so 429ing before we start
+    # spares an org from blasting through their cap on a single call
+    # they wouldn't have been allowed to make anyway.
+    await _check_quota_or_raise(db, auth.organization_id)
 
     check = ComplianceCheckModel(
         id=uuid4(),
@@ -523,6 +553,10 @@ async def codeguard_scan_stream(
     """
     from ml.pipelines.codeguard import auto_scan_project_stream
 
+    # Pre-flight quota check — same shape as /query/stream. Lands as a
+    # 429 before any SSE framing, not as a mid-stream error event.
+    await _check_quota_or_raise(db, auth.organization_id)
+
     async def sse_stream():
         try:
             all_findings: list = []
@@ -604,6 +638,10 @@ async def create_permit_checklist(
 ) -> dict:
     from ml.pipelines.codeguard import generate_permit_checklist
 
+    # Pre-flight quota check — checklist generation is a single LLM call,
+    # but a 429 still beats a 502 from the pipeline failing partway.
+    await _check_quota_or_raise(db, auth.organization_id)
+
     try:
         items = await generate_permit_checklist(
             db=db,
@@ -661,6 +699,10 @@ async def codeguard_permit_checklist_stream(
     same persistence shape, same audit trail.
     """
     from ml.pipelines.codeguard import generate_permit_checklist_stream
+
+    # Pre-flight quota check — same shape as the other /stream routes:
+    # land a clean 429 before any SSE framing.
+    await _check_quota_or_raise(db, auth.organization_id)
 
     async def sse_stream():
         try:
@@ -747,9 +789,7 @@ async def export_permit_checklist_pdf(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": (
-                f'attachment; filename="permit-checklist-{checklist.id}.pdf"'
-            ),
+            "Content-Disposition": (f'attachment; filename="permit-checklist-{checklist.id}.pdf"'),
         },
     )
 
@@ -791,50 +831,6 @@ async def mark_checklist_item(
     await db.flush()
     await db.refresh(checklist)
     return ok(PermitChecklist.model_validate(checklist))
-
-
-@router.get("/permit-checklist/{check_id}/pdf")
-async def download_permit_checklist_pdf(
-    check_id: UUID,
-    auth: Annotated[AuthContext, Depends(require_auth)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> Response:
-    """Render the checklist as a PDF and return it as a download.
-
-    Tenant isolation: a 404 (not 403) for cross-org rows so the route
-    doesn't leak the existence of other-org checklists. Same shape as
-    `mark_checklist_item` above.
-
-    Body is generated lazily per request — checklists are small, the
-    cost of regeneration is negligible, and freshness > caching for
-    permit-application artifacts.
-    """
-    checklist = await db.get(PermitChecklistModel, check_id)
-    if checklist is None or checklist.organization_id != auth.organization_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Checklist not found")
-
-    # Lazy import — keeps `reportlab` off the cold-start path for the
-    # 95% of requests that don't export PDFs.
-    from services.codeguard_pdf import render_permit_checklist_pdf
-
-    pdf_bytes = render_permit_checklist_pdf(
-        checklist_id=str(checklist.id),
-        project_id=str(checklist.project_id) if checklist.project_id else None,
-        jurisdiction=checklist.jurisdiction,
-        project_type=checklist.project_type,
-        items=list(checklist.items or []),
-        generated_at=checklist.generated_at,
-        completed_at=checklist.completed_at,
-    )
-
-    # Filename includes the checklist id so multiple exports don't
-    # collide in a downloads folder.
-    filename = f"permit-checklist-{checklist.id}.pdf"
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
 
 
 # ---------- Regulations ----------
