@@ -22,7 +22,7 @@ python-dotenv==1.2.2
 # cachetools — used by ml.pipelines.codeguard for memoizing JWKS-style
 # lookups; pinned here (not via a transitive dep) so the lock pin is stable
 # across langchain bumps.
-cachetools==5.5.0
+cachetools==7.0.6
 # Sentry — `core.observability.init_sentry` imports this lazily, but
 # the lazy import only succeeds in prod if the package is actually
 # installed. Without this pin, prod deploys would silently fall
