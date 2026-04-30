@@ -274,6 +274,28 @@ async def daily_activity_digest_cron(ctx: dict) -> dict:
         return await dispatch_daily_digests(session)
 
 
+async def webhook_drain_cron(ctx: dict) -> dict:
+    """Drain the webhook outbox: pick due deliveries, sign + POST,
+    mark delivered or schedule retry.
+
+    Cross-tenant by design — uses `AdminSessionFactory` because the
+    discovery query needs to see every org's pending deliveries. The
+    delivery rows themselves carry `organization_id`, so per-tenant
+    health metrics stay possible without re-querying.
+
+    Runs every minute (see WorkerSettings.cron_jobs). The minute
+    cadence is the floor on retry latency for a flaky receiver — if
+    we ever need sub-minute end-to-end, switch to a per-event
+    `pool.enqueue_job("webhook_deliver_one", delivery_id)` plus this
+    cron as a safety net for stuck rows.
+    """
+    from db.session import AdminSessionFactory
+    from services.webhooks import drain_pending
+
+    async with AdminSessionFactory() as session:
+        return await drain_pending(session)
+
+
 async def rfq_deadlines_cron(ctx: dict) -> dict:
     """Auto-expire RFQ slots whose deadline has passed.
 
@@ -427,6 +449,11 @@ class WorkerSettings:
         # inbox carries dispatched-but-never-quoted slots forever and
         # status filters lose their meaning.
         cron(rfq_deadlines_cron, hour=1, minute=0),
+        # Every minute — drain the webhook outbox. A 1-minute floor
+        # bounds retry latency for transient receiver failures. Idempotent
+        # via `SELECT … FOR UPDATE SKIP LOCKED` so two workers running
+        # concurrently won't double-deliver.
+        cron(webhook_drain_cron, minute={i for i in range(60)}),
     ]
     max_jobs = 8
     job_timeout = 900  # 15 min — weekly report with PDF rendering can be slow

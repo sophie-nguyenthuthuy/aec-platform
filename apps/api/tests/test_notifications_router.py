@@ -246,3 +246,126 @@ async def test_delete_watch_is_idempotent_for_missing(client, fake_db):
 
     assert res.status_code == 204
     assert fake_db.deleted == []
+
+
+# ---------- Notification preferences ----------
+
+
+async def test_list_preferences_prefills_known_keys_with_off_defaults(client, fake_db):
+    """Empty DB → response still has every known alert kind, all off."""
+    q = MagicMock()
+    q.scalars.return_value.all.return_value = []
+    fake_db.push(q)
+
+    res = await client.get("/api/v1/notifications/preferences")
+
+    assert res.status_code == 200
+    data = res.json()["data"]
+    keys = [r["key"] for r in data]
+    # Same set + ordering as `_KNOWN_PREF_KEYS` in the router.
+    assert keys == ["scraper_drift", "rfq_deadline_summary", "weekly_digest_email"]
+    assert all(r["email_enabled"] is False for r in data)
+    assert all(r["slack_enabled"] is False for r in data)
+
+
+async def test_list_preferences_overlays_persisted_rows_on_defaults(client, fake_db):
+    """DB rows for known keys override the prefilled defaults."""
+    persisted = SimpleNamespace(
+        id=uuid4(),
+        user_id=USER_ID,
+        organization_id=ORG_ID,
+        key="scraper_drift",
+        email_enabled=True,
+        slack_enabled=False,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    q = MagicMock()
+    q.scalars.return_value.all.return_value = [persisted]
+    fake_db.push(q)
+
+    res = await client.get("/api/v1/notifications/preferences")
+    assert res.status_code == 200, res.text
+    data = res.json()["data"]
+    drift = next(r for r in data if r["key"] == "scraper_drift")
+    assert drift["email_enabled"] is True
+    other = next(r for r in data if r["key"] == "rfq_deadline_summary")
+    assert other["email_enabled"] is False
+
+
+async def test_list_preferences_surfaces_unknown_keys_user_already_set(client, fake_db):
+    """If `_KNOWN_PREF_KEYS` shrinks, the user's existing rows still
+    appear in the list — their preference doesn't silently vanish."""
+    extra = SimpleNamespace(
+        id=uuid4(),
+        user_id=USER_ID,
+        organization_id=ORG_ID,
+        key="legacy_alert_kind",
+        email_enabled=True,
+        slack_enabled=False,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    q = MagicMock()
+    q.scalars.return_value.all.return_value = [extra]
+    fake_db.push(q)
+
+    res = await client.get("/api/v1/notifications/preferences")
+    keys = [r["key"] for r in res.json()["data"]]
+    assert "legacy_alert_kind" in keys
+
+
+async def test_upsert_preference_inserts_when_no_row_yet(client, fake_db):
+    """First touch on a key creates the row with the requested flags."""
+    from models.core import NotificationPreference
+
+    q = MagicMock()
+    q.scalar_one_or_none.return_value = None
+    fake_db.push(q)
+
+    res = await client.put(
+        "/api/v1/notifications/preferences/scraper_drift",
+        json={"email_enabled": True},
+    )
+    assert res.status_code == 200, res.text
+
+    inserted = [o for o in fake_db.added if isinstance(o, NotificationPreference)]
+    assert len(inserted) == 1
+    row = inserted[0]
+    assert row.key == "scraper_drift"
+    assert row.email_enabled is True
+    # `slack_enabled` defaults to False when not provided.
+    assert row.slack_enabled is False
+
+
+async def test_upsert_preference_partial_update_leaves_other_flag_alone(client, fake_db):
+    """PUT with only email_enabled must NOT clobber slack_enabled."""
+    existing = SimpleNamespace(
+        id=uuid4(),
+        user_id=USER_ID,
+        organization_id=ORG_ID,
+        key="scraper_drift",
+        email_enabled=False,
+        slack_enabled=True,  # ← previously enabled
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    q = MagicMock()
+    q.scalar_one_or_none.return_value = existing
+    fake_db.push(q)
+
+    res = await client.put(
+        "/api/v1/notifications/preferences/scraper_drift",
+        json={"email_enabled": True},
+    )
+    assert res.status_code == 200
+    assert existing.email_enabled is True
+    assert existing.slack_enabled is True
+
+
+async def test_upsert_preference_400_for_oversized_key(client, fake_db):
+    res = await client.put(
+        "/api/v1/notifications/preferences/" + "x" * 200,
+        json={"email_enabled": True},
+    )
+    assert res.status_code == 400

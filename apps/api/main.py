@@ -44,6 +44,7 @@ from routers import (  # noqa: E402
     search,
     siteeye,
     submittals,
+    webhooks,
     winwork,
 )
 
@@ -86,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(assistant.router)
     app.include_router(audit.router)
     app.include_router(search.router)
+    app.include_router(webhooks.router)
     app.include_router(winwork.router)
     app.include_router(pulse.router)
     app.include_router(bidradar.router)

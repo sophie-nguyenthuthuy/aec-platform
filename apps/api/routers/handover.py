@@ -1227,6 +1227,25 @@ async def create_defect(
             .mappings()
             .one()
         )
+        # Notify subscribed webhooks. Defect creation isn't gated by
+        # RBAC (any tenant member can report a snag), so it doesn't
+        # ride on `services.audit.record` like the approve/reject
+        # actions do — direct enqueue inside the same transaction.
+        from services.webhooks import enqueue_event as _webhook_enqueue
+
+        await _webhook_enqueue(
+            session,
+            organization_id=auth.organization_id,
+            event_type="handover.defect.reported",
+            payload={
+                "defect_id": str(row["id"]),
+                "project_id": str(row["project_id"]),
+                "package_id": str(row["package_id"]) if row["package_id"] else None,
+                "title": row["title"],
+                "priority": row["priority"],
+                "reported_by": str(row["reported_by"]) if row["reported_by"] else None,
+            },
+        )
     return ok(Defect.model_validate(dict(row)).model_dump(mode="json"))
 
 

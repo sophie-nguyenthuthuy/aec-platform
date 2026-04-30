@@ -89,6 +89,27 @@ async def record(
         user_agent=_user_agent(request) if request else None,
     )
     session.add(event)
+
+    # Mirror to the webhook outbox in the same transaction. If the
+    # caller's surrounding write rolls back, both the audit row AND
+    # the webhook delivery row roll back — the customer never gets
+    # notified about a write that didn't actually commit. Lazy import
+    # to avoid a circular at module load (webhooks → audit → webhooks).
+    from services.webhooks import enqueue_event as _webhook_enqueue
+
+    await _webhook_enqueue(
+        session,
+        organization_id=organization_id,
+        event_type=action,
+        payload={
+            "action": action,
+            "resource_type": resource_type,
+            "resource_id": str(resource_id) if resource_id else None,
+            "actor_user_id": str(actor_user_id) if actor_user_id else None,
+            "before": before or {},
+            "after": after or {},
+        },
+    )
     return event
 
 

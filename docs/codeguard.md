@@ -38,6 +38,21 @@ identically.
 The frontend exposes five pages — query, scan, checklist, regulations,
 history — all under `/codeguard/*`. See `apps/web/app/(dashboard)/codeguard/`.
 
+Every LLM-invoking route gates on per-org token quotas (see §13). Over-
+limit orgs get a structured 429 before any LLM work starts; both
+`/query` and the streaming `/query/stream` (and same for scan +
+permit-checklist) share the gate via `_check_quota_or_raise`. After
+the LLM call succeeds, accumulated token counts are drained into the
+`codeguard_org_usage` row so the next request's pre-flight check sees
+real spend.
+
+`QueryRequest` and `ScanRequest` accept an optional `as_of_date` field
+(ISO date string). When supplied, retrieval is restricted to
+regulations whose `effective_date <= as_of_date` and whose
+`expiry_date IS NULL OR expiry_date > as_of_date` — the binding
+correctness contract for compliance audits ("this 2022 project must
+not be evaluated against a 2024 revision"). Default is today.
+
 ---
 
 ## 2. Data model
@@ -116,6 +131,9 @@ question  ─────▶│ _hyde_expand   (Anthropic, ~200-800ms)      │
                 ┌─────────────────────────────────────────────┐
                 │ _hybrid_search                              │
                 │   ├── _dense_search (pgvector HNSW halfvec) │ ─┐
+                │   │     filter: r.effective_date <= as_of   │  │
+                │   │     AND (r.expiry_date IS NULL          │  │
+                │   │          OR r.expiry_date > as_of)      │  │
                 │   └── _sparse_search (Elasticsearch BM25)   │ ─┤ asyncio.gather
                 │   → _reciprocal_rank_fusion (k=60)          │ ─┘
                 └─────────────────────────────────────────────┘
@@ -164,6 +182,32 @@ log fires but the pipeline degrades gracefully to dense-only (RRF of
 `(dense, [])` is `dense` order). For the Q&A path, dense gets the
 HyDE-expanded prose for semantic surface area, but sparse gets the raw
 question only — HyDE prose dilutes BM25 term signal.
+
+### Effective-date filter
+
+`QueryRequest.as_of_date` and `ScanRequest.as_of_date` flow through to
+`_dense_search`'s WHERE clause:
+
+```sql
+AND (r.effective_date IS NULL OR r.effective_date <= :as_of)
+AND (r.expiry_date IS NULL OR r.expiry_date > :as_of)
+```
+
+Default when the client omits the field: `date.today()`. NULL effective
+or expiry dates are treated as "always in effect" — legacy rows without
+known issue dates aren't excluded just because they pre-date the
+metadata.
+
+The sparse path doesn't currently filter by date — ES doesn't carry the
+same column structure, and a stale BM25 hit on an out-of-date regulation
+is naturally outranked by the dense path's fresh hits via RRF. Tightening
+the sparse filter is a follow-up once the ES index mapping carries
+`effective_date`.
+
+Test coverage: `apps/ml/tests/test_codeguard_as_of_date.py` (3 Tier 1
+tests pinning the SQL clause shape, default behaviour, and `_hybrid_search`
+forwarding; 1 Tier 3 integration test against real Postgres seeding two
+regs at different effective dates).
 
 ---
 
@@ -611,6 +655,11 @@ nothing extra to run these.
 | HyDE cache | Same file: `_hyde_cache`, `_hyde_clear_cache` |
 | Citation grounding guard | Same file: `_ground_citations`, `_abstain_response` |
 | Cost telemetry helper | Same file: `_record_llm_call`, `_UsageCaptureHandler`, `telemetry_logger` |
+| Per-request accumulator | Same file: `TelemetryAccumulator`, `set_telemetry_accumulator`, `clear_telemetry_accumulator`, `get_telemetry_accumulator` |
+| Quota service | `apps/api/services/codeguard_quotas.py` (`check_org_quota`, `record_org_usage`, `QuotaCheckResult`) |
+| Quota wiring | `apps/api/routers/codeguard.py` (`_check_quota_or_raise`, `_with_usage_recording`) |
+| Quota migration | `apps/api/alembic/versions/0023_codeguard_quotas.py` (`codeguard_org_quotas`, `codeguard_org_usage`) |
+| PDF Unicode shim | `apps/api/services/_pdf_fonts.py` (`ensure_unicode_fonts`) |
 | Health probe | `apps/api/routers/codeguard.py` (`_check_postgres`, `_check_api_key_env`, `_check_elasticsearch`, `_aggregate_status`) |
 | Ingest CLI | `apps/ml/pipelines/codeguard_ingest.py` |
 | Migrations | `apps/api/alembic/versions/0005_codeguard.py`, `0008_codeguard_rls.py`, `0009_codeguard_hnsw.py` |
@@ -624,3 +673,87 @@ nothing extra to run these.
 | Make targets | `Makefile` (`seed-codeguard`, `eval-codeguard`) |
 | Spend rollup script | `scripts/codeguard_spend_report.py` |
 | Telemetry operating guide | `docs/codeguard-telemetry.md` |
+
+---
+
+## 13. Per-org token quotas
+
+Every LLM-invoking codeguard route (`/query`, `/query/stream`, `/scan`,
+`/scan/stream`, `/permit-checklist`, `/permit-checklist/stream`) gates
+on a per-org monthly cap. The story has three pieces — pre-flight
+check, post-call drain, and the schema both read from.
+
+### Schema (migration `0023_codeguard_quotas.py`)
+
+- `codeguard_org_quotas(organization_id, monthly_input_token_limit,
+  monthly_output_token_limit)` — opt-in. Missing row → unlimited.
+  NULL on either dimension → unlimited on that dimension only (org pins
+  on the dimension that has a number).
+- `codeguard_org_usage(organization_id, period_start, input_tokens,
+  output_tokens)` — running per-month counters. PK
+  `(organization_id, period_start)` for clean UPSERT. `period_start` is
+  the first day of the calendar month (computed server-side via
+  `date_trunc('month', NOW())::date` to avoid clock-skew row splits).
+
+### Pre-flight check — `_check_quota_or_raise`
+
+Single LEFT JOIN against the two tables (`services.codeguard_quotas.
+check_org_quota`). Each LLM-invoking route calls
+`_check_quota_or_raise(db, auth.organization_id)` at entry; over-limit
+orgs get a structured 429 with the binding-dimension message ("Monthly
+output-token quota exceeded (210,000 / 200,000). Contact admin to
+raise the cap.") before any LLM work starts. Streaming routes call it
+*before* constructing the StreamingResponse so the 429 is a clean
+HTTP response, not an SSE error frame.
+
+### Post-call drain — `_with_usage_recording`
+
+The pre-flight check is only useful if the usage table actually fills.
+Every LLM-invoking route wraps its pipeline call (or its SSE generator
+body) in `_with_usage_recording(db, organization_id)` — an async
+context manager that:
+
+1. Allocates a `TelemetryAccumulator` and binds it via the pipeline's
+   `set_telemetry_accumulator` contextvar. The accumulator propagates
+   through all `await` boundaries the pipeline uses, including async
+   generators for SSE.
+2. Lets the pipeline run. Every successful `_record_llm_call` site
+   (HyDE, generation, scan-per-category, checklist generation) feeds
+   `handler.input_tokens` / `handler.output_tokens` into the bound
+   accumulator.
+3. On exit, persists the accumulated totals via
+   `services.codeguard_quotas.record_org_usage` — a single UPSERT
+   against `(org_id, period_start)`. The next request's pre-flight
+   check sees the increment.
+
+Best-effort write: a transient DB hiccup during `record_org_usage` is
+logged at WARNING and swallowed. Failing the user's already-served
+response because bookkeeping failed would be the wrong tradeoff —
+worst case is one request's worth of under-counted spend.
+
+### Why not a FastAPI dependency
+
+Streaming routes return a `StreamingResponse` whose generator runs
+*after* a `dependencies=[Depends(...)]` would yield. The accumulator
+drain has to happen after the generator finishes (the LLM calls happen
+inside the generator), which means the route owns the `async with`.
+Putting it in a dep would drain too early — every streaming request's
+counter would be 0.
+
+### Test coverage
+
+`apps/api/tests/test_codeguard_quotas.py`:
+
+- Tier 1: 8 tests for `check_org_quota` (NULL semantics, both-dimension
+  binding, no-row → unlimited, no-usage-row → 0 used) + 2 for
+  `record_org_usage` (zero-token short-circuit, UPSERT param shape).
+- Tier 2 route: 1 dedicated `/query` 429 test, 1 parametrised
+  cross-route test that asserts every other LLM-invoking surface also
+  gates on the same 429 — pin the cross-route contract so a regression
+  dropping `_check_quota_or_raise` from one route is caught by name.
+- Tier 2 drain: 1 test that proves
+  `_with_usage_recording` actually fires `record_org_usage` with
+  non-zero tokens (the contract that was silently broken before this
+  round — the previous wiring called `record_org_usage(in_tok=...,
+  out_tok=...)` with kwarg names that didn't match the function's
+  signature, so every call raised `TypeError` and got swallowed).
