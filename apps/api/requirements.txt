@@ -16,7 +16,7 @@ aioboto3==13.2.0
 python-multipart==0.0.12
 Pillow==10.4.0
 weasyprint==62.3
-email-validator==2.2.0
+email-validator==2.3.0
 pgvector==0.3.5
 python-dotenv==1.2.2
 # cachetools — used by ml.pipelines.codeguard for memoizing JWKS-style
