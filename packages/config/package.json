@@ -10,8 +10,8 @@
     "./prettier": "./prettier.config.mjs"
   },
   "dependencies": {
-    "@typescript-eslint/eslint-plugin": "^8.8.0",
-    "@typescript-eslint/parser": "^8.8.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.1",
+    "@typescript-eslint/parser": "^8.59.1",
     "eslint": "^9.12.0",
     "eslint-config-next": "14.2.35",
     "eslint-plugin-react": "^7.37.1",
