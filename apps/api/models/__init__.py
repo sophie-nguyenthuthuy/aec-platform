@@ -18,6 +18,7 @@ def register_all() -> None:
         pulse,  # noqa: F401
         punchlist,  # noqa: F401
         schedulepilot,  # noqa: F401
+        search,  # noqa: F401
         siteeye,  # noqa: F401
         submittals,  # noqa: F401
         webhooks,  # noqa: F401

@@ -597,6 +597,59 @@ async def create_supplier(
 _MAX_SUPPLIERS_UPLOAD_BYTES = 5 * 1024 * 1024
 
 
+@router.get("/suppliers/export.xlsx")
+async def export_suppliers_xlsx(
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Stream the org's supplier directory as a downloadable .xlsx.
+
+    Header row matches what `POST /suppliers/import` recognises, so a
+    buyer can export, edit in Excel, and re-import to bulk-update.
+    """
+    return await _export_suppliers(auth=auth, db=db, fmt="xlsx")
+
+
+@router.get("/suppliers/export.csv")
+async def export_suppliers_csv(
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Stream the org's supplier directory as a UTF-8-with-BOM CSV."""
+    return await _export_suppliers(auth=auth, db=db, fmt="csv")
+
+
+async def _export_suppliers(*, auth: AuthContext, db: AsyncSession, fmt: str) -> Response:
+    """Shared body for both export endpoints. Renders bytes once, picks
+    the right Content-Type / Content-Disposition off `fmt`."""
+    rows = (
+        (
+            await db.execute(
+                select(Supplier).where(Supplier.organization_id == auth.organization_id).order_by(Supplier.name.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    from services.suppliers_io import render_suppliers_csv, render_suppliers_xlsx
+
+    if fmt == "xlsx":
+        body = render_suppliers_xlsx(rows)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = "suppliers.xlsx"
+    else:
+        body = render_suppliers_csv(rows)
+        media_type = "text/csv; charset=utf-8"
+        filename = "suppliers.csv"
+
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/suppliers/import")
 async def import_suppliers(
     auth: Annotated[AuthContext, Depends(require_auth)],

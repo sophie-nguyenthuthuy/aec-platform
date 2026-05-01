@@ -31,7 +31,9 @@ also explicitly filters by `organization_id`.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from collections import Counter
 from typing import Any
 from uuid import UUID
 
@@ -649,3 +651,250 @@ _VECTOR_HANDLERS: dict[SearchScope, Any] = {
     SearchScope.regulations: _search_regulations_vector,
     SearchScope.rfis: _search_rfis_vector,
 }
+
+
+# ---------- Telemetry: writer + analytics aggregates ----------
+
+
+def summarise_results(results: list[SearchResult]) -> tuple[str | None, dict[str, int]]:
+    """Squash the result list into the two summary columns we persist:
+      * `top_scope` — which scope produced the most rows. None when
+        the result set is empty (no winner = nothing to log here).
+      * `matched_distribution` — `{matched_on_label: count}` over rows
+        that have a non-null `matched_on`. Drives the "is hybrid actually
+        winning?" tile on the analytics page.
+
+    Pure function — kept out of `log_search` so tests can assert the
+    shape without standing up a session.
+    """
+    if not results:
+        return None, {}
+    scope_counts = Counter(r.scope.value for r in results)
+    top_scope, _ = scope_counts.most_common(1)[0]
+    matched: Counter[str] = Counter()
+    for r in results:
+        if r.matched_on is not None:
+            matched[r.matched_on] += 1
+    return top_scope, dict(matched)
+
+
+async def log_search(
+    *,
+    organization_id: UUID,
+    user_id: UUID | None,
+    query: str,
+    scopes: list[SearchScope] | None,
+    project_id: UUID | None,
+    results: list[SearchResult],
+) -> None:
+    """Persist one row in `search_queries` for the analytics dashboard.
+
+    Fire-and-forget from the router: wrapped in try/except so that a
+    telemetry failure (DB hiccup, RLS misconfig, anything) can never
+    break the user-facing search response. The router awaits this, so
+    failures still surface in logs — we just don't propagate them.
+    """
+    top_scope, matched_distribution = summarise_results(results)
+    # Persist scopes as the explicit list the caller asked for. `None`
+    # means "all scopes" — flatten to the full enum so analytics queries
+    # don't have to special-case both representations.
+    persisted_scopes = [s.value for s in (scopes or list(SearchScope))]
+    try:
+        async with TenantAwareSession(organization_id) as session:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO search_queries (
+                        id, organization_id, user_id, query, scopes,
+                        project_id, result_count, top_scope, matched_distribution
+                    ) VALUES (
+                        gen_random_uuid(), :org_id, :user_id, :query, :scopes,
+                        :project_id, :result_count, :top_scope,
+                        CAST(:matched_distribution AS JSONB)
+                    )
+                    """
+                ),
+                {
+                    "org_id": str(organization_id),
+                    "user_id": str(user_id) if user_id else None,
+                    "query": query,
+                    "scopes": persisted_scopes,
+                    "project_id": str(project_id) if project_id else None,
+                    "result_count": len(results),
+                    "top_scope": top_scope,
+                    "matched_distribution": json.dumps(matched_distribution),
+                },
+            )
+            await session.commit()
+    except Exception as exc:  # pragma: no cover — defensive; telemetry must not break search
+        logger.warning("search: log_search failed (%s); telemetry row skipped", exc)
+
+
+async def compute_analytics(
+    *,
+    organization_id: UUID,
+    days: int = 30,
+    top_n: int = 20,
+) -> dict[str, Any]:
+    """Aggregate `search_queries` for the analytics dashboard.
+
+    Four breakdowns powering the `/settings/search-analytics` page:
+
+      * `top_queries` — most-run queries in the window, with the average
+        result count so empty-popular queries jump out.
+      * `no_result_queries` — queries that returned zero results,
+        sorted by frequency. Direct content-gap signal.
+      * `scope_distribution` — `top_scope` histogram. Tells which
+        modules are actually getting searched.
+      * `matched_distribution` — sum of the per-row matched_on counts.
+        "Hybrid winning?" answer: how often is `both`/`vector` lighting
+        up vs plain keyword.
+
+    All four roll-ups are cheap because the partial+composite indexes
+    on `(organization_id, created_at DESC)` (and the no-result variant)
+    let Postgres scan a single org slice without a sort.
+    """
+    since_clause = f"created_at > NOW() - INTERVAL '{int(days)} days'"
+    async with TenantAwareSession(organization_id) as session:
+        top_queries_rows = (
+            (
+                await session.execute(
+                    text(
+                        f"""
+                        SELECT query,
+                               COUNT(*) AS run_count,
+                               AVG(result_count)::float AS avg_results,
+                               SUM(CASE WHEN result_count = 0 THEN 1 ELSE 0 END) AS empty_count
+                        FROM search_queries
+                        WHERE organization_id = :org_id
+                          AND {since_clause}
+                        GROUP BY query
+                        ORDER BY run_count DESC, query ASC
+                        LIMIT :limit
+                        """
+                    ),
+                    {"org_id": str(organization_id), "limit": top_n},
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+        no_result_rows = (
+            (
+                await session.execute(
+                    text(
+                        f"""
+                        SELECT query, COUNT(*) AS run_count, MAX(created_at) AS last_run
+                        FROM search_queries
+                        WHERE organization_id = :org_id
+                          AND result_count = 0
+                          AND {since_clause}
+                        GROUP BY query
+                        ORDER BY run_count DESC, query ASC
+                        LIMIT :limit
+                        """
+                    ),
+                    {"org_id": str(organization_id), "limit": top_n},
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+        scope_rows = (
+            (
+                await session.execute(
+                    text(
+                        f"""
+                        SELECT top_scope, COUNT(*) AS run_count
+                        FROM search_queries
+                        WHERE organization_id = :org_id
+                          AND {since_clause}
+                          AND top_scope IS NOT NULL
+                        GROUP BY top_scope
+                        ORDER BY run_count DESC, top_scope ASC
+                        """
+                    ),
+                    {"org_id": str(organization_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+        # `matched_distribution` is JSONB shaped like `{"keyword": 4, "both": 1}`.
+        # Cross-join to `jsonb_each_text` so we can SUM each label across rows.
+        matched_rows = (
+            (
+                await session.execute(
+                    text(
+                        f"""
+                        SELECT label, SUM(count_int) AS run_count
+                        FROM (
+                            SELECT key AS label, value::int AS count_int
+                            FROM search_queries q,
+                                 LATERAL jsonb_each_text(q.matched_distribution)
+                            WHERE q.organization_id = :org_id
+                              AND q.{since_clause}
+                              AND q.matched_distribution IS NOT NULL
+                        ) AS pairs
+                        GROUP BY label
+                        ORDER BY run_count DESC, label ASC
+                        """
+                    ),
+                    {"org_id": str(organization_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+        totals_row = (
+            (
+                await session.execute(
+                    text(
+                        f"""
+                        SELECT
+                            COUNT(*) AS total_searches,
+                            SUM(CASE WHEN result_count = 0 THEN 1 ELSE 0 END) AS empty_searches,
+                            COUNT(DISTINCT user_id) AS unique_users
+                        FROM search_queries
+                        WHERE organization_id = :org_id
+                          AND {since_clause}
+                        """
+                    ),
+                    {"org_id": str(organization_id)},
+                )
+            )
+            .mappings()
+            .one()
+        )
+
+    return {
+        "window_days": days,
+        "totals": {
+            "total_searches": int(totals_row["total_searches"] or 0),
+            "empty_searches": int(totals_row["empty_searches"] or 0),
+            "unique_users": int(totals_row["unique_users"] or 0),
+        },
+        "top_queries": [
+            {
+                "query": r["query"],
+                "run_count": int(r["run_count"]),
+                "avg_results": round(float(r["avg_results"] or 0.0), 2),
+                "empty_count": int(r["empty_count"] or 0),
+            }
+            for r in top_queries_rows
+        ],
+        "no_result_queries": [
+            {
+                "query": r["query"],
+                "run_count": int(r["run_count"]),
+                "last_run": r["last_run"].isoformat() if r["last_run"] else None,
+            }
+            for r in no_result_rows
+        ],
+        "scope_distribution": [{"scope": r["top_scope"], "run_count": int(r["run_count"])} for r in scope_rows],
+        "matched_distribution": [{"label": r["label"], "run_count": int(r["run_count"])} for r in matched_rows],
+    }

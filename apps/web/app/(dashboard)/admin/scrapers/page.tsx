@@ -14,20 +14,16 @@
  * so a misclick on the URL doesn't 403 with no copy.
  */
 
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { ScraperRunsPanel } from "@aec/ui/costpulse";
 import { useScraperRuns, useScraperRunsSummary } from "@/hooks/admin";
 import { useSession } from "@/lib/auth-context";
 
-const WINDOW_OPTIONS = [
-  { days: 7, label: "7 days" },
-  { days: 30, label: "30 days" },
-  { days: 90, label: "90 days" },
-];
-
 
 export default function ScrapersDashboardPage(): JSX.Element {
+  const t = useTranslations("admin_scrapers");
   const session = useSession();
   const isAdmin = session.orgs.find((o) => o.id === session.orgId)?.role === "admin";
 
@@ -35,11 +31,18 @@ export default function ScrapersDashboardPage(): JSX.Element {
   const summary = useScraperRunsSummary(windowDays);
   const runs = useScraperRuns({ limit: 30 });
 
+  // Window options localised — keys mirror `vi/en.json::admin_scrapers.window_*`.
+  const WINDOW_OPTIONS: Array<{ days: number; key: "window_7" | "window_30" | "window_90" }> = [
+    { days: 7, key: "window_7" },
+    { days: 30, key: "window_30" },
+    { days: 90, key: "window_90" },
+  ];
+
   if (!isAdmin) {
     return (
       <div className="mx-auto max-w-3xl p-6">
         <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-          Scraper telemetry is admin-only. Ask an org admin to grant access.
+          {t("non_admin_message")}
         </div>
       </div>
     );
@@ -49,11 +52,8 @@ export default function ScrapersDashboardPage(): JSX.Element {
     <div className="mx-auto max-w-7xl space-y-6 p-6">
       <header className="flex items-baseline justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Scraper telemetry</h1>
-          <p className="text-sm text-slate-500">
-            Drift trends across the provincial price-bulletin scrapers. The
-            top of the table is what needs ops attention now.
-          </p>
+          <h1 className="text-2xl font-bold text-slate-900">{t("title")}</h1>
+          <p className="text-sm text-slate-500">{t("description")}</p>
         </div>
         <div className="flex gap-1 text-xs">
           {WINDOW_OPTIONS.map((opt) => (
@@ -67,13 +67,13 @@ export default function ScrapersDashboardPage(): JSX.Element {
                   : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
               }`}
             >
-              {opt.label}
+              {t(opt.key)}
             </button>
           ))}
         </div>
       </header>
 
-      <SummaryTable summary={summary.data ?? []} isLoading={summary.isLoading} />
+      <SummaryTable summary={summary.data ?? []} isLoading={summary.isLoading} t={t} />
 
       <ScraperRunsPanel
         runs={runs.data ?? []}
@@ -88,6 +88,7 @@ export default function ScrapersDashboardPage(): JSX.Element {
 function SummaryTable({
   summary,
   isLoading,
+  t,
 }: {
   summary: Array<{
     slug: string;
@@ -98,37 +99,36 @@ function SummaryTable({
     last_run_ok: boolean | null;
   }>;
   isLoading: boolean;
+  t: ReturnType<typeof useTranslations<"admin_scrapers">>;
 }): JSX.Element {
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
       <header className="flex items-baseline justify-between border-b border-slate-100 px-4 py-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
-          Per-slug summary
+          {t("summary_heading")}
         </h2>
         <p className="text-xs text-slate-500">
-          {summary.length} slug(s) ran at least once in the window.
+          {t("summary_subheading", { count: summary.length })}
         </p>
       </header>
       {isLoading ? (
-        <div className="px-4 py-6 text-sm text-slate-500">Loading…</div>
+        <div className="px-4 py-6 text-sm text-slate-500">{t("loading")}</div>
       ) : summary.length === 0 ? (
-        <div className="px-4 py-6 text-sm text-slate-500">
-          No scraper runs in this window. The monthly cron may not have fired yet.
-        </div>
+        <div className="px-4 py-6 text-sm text-slate-500">{t("empty_state")}</div>
       ) : (
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-600">
             <tr>
-              <th className="px-3 py-2">Slug</th>
-              <th className="px-3 py-2 text-right">Runs</th>
-              <th className="px-3 py-2 text-right">Failure rate</th>
-              <th className="px-3 py-2 text-right">Avg drift</th>
-              <th className="px-3 py-2">Last run</th>
+              <th className="px-3 py-2">{t("col_slug")}</th>
+              <th className="px-3 py-2 text-right">{t("col_runs")}</th>
+              <th className="px-3 py-2 text-right">{t("col_failure_rate")}</th>
+              <th className="px-3 py-2 text-right">{t("col_avg_drift")}</th>
+              <th className="px-3 py-2">{t("col_last_run")}</th>
             </tr>
           </thead>
           <tbody>
             {summary.map((row) => (
-              <SummaryRow key={row.slug} row={row} />
+              <SummaryRow key={row.slug} row={row} t={t} />
             ))}
           </tbody>
         </table>
@@ -140,6 +140,7 @@ function SummaryTable({
 
 function SummaryRow({
   row,
+  t,
 }: {
   row: {
     slug: string;
@@ -149,6 +150,7 @@ function SummaryRow({
     last_run_at: string | null;
     last_run_ok: boolean | null;
   };
+  t: ReturnType<typeof useTranslations<"admin_scrapers">>;
 }): JSX.Element {
   // Mirror the same threshold the API uses (`_DRIFT_THRESHOLD = 0.30`)
   // so the dashboard's amber matches the email/log boundary. The
@@ -189,12 +191,10 @@ function SummaryRow({
             : "—"}
         </div>
         {row.last_run_ok === false ? (
-          <div className="text-xs text-red-700">last run failed</div>
+          <div className="text-xs text-red-700">{t("last_run_failed")}</div>
         ) : null}
         {lastRunStale ? (
-          <div className="text-xs text-amber-700">
-            stale (&gt;35 days since last run)
-          </div>
+          <div className="text-xs text-amber-700">{t("stale_warning")}</div>
         ) : null}
       </td>
     </tr>

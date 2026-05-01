@@ -102,20 +102,34 @@ async def test_set_upserts_with_both_limits(monkeypatch):
     """Both flags set → both columns bound, both non-None. The
     INSERT...ON CONFLICT shape lives in `cmd_set`'s SQL string; we
     don't re-assert the SQL here (Tier 3 covers that), but pin the
-    bound-parameter shape."""
-    session = _stub_engine_factory(monkeypatch, [None])  # one execute, no return
+    bound-parameter shape on the UPSERT call.
+
+    `cmd_set` now issues three executes per call: SELECT-for-update,
+    UPSERT, audit insert. The middle one is the UPSERT we care about
+    here; pluck it by index rather than relying on call order, so this
+    test stays robust to a future refactor that reorders the helpers.
+    """
+    # Three execute() calls per set: pre-read (no row), upsert, audit.
+    session = _stub_engine_factory(monkeypatch, [None, None, None])
 
     org_id = uuid4()
-    result = await cli.cmd_set(org_id, input_limit=5_000_000, output_limit=1_000_000)
+    result = await cli.cmd_set(
+        org_id,
+        input_limit=5_000_000,
+        output_limit=1_000_000,
+        actor="ops-bot",
+    )
 
-    assert result == {
-        "org_id": str(org_id),
-        "monthly_input_token_limit": 5_000_000,
-        "monthly_output_token_limit": 1_000_000,
-    }
-    # Inspect the kwargs bound to the UPSERT.
-    args, _ = session.execute.call_args
-    params = args[1]
+    assert result["org_id"] == str(org_id)
+    assert result["monthly_input_token_limit"] == 5_000_000
+    assert result["monthly_output_token_limit"] == 1_000_000
+    assert result["actor"] == "ops-bot"
+
+    # Find the UPSERT call by looking at the bound-parameter keys —
+    # the upsert is the only execute that binds `in_lim` / `out_lim`.
+    upsert_calls = [c for c in session.execute.call_args_list if "in_lim" in (c.args[1] or {})]
+    assert len(upsert_calls) == 1
+    params = upsert_calls[0].args[1]
     assert params["org"] == str(org_id)
     assert params["in_lim"] == 5_000_000
     assert params["out_lim"] == 1_000_000
@@ -127,14 +141,193 @@ async def test_set_passes_none_for_unlimited_dimension(monkeypatch):
     documented "unlimited on this axis" semantic. A regression that
     coerced None → 0 would silently zero an org's cap and trip 429
     on every subsequent request."""
-    session = _stub_engine_factory(monkeypatch, [None])
+    session = _stub_engine_factory(monkeypatch, [None, None, None])
 
     org_id = uuid4()
     await cli.cmd_set(org_id, input_limit=None, output_limit=200_000)
 
-    params = session.execute.call_args.args[1]
+    upsert_calls = [c for c in session.execute.call_args_list if "in_lim" in (c.args[1] or {})]
+    params = upsert_calls[0].args[1]
     assert params["in_lim"] is None
     assert params["out_lim"] == 200_000
+
+
+# ---------- audit log ---------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_set_writes_audit_row_with_before_after_and_actor(monkeypatch):
+    """`cmd_set` must write a `quota_set` row to the audit log in the
+    same transaction as the UPSERT. Pin all four pieces operations
+    relies on:
+      * action = "quota_set"
+      * before snapshot reflects the row that existed pre-upsert
+      * after snapshot reflects the bound limits
+      * actor matches what was passed in
+
+    This is the contract that makes "who raised this org's cap last
+    week" a single SELECT instead of `grep`-ing shell history.
+    """
+    import json as _json
+
+    org_id = uuid4()
+    # Pre-read returns a row → tests the `before` snapshot path that
+    # captures the predecessor state. Other two executes return None.
+    pre_row = _RowStub(in_lim=1_000_000, out_lim=200_000)
+    session = _stub_engine_factory(monkeypatch, [pre_row, None, None])
+
+    await cli.cmd_set(
+        org_id,
+        input_limit=2_000_000,
+        output_limit=400_000,
+        actor="oncall-engineer",
+    )
+
+    # Find the audit insert by its bound `action` key — distinct from
+    # the upsert's `in_lim` / pre-read's lone `org` keys.
+    audit_calls = [c for c in session.execute.call_args_list if "action" in (c.args[1] or {})]
+    assert len(audit_calls) == 1
+    audit_params = audit_calls[0].args[1]
+    assert audit_params["action"] == "quota_set"
+    assert audit_params["org"] == str(org_id)
+    assert audit_params["actor"] == "oncall-engineer"
+    # `before` and `after` are JSON-serialized strings (the JSONB
+    # columns accept either, but we go through json.dumps for driver
+    # parity). Round-trip and assert structure.
+    before = _json.loads(audit_params["before"])
+    after = _json.loads(audit_params["after"])
+    assert before == {
+        "monthly_input_token_limit": 1_000_000,
+        "monthly_output_token_limit": 200_000,
+    }
+    assert after == {
+        "monthly_input_token_limit": 2_000_000,
+        "monthly_output_token_limit": 400_000,
+    }
+
+
+@pytest.mark.asyncio
+async def test_set_audit_before_is_null_for_first_set_on_an_org(monkeypatch):
+    """When no quota row exists yet, the audit `before` must be NULL
+    (encoded as None on the bound parameter), not an empty dict — the
+    `before IS NULL` query is how ops finds "first-time provisioning"
+    events."""
+    org_id = uuid4()
+    session = _stub_engine_factory(monkeypatch, [None, None, None])
+
+    await cli.cmd_set(org_id, input_limit=1_000_000, output_limit=None, actor="alice")
+
+    audit_params = next(
+        c.args[1] for c in session.execute.call_args_list if "action" in (c.args[1] or {})
+    )
+    assert audit_params["before"] is None  # not the string "null"
+
+
+@pytest.mark.asyncio
+async def test_set_resolves_actor_from_os_user_when_not_passed(monkeypatch):
+    """No `--actor` → fall back to OS username. Audit log can't be
+    blank, so this is the path most invocations actually take."""
+    monkeypatch.setattr(cli.getpass, "getuser", lambda: "thuy")
+
+    session = _stub_engine_factory(monkeypatch, [None, None, None])
+    await cli.cmd_set(uuid4(), input_limit=1, output_limit=1, actor=None)
+
+    audit_params = next(
+        c.args[1] for c in session.execute.call_args_list if "action" in (c.args[1] or {})
+    )
+    assert audit_params["actor"] == "thuy"
+
+
+@pytest.mark.asyncio
+async def test_resolve_actor_falls_back_to_unknown_when_getuser_raises(monkeypatch):
+    """Sandboxed CI containers can have `getpass.getuser()` raise.
+    The audit row must still be writable — fall back to "unknown"
+    rather than letting the operation crash."""
+
+    def _boom():
+        raise OSError("no $USER")
+
+    monkeypatch.setattr(cli.getpass, "getuser", _boom)
+    assert cli._resolve_actor(None) == "unknown"
+    # Explicit override still wins.
+    assert cli._resolve_actor("svc-account") == "svc-account"
+
+
+# ---------- cmd_reset ---------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reset_zeros_current_period_usage_and_audits(monkeypatch):
+    """Standard happy-path reset. Pre-read returns the current-period
+    usage row (input=750, output=200); the UPDATE zeros it; the audit
+    row records `before` = the snapshot, `after` = zeros."""
+    import datetime as _dt
+    import json as _json
+
+    org_id = uuid4()
+    pre_row = _RowStub(
+        input_tokens=750,
+        output_tokens=200,
+        period_start=_dt.date(2026, 5, 1),
+    )
+    # Three executes: pre-read, UPDATE (zeros), audit insert.
+    session = _stub_engine_factory(monkeypatch, [pre_row, None, None])
+
+    result = await cli.cmd_reset(org_id, actor="oncall")
+
+    # Result reflects what was zeroed.
+    assert result["org_id"] == str(org_id)
+    assert result["before"]["input_tokens"] == 750
+    assert result["before"]["output_tokens"] == 200
+    assert result["after"] == {
+        "period_start": "2026-05-01",
+        "input_tokens": 0,
+        "output_tokens": 0,
+    }
+    assert result["actor"] == "oncall"
+
+    # Audit row: action = quota_reset, before/after match the result.
+    audit_params = next(
+        c.args[1] for c in session.execute.call_args_list if "action" in (c.args[1] or {})
+    )
+    assert audit_params["action"] == "quota_reset"
+    before = _json.loads(audit_params["before"])
+    after = _json.loads(audit_params["after"])
+    assert before == {
+        "period_start": "2026-05-01",
+        "input_tokens": 750,
+        "output_tokens": 200,
+    }
+    assert after == {
+        "period_start": "2026-05-01",
+        "input_tokens": 0,
+        "output_tokens": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_reset_with_no_existing_row_still_writes_audit(monkeypatch):
+    """No usage row for the current period → reset is a data no-op
+    but the audit row IS still written (with before=null, after=null).
+    Pinning this is important: an operator running `reset` against an
+    org with no usage needs evidence in the log that they tried, for
+    later debugging."""
+    org_id = uuid4()
+    # Pre-read returns None (no row). UPDATE affects 0 rows. Audit
+    # insert still runs.
+    session = _stub_engine_factory(monkeypatch, [None, None, None])
+
+    result = await cli.cmd_reset(org_id, actor="bob")
+
+    assert result["before"] is None
+    assert result["after"] is None
+    audit_params = next(
+        c.args[1] for c in session.execute.call_args_list if "action" in (c.args[1] or {})
+    )
+    assert audit_params["action"] == "quota_reset"
+    assert audit_params["before"] is None
+    assert audit_params["after"] is None
+    assert audit_params["actor"] == "bob"
 
 
 # ---------- cmd_get -----------------------------------------------------
@@ -297,6 +490,63 @@ def test_format_get_renders_unlimited_when_no_quota_row():
     }
     out = cli.format_get(data)
     assert "unlimited" in out.lower()
+
+
+def test_format_set_renders_limits_and_actor():
+    """`format_set` prints the bound limits + actor so the operator can
+    eyeball what just landed in the audit log without re-querying.
+    Pin both numeric and `unlimited` shapes."""
+    out = cli.format_set(
+        {
+            "org_id": "00000000-0000-0000-0000-000000000abc",
+            "monthly_input_token_limit": 5_000_000,
+            "monthly_output_token_limit": None,
+            "actor": "ops-bot",
+        }
+    )
+    assert "5,000,000" in out
+    assert "unlimited" in out
+    assert "ops-bot" in out
+
+
+def test_format_reset_shows_zeroed_totals_when_row_existed():
+    """Reset summary surfaces the pre-reset numbers so the operator
+    can see the blast radius of what they just cleared."""
+    out = cli.format_reset(
+        {
+            "org_id": "00000000-0000-0000-0000-000000000abc",
+            "before": {
+                "period_start": "2026-05-01",
+                "input_tokens": 750,
+                "output_tokens": 200,
+            },
+            "after": {
+                "period_start": "2026-05-01",
+                "input_tokens": 0,
+                "output_tokens": 0,
+            },
+            "actor": "oncall",
+        }
+    )
+    assert "750" in out
+    assert "200" in out
+    assert "→ 0" in out
+    assert "oncall" in out
+
+
+def test_format_reset_explains_no_op_when_no_row_existed():
+    """When `before` is None, the formatter must say "nothing to reset"
+    rather than print "0 → 0" (which would be ambiguous with the
+    happy-path reset of an org whose totals happened to be 0)."""
+    out = cli.format_reset(
+        {
+            "org_id": "00000000-0000-0000-0000-000000000abc",
+            "before": None,
+            "after": None,
+            "actor": "alice",
+        }
+    )
+    assert "nothing to reset" in out.lower()
 
 
 def test_format_list_handles_empty_input():

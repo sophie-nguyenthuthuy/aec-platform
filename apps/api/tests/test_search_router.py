@@ -65,13 +65,24 @@ def patch_tenant_session(fake_db, monkeypatch):
     """The service uses `TenantAwareSession(org_id) as session:` to give
     each scope its own connection. Replace it with a no-op CM that
     yields the shared fake — keeps the tests' execute-result queue
-    deterministic across the parallel fan-out."""
+    deterministic across the parallel fan-out.
+
+    Also stubs `log_search` to a no-op so the BackgroundTask the router
+    schedules doesn't pollute `fake_db.calls` (existing tests count
+    search calls, not telemetry inserts). Dedicated writer tests below
+    re-enable the real implementation explicitly.
+    """
 
     @asynccontextmanager
     async def _factory(_org_id: UUID) -> AsyncIterator[FakeAsyncSession]:
         yield fake_db
 
     monkeypatch.setattr("services.search.TenantAwareSession", _factory)
+
+    async def _noop_log(**_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr("routers.search.log_search", _noop_log)
     yield fake_db
 
 

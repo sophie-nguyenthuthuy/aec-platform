@@ -113,8 +113,20 @@ async def send_drift_alert(*, slug: str, summary: dict) -> int:
       * Every send raised — exceptions swallowed per-recipient.
     """
     recipients = await _resolve_drift_recipients()
+
+    # Slack delivery runs alongside email — they're independent
+    # channels. A configured Slack webhook fires even when no users
+    # have opted into email; conversely, an empty webhook URL
+    # silently no-ops without affecting email counts.
+    slack_delivered = await _maybe_send_slack(slug=slug, summary=summary)
+
     if not recipients:
-        logger.info("ops_alerts.drift skipped — no opted-in users and no OPS_ALERT_EMAILS")
+        if slack_delivered:
+            # Slack alone is a valid configuration — Slack is the
+            # primary ops channel for some teams and email is just
+            # the redundancy.
+            return 0
+        logger.info("ops_alerts.drift skipped — no opted-in users, no OPS_ALERT_EMAILS, no Slack")
         return 0
 
     subject, text_body = _render_drift_alert(slug=slug, summary=summary)
@@ -137,6 +149,35 @@ async def send_drift_alert(*, slug: str, summary: dict) -> int:
         except Exception as exc:  # pragma: no cover — defensive
             logger.warning("ops_alerts.drift: send to %s raised: %s", addr, exc)
     return delivered
+
+
+async def _maybe_send_slack(*, slug: str, summary: dict) -> bool:
+    """Best-effort Slack delivery. Returns True iff a message landed.
+
+    Lazy-imports `services.slack` so this module's existing tests don't
+    pull httpx into their import graph. Failures are logged + swallowed —
+    Slack being down can't block email delivery.
+    """
+    try:
+        from services.slack import render_slack_drift_alert, send_slack
+    except ImportError:  # pragma: no cover — dep should always be there
+        return False
+
+    text, blocks = render_slack_drift_alert(slug=slug, summary=summary)
+    try:
+        result = await send_slack(text=text, blocks=blocks)
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning("ops_alerts.drift: slack send raised: %s", exc)
+        return False
+
+    if result.get("delivered"):
+        return True
+    reason = result.get("reason")
+    # `slack_not_configured` is the silent no-op — anything else is
+    # a real failure worth surfacing.
+    if reason and reason != "slack_not_configured":
+        logger.warning("ops_alerts.drift: slack delivery skipped (%s)", reason)
+    return False
 
 
 def _render_drift_alert(*, slug: str, summary: dict) -> tuple[str, str]:

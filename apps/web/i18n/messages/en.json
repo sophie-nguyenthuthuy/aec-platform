@@ -53,5 +53,46 @@
     "language_label": "Language",
     "language_vi": "Tiếng Việt",
     "language_en": "English"
+  },
+  "admin_scrapers": {
+    "title": "Scraper telemetry",
+    "description": "Drift trends across the provincial price-bulletin scrapers. The top of the table is what needs ops attention now.",
+    "window_7": "7 days",
+    "window_30": "30 days",
+    "window_90": "90 days",
+    "summary_heading": "Per-slug summary",
+    "summary_subheading": "{count} slug(s) ran at least once in the window.",
+    "loading": "Loading…",
+    "empty_state": "No scraper runs in this window. The monthly cron may not have fired yet.",
+    "col_slug": "Slug",
+    "col_runs": "Runs",
+    "col_failure_rate": "Failure rate",
+    "col_avg_drift": "Avg drift",
+    "col_last_run": "Last run",
+    "last_run_failed": "last run failed",
+    "stale_warning": "stale (>35 days since last run)",
+    "non_admin_message": "Scraper telemetry is admin-only. Ask an org admin to grant access."
+  },
+  "settings_notifications": {
+    "title": "Notifications",
+    "description": "Pick the alerts you want to receive over email or Slack. Settings apply to the current organisation.",
+    "loading": "Loading…",
+    "label_email": "Email",
+    "label_slack": "Slack",
+    "slack_tooltip": "An admin sets OPS_SLACK_WEBHOOK_URL to enable the Slack channel",
+    "alerts": {
+      "scraper_drift": {
+        "title": "Price drift alerts",
+        "description": "Email me when the unmatched-material ratio spikes — an early signal that the Department of Construction has renamed something."
+      },
+      "rfq_deadline_summary": {
+        "title": "RFQ deadline digest",
+        "description": "Daily roll-up of RFQs nearing their deadline plus suppliers who haven't responded."
+      },
+      "weekly_digest_email": {
+        "title": "Weekly digest",
+        "description": "Activity summary across the projects you watch."
+      }
+    }
   }
 }

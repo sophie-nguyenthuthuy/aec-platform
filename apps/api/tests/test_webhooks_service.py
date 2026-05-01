@@ -57,9 +57,15 @@ class FakeAsyncSession:
 
 
 # ---------- Pure helpers ----------
+#
+# These tests do nothing async — they're pure-Python helper checks —
+# but module-level `pytestmark = pytest.mark.asyncio` (line 28) applies
+# the mark to every collected test. pytest-asyncio's strict mode warns
+# when an asyncio-marked test is sync. Making them `async def` is the
+# minimal-edit fix; same pattern applied in `test_rbac.py`.
 
 
-def test_generate_secret_is_64_hex_chars():
+async def test_generate_secret_is_64_hex_chars():
     """32 random bytes hex-encoded = 64 chars. Two calls produce
     different secrets (sanity)."""
     from services.webhooks import generate_secret
@@ -71,7 +77,7 @@ def test_generate_secret_is_64_hex_chars():
     assert a != b
 
 
-def test_sign_payload_matches_hmac_sha256_hex():
+async def test_sign_payload_matches_hmac_sha256_hex():
     """The signature shape is the contract — receivers use
     `hmac.compare_digest(local_hmac(body), header)` to verify, so the
     digest format must stay HMAC-SHA256-hex."""
@@ -83,7 +89,7 @@ def test_sign_payload_matches_hmac_sha256_hex():
     assert sign_payload(secret, body) == expected
 
 
-def test_sign_payload_deterministic():
+async def test_sign_payload_deterministic():
     """Same inputs → same signature. Receivers depend on this for
     replay verification."""
     from services.webhooks import sign_payload

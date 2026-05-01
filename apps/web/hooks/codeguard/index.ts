@@ -25,3 +25,5 @@ export type {
 } from "./useChecklistStream";
 export { useRegulations, useRegulation } from "./useRegulations";
 export type { RegulationFilters, RegulationDetail, RegulationSection } from "./useRegulations";
+export { useCodeguardQuota } from "./useQuota";
+export type { CodeguardQuota, QuotaDimension } from "./useQuota";

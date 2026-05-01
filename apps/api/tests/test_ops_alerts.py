@@ -80,7 +80,10 @@ async def test_returns_zero_when_no_recipients_configured(monkeypatch, caplog):
 
     assert sent == 0
     assert sends == []
-    assert any("no opted-in users and no OPS_ALERT_EMAILS" in r.getMessage() for r in caplog.records)
+    # Log message updated when Slack channel was added — same intent.
+    assert any(
+        "no opted-in users" in r.getMessage() and "no OPS_ALERT_EMAILS" in r.getMessage() for r in caplog.records
+    )
 
 
 async def test_dispatches_one_email_per_recipient(monkeypatch):
@@ -212,6 +215,66 @@ async def test_pref_driven_recipients_take_precedence_over_env(monkeypatch):
     # Pref opt-ins win; legacy env address gets nothing.
     assert set(seen) == {"alice@example.com", "bob@example.com"}
     assert "legacy-ops@example.com" not in seen
+
+
+async def test_slack_fires_alongside_email_when_webhook_configured(monkeypatch):
+    """Slack and email are independent channels — both can fire on one alert."""
+    monkeypatch.setattr(ops_alerts.get_settings(), "ops_alert_emails", ["ops@example.com"])
+
+    async def _fake_send_mail(*, to, subject, text_body, html_body=None):
+        return {"delivered": True, "to": to, "subject": subject, "reason": None}
+
+    monkeypatch.setattr(ops_alerts, "send_mail", _fake_send_mail)
+
+    # Stub the slack delivery — the autouse fixture in this file already
+    # routes the email path through the env. We're driving Slack
+    # specifically.
+    slack_calls: list[dict] = []
+
+    async def _fake_slack(*, text, blocks=None):
+        slack_calls.append({"text": text, "blocks": blocks})
+        return {"delivered": True, "reason": None, "status": 200}
+
+    # Patch in the lazy-imported module since `_maybe_send_slack` imports
+    # from `services.slack` inside its body.
+    from services import slack as slack_module
+
+    monkeypatch.setattr(slack_module, "send_slack", _fake_slack)
+
+    sent = await ops_alerts.send_drift_alert(slug="drifty", summary=_SUMMARY)
+
+    # Returns the email count; slack delivery is observable but not in
+    # the int return.
+    assert sent == 1
+    assert len(slack_calls) == 1
+    # The slack rendering uses the slug + ratio in the fallback text.
+    assert "drifty" in slack_calls[0]["text"]
+
+
+async def test_slack_only_no_email_recipients_still_fires(monkeypatch):
+    """Empty `ops_alert_emails` + Slack configured = Slack fires standalone."""
+    monkeypatch.setattr(ops_alerts.get_settings(), "ops_alert_emails", [])
+
+    async def _fake_send_mail(*_a, **_k):
+        raise AssertionError("email should not fire when no recipients")
+
+    monkeypatch.setattr(ops_alerts, "send_mail", _fake_send_mail)
+
+    slack_calls: list[dict] = []
+
+    async def _fake_slack(*, text, blocks=None):
+        slack_calls.append({"text": text})
+        return {"delivered": True, "reason": None, "status": 200}
+
+    from services import slack as slack_module
+
+    monkeypatch.setattr(slack_module, "send_slack", _fake_slack)
+
+    sent = await ops_alerts.send_drift_alert(slug="drifty", summary=_SUMMARY)
+
+    # Email count is 0; Slack still went out.
+    assert sent == 0
+    assert len(slack_calls) == 1
 
 
 async def test_resolver_falls_back_to_env_when_no_users_opted_in(monkeypatch):

@@ -215,3 +215,110 @@ class TestParseXlsx:
 
         with pytest.raises(SupplierImportError):
             parse_suppliers_xlsx(b"not a real xlsx file")
+
+
+# ---------- Export ----------
+
+
+class TestExportRoundTrip:
+    """Export + re-import must be lossless on the canonical fields.
+
+    This is the contract that lets a buyer iterate: export → edit in
+    Excel → re-import. If a future header rename breaks the parser's
+    alias matching, this test fails before users notice.
+    """
+
+    def test_xlsx_export_imports_back_with_same_rows(self):
+        pytest.importorskip("openpyxl")
+
+        from services.suppliers_io import (
+            parse_suppliers_xlsx,
+            render_suppliers_xlsx,
+        )
+
+        original = [
+            {
+                "name": "Hòa Phát Steel",
+                "categories": ["thép", "rebar"],
+                "provinces": ["Hanoi", "HCMC"],
+                "contact": {"email": "sales@hoaphat.vn", "phone": "0901234567"},
+            },
+            {
+                "name": "Vĩnh Tường",
+                "categories": ["gypsum"],
+                "provinces": ["HCMC"],
+                "contact": {"email": "info@vt.vn", "phone": ""},
+            },
+            {
+                "name": "Anonymous Co.",
+                "categories": [],
+                "provinces": [],
+                "contact": {},
+            },
+        ]
+
+        blob = render_suppliers_xlsx(original)
+        parsed = parse_suppliers_xlsx(blob)
+
+        assert [r.name for r in parsed] == ["Hòa Phát Steel", "Vĩnh Tường", "Anonymous Co."]
+        first = parsed[0]
+        assert first.email == "sales@hoaphat.vn"
+        assert first.phone == "0901234567"  # leading zero preserved
+        assert set(first.categories) == {"thép", "rebar"}
+        assert set(first.provinces) == {"Hanoi", "HCMC"}
+        last = parsed[2]
+        assert last.email is None
+        assert last.phone is None
+        assert last.categories == []
+
+    def test_csv_export_imports_back_with_same_rows(self):
+        from services.suppliers_io import (
+            parse_suppliers_csv,
+            render_suppliers_csv,
+        )
+
+        original = [
+            {
+                "name": "Hòa Phát",
+                "categories": ["thép"],
+                "provinces": ["Hanoi"],
+                "contact": {"email": "x@y.vn", "phone": "0901"},
+            }
+        ]
+        blob = render_suppliers_csv(original)
+        parsed = parse_suppliers_csv(blob)
+
+        assert len(parsed) == 1
+        row = parsed[0]
+        assert row.name == "Hòa Phát"
+        assert row.email == "x@y.vn"
+        assert row.phone == "0901"
+        assert row.categories == ["thép"]
+
+    def test_csv_export_starts_with_utf8_bom(self):
+        """Excel needs the BOM to auto-detect UTF-8 — without it
+        Vietnamese diacritics open as mojibake on Windows."""
+        from services.suppliers_io import render_suppliers_csv
+
+        blob = render_suppliers_csv([{"name": "x", "contact": {}}])
+        assert blob.startswith(b"\xef\xbb\xbf")
+
+    def test_xlsx_export_uses_first_alias_in_header(self):
+        """Header cells must be the canonical first-alias form so the
+        parser's alias-priority logic has a perfect match."""
+        pytest.importorskip("openpyxl")
+
+        from io import BytesIO
+
+        from openpyxl import load_workbook
+
+        from services.suppliers_io import render_suppliers_xlsx
+
+        blob = render_suppliers_xlsx([{"name": "x", "contact": {}}])
+        wb = load_workbook(filename=BytesIO(blob), read_only=True)
+        sheet = wb.active
+        header = next(sheet.iter_rows(values_only=True))
+        assert header[0] == "Tên"
+        assert header[1] == "Email"
+        assert "Số điện thoại" in str(header[2])
+        assert header[3] == "Danh mục"

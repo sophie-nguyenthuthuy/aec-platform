@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     # in env: `OPS_ALERT_EMAILS=ops@x.com,ops2@x.com`.
     ops_alert_emails: list[str] = Field(default_factory=list, validation_alias="OPS_ALERT_EMAILS")
 
+    # Slack incoming-webhook URL for ops alerts. Single global webhook
+    # rather than per-org because drift is platform-ops data, not
+    # tenant-scoped. When this is empty, Slack delivery silently
+    # short-circuits — same posture as `OPS_ALERT_EMAILS`. To
+    # configure: create an Incoming Webhook in your Slack workspace
+    # (https://api.slack.com/messaging/webhooks) and set the URL here.
+    ops_slack_webhook_url: str | None = Field(default=None, validation_alias="OPS_SLACK_WEBHOOK_URL")
+
     cors_origins: list[str] = ["http://localhost:3000"]
 
     # Public-facing web URL — used to build supplier-portal links embedded

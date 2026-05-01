@@ -53,5 +53,46 @@
     "language_label": "Ngôn ngữ",
     "language_vi": "Tiếng Việt",
     "language_en": "English"
+  },
+  "admin_scrapers": {
+    "title": "Đo lường scraper",
+    "description": "Theo dõi xu hướng độ trôi của các scraper bảng giá tỉnh thành. Hàng đầu bảng là những slug ops cần xử lý ngay.",
+    "window_7": "7 ngày",
+    "window_30": "30 ngày",
+    "window_90": "90 ngày",
+    "summary_heading": "Tổng kết theo slug",
+    "summary_subheading": "{count} slug đã chạy ít nhất một lần trong khoảng này.",
+    "loading": "Đang tải…",
+    "empty_state": "Chưa có lần chạy nào trong khoảng thời gian này. Cron tháng có thể chưa chạy.",
+    "col_slug": "Slug",
+    "col_runs": "Số lần chạy",
+    "col_failure_rate": "Tỉ lệ lỗi",
+    "col_avg_drift": "Độ trôi trung bình",
+    "col_last_run": "Lần chạy gần nhất",
+    "last_run_failed": "lần chạy gần nhất lỗi",
+    "stale_warning": "đã quá hạn (>35 ngày)",
+    "non_admin_message": "Đo lường scraper chỉ dành cho admin. Yêu cầu admin tổ chức cấp quyền để truy cập."
+  },
+  "settings_notifications": {
+    "title": "Thông báo",
+    "description": "Chọn các cảnh báo bạn muốn nhận qua email hoặc Slack. Cài đặt áp dụng riêng cho tổ chức hiện tại.",
+    "loading": "Đang tải…",
+    "label_email": "Email",
+    "label_slack": "Slack",
+    "slack_tooltip": "Quản trị viên cấu hình OPS_SLACK_WEBHOOK_URL để bật kênh Slack",
+    "alerts": {
+      "scraper_drift": {
+        "title": "Cảnh báo trôi dữ liệu giá",
+        "description": "Nhận email khi tỷ lệ vật tư không khớp tăng cao bất thường — dấu hiệu sớm rằng sở Xây dựng đã đổi cách đặt tên."
+      },
+      "rfq_deadline_summary": {
+        "title": "Tổng kết hạn báo giá",
+        "description": "Email tổng hợp hằng ngày các RFQ sắp hết hạn và những nhà cung cấp chưa phản hồi."
+      },
+      "weekly_digest_email": {
+        "title": "Bản tin tuần",
+        "description": "Tóm tắt hoạt động tuần qua các dự án bạn đang theo dõi."
+      }
+    }
   }
 }

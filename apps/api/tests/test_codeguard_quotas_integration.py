@@ -260,3 +260,186 @@ async def test_check_quota_sees_the_running_total(session, two_test_orgs):
     )
     assert result.limit_kind == "input"
     assert result.used == 10_750  # 750 + 10_000
+
+
+# ---------- audit log ---------------------------------------------------
+
+
+async def test_audit_log_round_trips_through_real_postgres(session, two_test_orgs):
+    """End-to-end pin for the `codeguard_quota_audit_log` table created
+    in migration 0026. Tier 1 covers the call shape; this Tier 3 case
+    proves the schema actually accepts what the CLI writes:
+
+      * JSONB columns round-trip a nested dict (they would crash if
+        the column type drifted to `json` text or `bytea`).
+      * The `org_id → organizations.id` FK accepts a real org and
+        rejects a bogus one.
+      * The `(organization_id, occurred_at DESC)` index is queryable
+        in the documented direction.
+      * `occurred_at` defaults to NOW() — the row is timestamped even
+        when the writer doesn't bind one.
+
+    Why this matters: the migration is the table's only definition.
+    A regression that subtly changed (say) `JSONB` → `JSON` would still
+    let the unit tests pass (they stub the engine) but would silently
+    drop our ability to query the audit history with `before->>'...'`.
+    """
+    import json as _json
+
+    org_a, _ = two_test_orgs
+
+    # Two audit rows for org_a, then one for a NULL org (representing
+    # an org that's since been deleted — `ON DELETE SET NULL`).
+    for action, before, after, actor in [
+        (
+            "quota_set",
+            None,
+            {"monthly_input_token_limit": 1_000_000, "monthly_output_token_limit": 200_000},
+            "alice",
+        ),
+        (
+            "quota_set",
+            {"monthly_input_token_limit": 1_000_000, "monthly_output_token_limit": 200_000},
+            {"monthly_input_token_limit": 5_000_000, "monthly_output_token_limit": 1_000_000},
+            "bob",
+        ),
+    ]:
+        await session.execute(
+            text(
+                """
+                INSERT INTO codeguard_quota_audit_log
+                    (organization_id, action, before, after, actor)
+                VALUES (:org, :action, CAST(:before AS JSONB), CAST(:after AS JSONB), :actor)
+                """
+            ),
+            {
+                "org": str(org_a),
+                "action": action,
+                "before": _json.dumps(before) if before is not None else None,
+                "after": _json.dumps(after) if after is not None else None,
+                "actor": actor,
+            },
+        )
+    await session.commit()
+
+    # Fetch in (org, occurred_at DESC) order — same query pattern the
+    # ops dashboard will issue. Pinning via this exact ORDER BY
+    # exercises the index created in the migration.
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT action, actor, before, after
+                FROM codeguard_quota_audit_log
+                WHERE organization_id = :org
+                ORDER BY occurred_at DESC
+                """
+            ),
+            {"org": str(org_a)},
+        )
+    ).all()
+    assert len(rows) == 2
+
+    # Latest row is bob's update (ON DUPLICATE-style cap raise).
+    latest = rows[0]
+    assert latest.action == "quota_set"
+    assert latest.actor == "bob"
+    # JSONB columns come back as native dicts in asyncpg, no parse needed.
+    assert latest.before == {
+        "monthly_input_token_limit": 1_000_000,
+        "monthly_output_token_limit": 200_000,
+    }
+    assert latest.after == {
+        "monthly_input_token_limit": 5_000_000,
+        "monthly_output_token_limit": 1_000_000,
+    }
+
+    # Earlier row is alice's first-time provisioning (before=NULL).
+    earliest = rows[1]
+    assert earliest.actor == "alice"
+    assert earliest.before is None  # NULL JSONB → None, not {}.
+
+
+async def test_audit_log_sets_org_to_null_on_org_delete(session):
+    """`organization_id` FK is `ON DELETE SET NULL` — deleting the org
+    must NOT cascade the audit row away. Pin the contract: the row
+    survives, with `organization_id` nulled out. Cascading would lose
+    the paper trail at exactly the moment compliance needs it."""
+    import json as _json
+
+    org_id = uuid4()
+    await session.execute(
+        text("INSERT INTO organizations (id, name, slug) VALUES (:o, 'Audit Test Org', :s)"),
+        {"o": str(org_id), "s": f"audit-test-{org_id}"},
+    )
+    await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_quota_audit_log
+                (organization_id, action, before, after, actor)
+            VALUES (:o, 'quota_set', NULL, CAST(:a AS JSONB), 'alice')
+            """
+        ),
+        {
+            "o": str(org_id),
+            "a": _json.dumps({"monthly_input_token_limit": 1}),
+        },
+    )
+    await session.commit()
+
+    # Delete the org — audit row must survive with org_id = NULL.
+    await session.execute(text("DELETE FROM organizations WHERE id = :o"), {"o": str(org_id)})
+    await session.commit()
+
+    surviving = (
+        await session.execute(
+            text(
+                """
+                SELECT organization_id, actor, after
+                FROM codeguard_quota_audit_log
+                WHERE actor = 'alice' AND after->>'monthly_input_token_limit' = '1'
+                """
+            ),
+        )
+    ).all()
+    # Row must still exist (preserves the audit trail) and its org_id
+    # must be NULL (FK action). If you see len==0, the FK action got
+    # changed to CASCADE; if you see organization_id==<uuid>, ON DELETE
+    # SET NULL didn't fire.
+    assert len(surviving) == 1
+    assert surviving[0].organization_id is None
+
+    # Cleanup: drop the orphaned audit row so the test is self-contained.
+    await session.execute(
+        text(
+            "DELETE FROM codeguard_quota_audit_log WHERE actor = 'alice' AND after->>'monthly_input_token_limit' = '1'"
+        )
+    )
+    await session.commit()
+
+
+async def test_audit_log_rejects_bogus_org_fk(session):
+    """The FK to `organizations.id` must reject a UUID that doesn't
+    point at a real org. Without this, a typo'd CLI invocation would
+    still write the audit row — leaving a misleading event the ops
+    team would have to chase down later."""
+    import asyncpg
+    from sqlalchemy.exc import IntegrityError
+
+    bogus = uuid4()  # Never inserted into organizations.
+
+    with pytest.raises((IntegrityError, asyncpg.exceptions.ForeignKeyViolationError)):
+        await session.execute(
+            text(
+                """
+                INSERT INTO codeguard_quota_audit_log
+                    (organization_id, action, before, after, actor)
+                VALUES (:o, 'quota_set', NULL, NULL, 'alice')
+                """
+            ),
+            {"o": str(bogus)},
+        )
+        await session.commit()
+    # Roll back the failed transaction so subsequent fixtures see a
+    # clean session.
+    await session.rollback()

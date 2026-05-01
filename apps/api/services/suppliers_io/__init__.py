@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from .core import SupplierImportError, SupplierRow, coerce_row, detect_columns
 from .csv_adapter import parse_suppliers_csv
+from .export import render_suppliers_csv, render_suppliers_xlsx
 from .xlsx import parse_suppliers_xlsx
 
 __all__ = [
@@ -26,4 +27,6 @@ __all__ = [
     "detect_columns",
     "parse_suppliers_csv",
     "parse_suppliers_xlsx",
+    "render_suppliers_csv",
+    "render_suppliers_xlsx",
 ]

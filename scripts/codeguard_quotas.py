@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Manage per-org CODEGUARD token quotas from the command line.
 
-Three subcommands cover the full ops loop:
+Four subcommands cover the full ops loop:
 
     # Set or update an org's monthly cap. Either limit can be omitted
     # (NULL = unlimited on that dimension); both omitted = unlimited.
@@ -13,6 +13,10 @@ Three subcommands cover the full ops loop:
 
     # List orgs by usage; --over-pct filters to "at risk" entries.
     python scripts/codeguard_quotas.py list --over-pct 80
+
+    # Zero an org's current-month usage row. Use for billing disputes,
+    # contract changes, or cleaning up after a load test.
+    python scripts/codeguard_quotas.py reset <org-uuid> --confirm
 
 The script imports `services.codeguard_quotas` so the SQL stays in
 exactly one place — drift between the CLI's INSERT and the route
@@ -27,12 +31,19 @@ locally hits the same DB their pod will read.
 Output is human-readable by default; `--json` flips every subcommand
 to a machine-readable shape that scripts can pipe into `jq` or feed
 to a dashboard.
+
+Mutations (`set`, `reset`) write a row to `codeguard_quota_audit_log`
+in the same transaction as the operation. Drift is impossible: either
+both land or neither does. The audit row captures `before` / `after`
+JSONB snapshots and the actor (OS username, or whatever `--actor`
+overrides to). Reads (`get`, `list`) don't touch the audit table.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import getpass
 import json
 import os
 import sys
@@ -69,6 +80,98 @@ async def _engine_factory():
     return engine, factory
 
 
+def _resolve_actor(explicit: str | None) -> str:
+    """Pick the audit `actor` string. Explicit `--actor` wins (service
+    accounts, CI runners that share a Unix user); otherwise the OS
+    username. Falls back to `"unknown"` only when even `getpass` can't
+    resolve a name — never silently writes an empty string, which would
+    defeat the point of the audit."""
+    if explicit:
+        return explicit
+    try:
+        name = getpass.getuser()
+    except Exception:
+        # `getuser()` can raise on systems where neither $USER, $LOGNAME,
+        # nor pwd is available (rare, but happens in some sandboxed CI
+        # images). Better to record "unknown" than crash the operation.
+        name = ""
+    return name or "unknown"
+
+
+# `before` / `after` are JSONB; each helper here renders the relevant
+# row to a plain dict (None when no row existed) so the audit log
+# captures the exact state on either side of the mutation. Kept separate
+# so a future "set memo" or "set rate-limit" mutation can build its own
+# snapshot without overloading these.
+
+
+def _quota_row_to_snapshot(row: Any) -> dict[str, Any] | None:
+    """Render a `codeguard_org_quotas` row to a JSON-friendly dict, or
+    None if the row doesn't exist yet (a `set` against a fresh org)."""
+    if row is None:
+        return None
+    return {
+        "monthly_input_token_limit": row.in_lim,
+        "monthly_output_token_limit": row.out_lim,
+    }
+
+
+def _usage_row_to_snapshot(row: Any) -> dict[str, Any] | None:
+    """Render a `codeguard_org_usage` row to a JSON-friendly dict. None
+    when the org has no usage row for the current period — a reset of
+    a no-op state still gets logged so we have evidence the operator
+    intended to act.
+    """
+    if row is None:
+        return None
+    return {
+        "period_start": row.period_start.isoformat() if row.period_start else None,
+        "input_tokens": row.input_tokens,
+        "output_tokens": row.output_tokens,
+    }
+
+
+async def _write_audit_row(
+    session: Any,
+    *,
+    org_id: UUID,
+    action: str,
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+    actor: str,
+) -> None:
+    """Insert a row into `codeguard_quota_audit_log`. Caller is
+    responsible for committing — the audit insert MUST live in the
+    same transaction as the underlying mutation, otherwise a crash
+    between the two leaves the log either ahead of or behind reality.
+
+    JSON serialization happens here (with `default=str` for any odd
+    types like `Decimal` or `date`) so callers don't have to think
+    about it. The columns are JSONB; psycopg/asyncpg accept either a
+    native dict or a JSON string, but we go through `json.dumps` to
+    guarantee identical encoding regardless of driver.
+    """
+    from sqlalchemy import text
+
+    await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_quota_audit_log
+                (organization_id, action, before, after, actor)
+            VALUES
+                (:org, :action, CAST(:before AS JSONB), CAST(:after AS JSONB), :actor)
+            """
+        ),
+        {
+            "org": str(org_id),
+            "action": action,
+            "before": json.dumps(before, default=str) if before is not None else None,
+            "after": json.dumps(after, default=str) if after is not None else None,
+            "actor": actor,
+        },
+    )
+
+
 # ---------- `set` --------------------------------------------------------
 
 
@@ -77,17 +180,45 @@ async def cmd_set(
     *,
     input_limit: int | None,
     output_limit: int | None,
+    actor: str | None = None,
 ) -> dict[str, Any]:
     """UPSERT the quota row for `org_id`. Mirrors the API server's
     pattern: existing row's other fields untouched, only the limit
     columns set from this call. NULL on either dimension = unlimited
     on that dimension only.
+
+    Records a `quota_set` audit row in the same transaction. The
+    `before` snapshot captures the pre-existing quota row (or NULL if
+    this is the first `set` for the org); `after` captures the new
+    values. A single commit covers both — drift impossible.
     """
     from sqlalchemy import text
 
+    actor_name = _resolve_actor(actor)
     engine, factory = await _engine_factory()
     try:
         async with factory() as session:
+            # Read current state BEFORE the upsert so the audit `before`
+            # snapshot is honest. SELECT FOR UPDATE so a concurrent
+            # `set` against the same org can't squeeze in between this
+            # read and the UPSERT — without the lock the audit log
+            # could record the wrong predecessor.
+            before_row = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT
+                          monthly_input_token_limit  AS in_lim,
+                          monthly_output_token_limit AS out_lim
+                        FROM codeguard_org_quotas
+                        WHERE organization_id = :org
+                        FOR UPDATE
+                        """
+                    ),
+                    {"org": str(org_id)},
+                )
+            ).first()
+
             await session.execute(
                 text(
                     """
@@ -109,6 +240,19 @@ async def cmd_set(
                     "out_lim": output_limit,
                 },
             )
+
+            await _write_audit_row(
+                session,
+                org_id=org_id,
+                action="quota_set",
+                before=_quota_row_to_snapshot(before_row),
+                after={
+                    "monthly_input_token_limit": input_limit,
+                    "monthly_output_token_limit": output_limit,
+                },
+                actor=actor_name,
+            )
+
             await session.commit()
     finally:
         await engine.dispose()
@@ -116,6 +260,107 @@ async def cmd_set(
         "org_id": str(org_id),
         "monthly_input_token_limit": input_limit,
         "monthly_output_token_limit": output_limit,
+        "actor": actor_name,
+    }
+
+
+# ---------- `reset` ------------------------------------------------------
+
+
+async def cmd_reset(
+    org_id: UUID,
+    *,
+    actor: str | None = None,
+) -> dict[str, Any]:
+    """Zero the current-period usage row for `org_id`. The quota row
+    (the *limits*) is untouched — `reset` only affects accumulated
+    usage. Useful for billing disputes ("we were charged for traffic
+    that never reached us"), contract changes mid-month, or cleaning
+    up after a load test that polluted real numbers.
+
+    If no usage row exists for the current period, the operation is
+    a no-op on the data side but STILL writes an audit row (with
+    `before=null`) — that way an operator running `reset` against an
+    org with no usage gets evidence they tried, which matters when
+    debugging "why didn't this work" later.
+    """
+    from sqlalchemy import text
+
+    actor_name = _resolve_actor(actor)
+    engine, factory = await _engine_factory()
+    try:
+        async with factory() as session:
+            # Capture the pre-reset row for the audit `before` snapshot.
+            # FOR UPDATE so we hold the row lock through the UPDATE.
+            before_row = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT
+                          input_tokens,
+                          output_tokens,
+                          period_start
+                        FROM codeguard_org_usage
+                        WHERE organization_id = :org
+                          AND period_start = date_trunc('month', NOW())::date
+                        FOR UPDATE
+                        """
+                    ),
+                    {"org": str(org_id)},
+                )
+            ).first()
+
+            # The actual reset: zero both counters for the current
+            # period. We do NOT delete the row — the next `record_usage`
+            # call would just recreate it via UPSERT, but keeping it
+            # preserves any other columns (e.g. `updated_at`) so we
+            # can answer "when was this last touched."
+            await session.execute(
+                text(
+                    """
+                    UPDATE codeguard_org_usage
+                       SET input_tokens  = 0,
+                           output_tokens = 0,
+                           updated_at    = NOW()
+                     WHERE organization_id = :org
+                       AND period_start = date_trunc('month', NOW())::date
+                    """
+                ),
+                {"org": str(org_id)},
+            )
+
+            after_snapshot: dict[str, Any] | None
+            if before_row is None:
+                # No row existed → nothing to reset. Audit `after` is
+                # also NULL; the audit row alone records the attempt.
+                after_snapshot = None
+            else:
+                after_snapshot = {
+                    "period_start": (
+                        before_row.period_start.isoformat() if before_row.period_start else None
+                    ),
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                }
+
+            await _write_audit_row(
+                session,
+                org_id=org_id,
+                action="quota_reset",
+                before=_usage_row_to_snapshot(before_row),
+                after=after_snapshot,
+                actor=actor_name,
+            )
+
+            await session.commit()
+    finally:
+        await engine.dispose()
+
+    return {
+        "org_id": str(org_id),
+        "before": _usage_row_to_snapshot(before_row),
+        "after": after_snapshot,
+        "actor": actor_name,
     }
 
 
@@ -276,6 +521,46 @@ def format_get(data: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def format_set(data: dict[str, Any]) -> str:
+    """Human-readable summary of a `set` result. Echoes the bound
+    limits + the actor so the operator can confirm what the audit log
+    just recorded — the same numbers they'll see if they `get` the
+    org afterwards."""
+    in_lim = data.get("monthly_input_token_limit")
+    out_lim = data.get("monthly_output_token_limit")
+    return (
+        f"org_id: {data['org_id']}\n"
+        f"  monthly_input_token_limit:  "
+        f"{f'{in_lim:,}' if in_lim is not None else 'unlimited'}\n"
+        f"  monthly_output_token_limit: "
+        f"{f'{out_lim:,}' if out_lim is not None else 'unlimited'}\n"
+        f"  actor: {data.get('actor', 'unknown')}\n"
+    )
+
+
+def format_reset(data: dict[str, Any]) -> str:
+    """Human-readable summary of a `reset` result. Surfaces what was
+    zeroed (the `before` totals) so the operator can sanity-check the
+    blast radius of the command they just ran."""
+    org_id = data["org_id"]
+    before = data.get("before")
+    actor = data.get("actor", "unknown")
+    if before is None:
+        return (
+            f"org_id: {org_id}\n"
+            f"  No current-period usage row — nothing to reset. "
+            f"Audit row recorded.\n"
+            f"  actor: {actor}\n"
+        )
+    return (
+        f"org_id: {org_id}\n"
+        f"  period_start:  {before.get('period_start')}\n"
+        f"  zeroed:        input={before.get('input_tokens'):,} → 0, "
+        f"output={before.get('output_tokens'):,} → 0\n"
+        f"  actor: {actor}\n"
+    )
+
+
 def format_list(rows: list[dict[str, Any]]) -> str:
     if not rows:
         return "No orgs match the filter.\n"
@@ -322,6 +607,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="Monthly output-token cap. Omit for unlimited.",
     )
+    # Actor override only applies to mutating subcommands. Reads
+    # (`get`, `list`) don't write the audit log, so the flag would be
+    # confusing noise there.
+    set_p.add_argument(
+        "--actor",
+        type=str,
+        default=None,
+        help="Override the audit `actor` (default: $USER). Useful when "
+        "running under a shared service account.",
+    )
 
     get_p = sub.add_parser("get", help="Show one org's quota + current usage.")
     get_p.add_argument("org_id", type=UUID, help="Organization UUID.")
@@ -334,6 +629,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Only include orgs whose binding dimension is >= this percent.",
     )
 
+    reset_p = sub.add_parser(
+        "reset",
+        help="Zero an org's current-month usage row (does not change limits).",
+    )
+    reset_p.add_argument("org_id", type=UUID, help="Organization UUID.")
+    # `--confirm` is a guard rail: `reset` clobbers data the API server
+    # is actively writing to. Make the operator say so explicitly so a
+    # fat-fingered command in shell history can't zero a customer's
+    # spend by accident.
+    reset_p.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Required. Acknowledges that this clears the running usage row.",
+    )
+    reset_p.add_argument(
+        "--actor",
+        type=str,
+        default=None,
+        help="Override the audit `actor` (default: $USER).",
+    )
+
     args = parser.parse_args(argv)
 
     if args.cmd == "set":
@@ -342,13 +658,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.org_id,
                 input_limit=args.input_limit,
                 output_limit=args.output_limit,
+                actor=args.actor,
             )
         )
         if args.json:
             json.dump(result, sys.stdout, indent=2)
             sys.stdout.write("\n")
         else:
-            sys.stdout.write(format_get({"quota": result, "usage": None}))
+            sys.stdout.write(format_set(result))
             sys.stdout.write("OK\n")
     elif args.cmd == "get":
         result = asyncio.run(cmd_get(args.org_id))
@@ -364,6 +681,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.stdout.write("\n")
         else:
             sys.stdout.write(format_list(rows))
+    elif args.cmd == "reset":
+        if not args.confirm:
+            # Refuse without `--confirm` rather than silently zeroing
+            # the row. Exit 2 (argparse's "usage error" exit code) so
+            # CI scripts can distinguish "user error" from "DB error".
+            sys.stderr.write(
+                "reset: refusing without --confirm. This zeros the org's "
+                "current-month usage row; pass --confirm to proceed.\n"
+            )
+            return 2
+        result = asyncio.run(cmd_reset(args.org_id, actor=args.actor))
+        if args.json:
+            json.dump(result, sys.stdout, indent=2)
+            sys.stdout.write("\n")
+        else:
+            sys.stdout.write(format_reset(result))
     return 0
 
 

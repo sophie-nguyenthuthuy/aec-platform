@@ -34,6 +34,7 @@ from routers import (  # noqa: E402
     invitations,
     me,
     notifications,
+    onboarding,
     org,
     orgs,
     projects,
@@ -88,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(audit.router)
     app.include_router(search.router)
     app.include_router(webhooks.router)
+    app.include_router(onboarding.router)
     app.include_router(winwork.router)
     app.include_router(pulse.router)
     app.include_router(bidradar.router)
