@@ -92,16 +92,18 @@ def _result(scope: SearchScope, matched: str | None = None) -> SearchResult:
     return r
 
 
-def test_summarise_empty_returns_none_and_empty_dict():
+async def test_summarise_empty_returns_none_and_empty_dict():
     """Zero hits → no top_scope, empty dict. We persist NULL for
     `top_scope` so the partial-index drill-down on no-result rows
-    can ignore the column."""
+    can ignore the column. (Async only because the module-level
+    `pytestmark` applies asyncio to every test — the function itself
+    is pure.)"""
     top, dist = summarise_results([])
     assert top is None
     assert dist == {}
 
 
-def test_summarise_picks_modal_scope():
+async def test_summarise_picks_modal_scope():
     """`top_scope` is whichever scope produced the most rows."""
     results = [
         _result(SearchScope.documents, "keyword"),
@@ -113,7 +115,7 @@ def test_summarise_picks_modal_scope():
     assert dist == {"keyword": 2, "vector": 1}
 
 
-def test_summarise_skips_null_matched_on():
+async def test_summarise_skips_null_matched_on():
     """matched_on=None (vector arm disabled) is excluded from the
     distribution — analytics treats those rows as "we never tried"
     rather than counting them as keyword."""
