@@ -80,6 +80,9 @@ _KNOWN_EVENT_TYPES: set[str] = {
     "submittals.review.approve_as_noted",
     "submittals.review.revise_resubmit",
     "submittals.review.reject",
+    "admin.normalizer_rule.create",
+    "admin.normalizer_rule.update",
+    "admin.normalizer_rule.delete",
     # Non-audit creations (not gated by RBAC; carry no actor
     # before/after diff, so they're awkward to log to audit but
     # high-value to webhook)

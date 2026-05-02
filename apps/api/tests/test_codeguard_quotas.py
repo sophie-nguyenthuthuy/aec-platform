@@ -200,6 +200,133 @@ async def test_record_usage_calls_db_when_tokens_present():
     assert params["out_tok"] == 100
 
 
+# ---------- vi-VN number formatter -----------------------------------------
+
+
+async def test_cap_check_ticks_429_counter_and_observes_latency(client, monkeypatch):
+    """Pin the observability contract on the cap-check helper:
+
+      * `codeguard_quota_429_total{limit_kind}` ticks once per refused
+        request, labelled with the binding dimension.
+      * `codeguard_quota_check_duration_seconds` records ONE observation
+        per cap-check (regardless of allow/deny). Ops need this to spot
+        the cap-check inflating p95 on LLM routes.
+
+    Without these metrics, dashboards can't answer "are we capping out
+    tenants more after the latest deploy" without grepping pod logs —
+    which is exactly the scrap-the-fleet workflow the prometheus
+    exporter exists to avoid.
+    """
+    from core import metrics
+    from services.codeguard_quotas import QuotaCheckResult
+
+    # Snapshot the relevant counter / histogram state BEFORE the call
+    # so the assertion is robust to other tests in this file having
+    # already fired the cap-check (the metrics module is process-wide
+    # state). We diff before/after rather than asserting absolute counts.
+    before_429 = metrics.codeguard_quota_429_total._values.get(("input",), 0.0)
+    before_obs = metrics.codeguard_quota_check_duration_seconds._observations.get(
+        (), [0.0, 0.0]
+    )
+    before_count = before_obs[1] if len(before_obs) >= 2 else 0.0
+
+    async def _over_quota(_db, _org_id):
+        return QuotaCheckResult(
+            over_limit=True, limit_kind="input", used=1_500_000, limit=1_000_000
+        )
+
+    monkeypatch.setattr("services.codeguard_quotas.check_org_quota", _over_quota)
+
+    res = await client.post(
+        "/api/v1/codeguard/query",
+        json={"question": "blocked"},
+    )
+    assert res.status_code == 429
+
+    after_429 = metrics.codeguard_quota_429_total._values.get(("input",), 0.0)
+    after_count = (
+        metrics.codeguard_quota_check_duration_seconds._observations.get((), [0.0, 0.0])[1]
+    )
+    assert after_429 == before_429 + 1, (
+        "Counter `codeguard_quota_429_total{limit_kind=input}` should have "
+        f"incremented by exactly 1 (was {before_429}, now {after_429}). "
+        "Did the cap-check helper stop calling `.inc()`?"
+    )
+    assert after_count == before_count + 1, (
+        f"Histogram should have observed exactly one new sample (was "
+        f"count={before_count}, now {after_count}). Either the helper "
+        "stopped wrapping the SELECT or the try/finally guard regressed."
+    )
+
+
+async def test_cap_check_does_not_tick_429_when_under_limit(client, monkeypatch):
+    """The histogram observation fires on every cap-check (under or
+    over), but the 429 counter must ONLY tick on refused requests. A
+    regression that increments the counter unconditionally would inflate
+    the dashboard's "tenants getting capped" view by every successful
+    request — silent but very wrong."""
+    from core import metrics
+    from services.codeguard_quotas import QuotaCheckResult
+
+    before_429_input = metrics.codeguard_quota_429_total._values.get(("input",), 0.0)
+    before_429_output = metrics.codeguard_quota_429_total._values.get(("output",), 0.0)
+    before_count = (
+        metrics.codeguard_quota_check_duration_seconds._observations.get((), [0.0, 0.0])[1]
+    )
+
+    async def _under_quota(_db, _org_id):
+        return QuotaCheckResult(over_limit=False, limit_kind="unlimited", used=0, limit=None)
+
+    monkeypatch.setattr("services.codeguard_quotas.check_org_quota", _under_quota)
+
+    # Call a cheap LLM-touching route. We don't actually need the LLM
+    # to run; we just need to traverse the cap-check helper. Use the
+    # /quota route — wait, that doesn't run the cap-check. Use /query
+    # but stub the LLM via the same monkeypatch the file already does
+    # implicitly via mock_llm fixture in other tests. Simplest: call
+    # /query and let it 500 if the LLM stub is missing — we don't
+    # assert on the response here, only the metric deltas.
+    try:
+        await client.post(
+            "/api/v1/codeguard/query",
+            json={"question": "ok"},
+        )
+    except Exception:
+        # Don't care about the LLM-side outcome; the cap-check fired
+        # before any LLM call. Pinning the metric deltas is the point.
+        pass
+
+    after_429_input = metrics.codeguard_quota_429_total._values.get(("input",), 0.0)
+    after_429_output = metrics.codeguard_quota_429_total._values.get(("output",), 0.0)
+    after_count = (
+        metrics.codeguard_quota_check_duration_seconds._observations.get((), [0.0, 0.0])[1]
+    )
+
+    # Counter unchanged on the under-limit path.
+    assert after_429_input == before_429_input
+    assert after_429_output == before_429_output
+    # Histogram still got an observation (cap-check ran).
+    assert after_count >= before_count + 1
+
+
+async def test_format_vi_int_uses_dot_grouping_not_comma():
+    """vi-VN convention: thousands separator is `.`, decimal separator
+    is `,`. The router-side helper has to match what the banner / quota
+    page render so the 429 toast doesn't read jarring against the
+    surrounding UI. A regression to Python's default `:,` formatting
+    would silently re-introduce English-style grouping in the only
+    user-facing string the cap-check produces."""
+    from routers.codeguard import _format_vi_int
+
+    assert _format_vi_int(1_500_000) == "1.500.000"
+    assert _format_vi_int(0) == "0"
+    assert _format_vi_int(999) == "999"
+    assert _format_vi_int(1_000) == "1.000"
+    # NULL limit (the unlimited-on-this-axis path that tripped over_limit
+    # somehow) renders as "?" rather than crashing the format.
+    assert _format_vi_int(None) == "?"
+
+
 # ---------- Route enforcement: structured 429 ------------------------------
 
 
@@ -232,10 +359,28 @@ async def test_query_route_returns_429_when_org_over_quota(client, monkeypatch):
     body = res.json()
     assert body["errors"] is not None
     msg = body["errors"][0]["message"]
+    # The dimension label ("output") is preserved as-is so it matches
+    # the banner copy elsewhere in the UI ("hạn mức output"). The
+    # surrounding copy is Vietnamese — pin a substring rather than the
+    # whole message so a future tweak of the prefix doesn't trip this
+    # unrelated assertion.
     assert "output" in msg
-    assert "quota" in msg.lower()
-    assert "210,000" in msg
-    assert "200,000" in msg
+    assert "Đã vượt hạn mức" in msg, (
+        f"Expected the Vietnamese 429 copy ('Đã vượt hạn mức ...') but got: {msg!r}. "
+        "Did the message regress to the previous English string?"
+    )
+    # vi-VN dot grouping, NOT comma grouping. Pinning both halves
+    # because a regression to `:,` formatting would silently render
+    # `210,000 / 200,000` in a Vietnamese error string — visibly
+    # inconsistent with the surrounding banner / quota page.
+    assert "210.000" in msg
+    assert "200.000" in msg
+    # The 429 must surface a `details_url` pointing at the in-app quota
+    # planning page — that's what lets the toast render a "Xem hạn mức"
+    # CTA. Without this, the user sees the error but has no path from
+    # "I hit the cap" to "where do I see my usage." Pin the exact URL
+    # so a frontend regression that mis-routes can't slip in unnoticed.
+    assert body["errors"][0]["details_url"] == "/codeguard/quota"
 
 
 @pytest.mark.parametrize(
@@ -308,7 +453,12 @@ async def test_all_llm_routes_return_429_when_org_over_quota(client, monkeypatch
     assert body_json["errors"] is not None
     msg = body_json["errors"][0]["message"]
     assert "input" in msg
-    assert "quota" in msg.lower()
+    assert "Đã vượt hạn mức" in msg
+    # `details_url` must be present on every LLM-route 429, not just
+    # /query. A regression that re-implemented the cap-check helper
+    # for one route without copying the dict-detail shape would be
+    # caught here.
+    assert body_json["errors"][0]["details_url"] == "/codeguard/quota"
 
 
 async def test_query_route_drains_telemetry_accumulator_into_record_org_usage(

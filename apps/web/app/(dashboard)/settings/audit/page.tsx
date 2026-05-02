@@ -8,41 +8,87 @@ import { type AuditEvent, useAuditEvents } from "@/hooks/audit";
 
 // Closed set — mirrors `services/audit.AuditAction` literal on the API.
 // Keeping it client-side as a list lets us label-i18n + render a clean
-// dropdown without an extra round-trip.
+// dropdown without an extra round-trip. KEEP IN SYNC with the literal:
+// when adding a new audit action server-side, add it here too — otherwise
+// admins can't filter to it from the dropdown even though the rows do
+// land in the table.
 const ACTION_FILTERS: Array<{ value: string; label: string }> = [
-  { value: "",                           label: "Tất cả hành động" },
-  { value: "costpulse.estimate.approve", label: "Duyệt dự toán" },
-  { value: "pulse.change_order.approve", label: "Duyệt change order" },
-  { value: "pulse.change_order.reject",  label: "Từ chối change order" },
-  { value: "org.member.role_change",     label: "Đổi vai trò thành viên" },
-  { value: "org.member.remove",          label: "Xóa thành viên" },
-  { value: "org.invitation.create",      label: "Tạo lời mời" },
-  { value: "org.invitation.revoke",      label: "Thu hồi lời mời" },
-  { value: "org.invitation.accept",      label: "Chấp nhận lời mời" },
-  { value: "handover.package.deliver",   label: "Bàn giao gói" },
+  { value: "",                                 label: "Tất cả hành động" },
+  // CostPulse
+  { value: "costpulse.estimate.approve",       label: "Duyệt dự toán" },
+  { value: "costpulse.boq.import",             label: "Nhập BOQ" },
+  { value: "costpulse.suppliers.import",       label: "Nhập danh sách NCC" },
+  { value: "costpulse.rfq.slots_expired",      label: "RFQ hết hạn (tự động)" },
+  // ProjectPulse
+  { value: "pulse.change_order.approve",       label: "Duyệt change order" },
+  { value: "pulse.change_order.reject",        label: "Từ chối change order" },
+  // Org / RBAC
+  { value: "org.member.role_change",           label: "Đổi vai trò thành viên" },
+  { value: "org.member.remove",                label: "Xóa thành viên" },
+  { value: "org.invitation.create",            label: "Tạo lời mời" },
+  { value: "org.invitation.revoke",            label: "Thu hồi lời mời" },
+  { value: "org.invitation.accept",            label: "Chấp nhận lời mời" },
+  // Notifications
+  { value: "notifications.preference.update",  label: "Đổi tuỳ chọn thông báo" },
+  // Handover
+  { value: "handover.package.deliver",         label: "Bàn giao gói" },
+  // Punch list
+  { value: "punchlist.list.sign_off",          label: "Ký nghiệm thu punch list" },
+  // Submittals
+  { value: "submittals.review.approve",        label: "Duyệt submittal" },
+  { value: "submittals.review.approve_as_noted", label: "Duyệt có ghi chú" },
+  { value: "submittals.review.revise_resubmit", label: "Yêu cầu nộp lại" },
+  { value: "submittals.review.reject",         label: "Từ chối submittal" },
+  // Cross-tenant platform admin (global config — see audit.AuditAction)
+  { value: "admin.normalizer_rule.create",     label: "Tạo luật chuẩn hoá" },
+  { value: "admin.normalizer_rule.update",     label: "Sửa luật chuẩn hoá" },
+  { value: "admin.normalizer_rule.delete",     label: "Xoá luật chuẩn hoá" },
 ];
 
 const RESOURCE_FILTERS: Array<{ value: string; label: string }> = [
-  { value: "",              label: "Tất cả tài nguyên" },
-  { value: "estimates",     label: "Dự toán" },
-  { value: "change_orders", label: "Change orders" },
-  { value: "org_members",   label: "Thành viên" },
-  { value: "invitations",   label: "Lời mời" },
+  { value: "",                  label: "Tất cả tài nguyên" },
+  { value: "estimates",         label: "Dự toán" },
+  { value: "boq_items",         label: "BOQ" },
+  { value: "suppliers",         label: "Nhà cung cấp" },
+  { value: "rfq",               label: "RFQ" },
+  { value: "change_orders",     label: "Change orders" },
+  { value: "org_members",       label: "Thành viên" },
+  { value: "invitations",       label: "Lời mời" },
+  { value: "notification_preferences", label: "Tuỳ chọn thông báo" },
   { value: "handover_packages", label: "Gói bàn giao" },
+  { value: "punchlist_lists",   label: "Punch list" },
+  { value: "submittals",        label: "Submittals" },
+  { value: "normalizer_rule",   label: "Luật chuẩn hoá" },
 ];
 
 // Tone the action chips by intent — destructive / privileged actions
 // (delete, role demotion) get a warmer color than routine approvals.
+// Bulk imports + cron-driven events get a neutral slate — they're
+// system-bearing but not "someone changed someone else's role" sensitive.
 const ACTION_TONE: Record<string, string> = {
-  "costpulse.estimate.approve": "bg-emerald-100 text-emerald-800",
-  "pulse.change_order.approve": "bg-emerald-100 text-emerald-800",
-  "pulse.change_order.reject":  "bg-amber-100 text-amber-800",
-  "org.member.role_change":     "bg-indigo-100 text-indigo-800",
-  "org.member.remove":          "bg-rose-100 text-rose-800",
-  "org.invitation.create":      "bg-blue-100 text-blue-800",
-  "org.invitation.revoke":      "bg-amber-100 text-amber-800",
-  "org.invitation.accept":      "bg-emerald-100 text-emerald-800",
-  "handover.package.deliver":   "bg-purple-100 text-purple-800",
+  "costpulse.estimate.approve":         "bg-emerald-100 text-emerald-800",
+  "costpulse.boq.import":               "bg-slate-100 text-slate-700",
+  "costpulse.suppliers.import":         "bg-slate-100 text-slate-700",
+  "costpulse.rfq.slots_expired":        "bg-slate-100 text-slate-700",
+  "pulse.change_order.approve":         "bg-emerald-100 text-emerald-800",
+  "pulse.change_order.reject":          "bg-amber-100 text-amber-800",
+  "org.member.role_change":             "bg-indigo-100 text-indigo-800",
+  "org.member.remove":                  "bg-rose-100 text-rose-800",
+  "org.invitation.create":              "bg-blue-100 text-blue-800",
+  "org.invitation.revoke":              "bg-amber-100 text-amber-800",
+  "org.invitation.accept":              "bg-emerald-100 text-emerald-800",
+  "notifications.preference.update":    "bg-blue-100 text-blue-800",
+  "handover.package.deliver":           "bg-purple-100 text-purple-800",
+  "punchlist.list.sign_off":            "bg-emerald-100 text-emerald-800",
+  "submittals.review.approve":          "bg-emerald-100 text-emerald-800",
+  "submittals.review.approve_as_noted": "bg-emerald-100 text-emerald-800",
+  "submittals.review.revise_resubmit":  "bg-amber-100 text-amber-800",
+  "submittals.review.reject":           "bg-rose-100 text-rose-800",
+  // Platform admin — indigo to flag "this affects multiple tenants"
+  // visually distinct from the green/red of routine workflow events.
+  "admin.normalizer_rule.create":       "bg-indigo-100 text-indigo-800",
+  "admin.normalizer_rule.update":       "bg-indigo-100 text-indigo-800",
+  "admin.normalizer_rule.delete":       "bg-rose-100 text-rose-800",
 };
 
 const PER_PAGE = 50;
@@ -231,9 +277,19 @@ function AuditRow({ event }: { event: AuditEvent }) {
             >
               {actionLabel}
             </span>
-            <span className="text-xs text-slate-500">
-              {event.actor_email ?? "system"}
-            </span>
+            {/* Cron-driven events have a null actor (e.g.
+                `costpulse.rfq.slots_expired`). Render them as a
+                visually distinct badge so admins skimming the log can
+                tell "the system did this" from "Bob did this." Without
+                it the row read as "blank user email" — looks like a
+                bug, not a feature. */}
+            {event.actor_email ? (
+              <span className="text-xs text-slate-500">{event.actor_email}</span>
+            ) : (
+              <span className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-slate-700">
+                system
+              </span>
+            )}
             {diffSummary && (
               <span className="text-xs text-slate-700">{diffSummary}</span>
             )}

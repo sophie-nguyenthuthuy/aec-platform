@@ -63,7 +63,11 @@ export default function DailyLogDetailPage() {
         >
           <ArrowLeft size={12} /> Tất cả nhật ký
         </Link>
-        <div className="mt-2 flex items-start justify-between gap-3">
+        {/* Header stacks on mobile — long Vietnamese date strings + the
+            "Trích xuất lại bằng AI" CTA wrap awkwardly when forced into
+            the same row on a phone. Stacked layout also lets the AI
+            button take full width and meet 44px tap target. */}
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-2xl font-bold text-slate-900">
               Nhật ký {formatDate(summary.log_date)}
@@ -78,9 +82,9 @@ export default function DailyLogDetailPage() {
             type="button"
             onClick={() => extract.mutate(true)}
             disabled={extract.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            <Sparkles size={14} />
+            <Sparkles size={16} />
             {extract.isPending ? "Đang phân tích..." : "Trích xuất lại bằng AI"}
           </button>
         </div>
@@ -200,31 +204,34 @@ export default function DailyLogDetailPage() {
 function ObservationRow({ obs }: { obs: Observation }) {
   return (
     <li className="px-4 py-3 text-sm">
-      <div className="flex items-baseline justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <AlertTriangle size={12} className="text-amber-600" />
-          <span className="font-medium text-slate-900">{obs.kind}</span>
-          <span
-            className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-              SEVERITY_BADGE[obs.severity] ?? "bg-slate-100 text-slate-700"
-            }`}
-          >
-            {obs.severity}
-          </span>
-          <span
-            className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-              STATUS_BADGE[obs.status] ?? "bg-slate-100 text-slate-700"
-            }`}
-          >
-            {obs.status}
-          </span>
-          {obs.source === "llm_extracted" && (
-            <span className="text-[10px] text-blue-600">AI</span>
-          )}
-          {obs.source === "siteeye_hit" && (
-            <span className="text-[10px] text-purple-600">SiteEye</span>
-          )}
-        </div>
+      {/* Title + badge cluster wraps on a phone — pre-Phase-5 it tried
+          to fit `kind` + 2 badges + 2 source tags on one 320px line and
+          got squashed. `flex-wrap` lets the badges spill onto a second
+          line when there's no room. Bigger badge text (xs vs 10px) so
+          they're legible at arm's length. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <AlertTriangle size={14} className="text-amber-600" />
+        <span className="font-medium text-slate-900">{obs.kind}</span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+            SEVERITY_BADGE[obs.severity] ?? "bg-slate-100 text-slate-700"
+          }`}
+        >
+          {obs.severity}
+        </span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+            STATUS_BADGE[obs.status] ?? "bg-slate-100 text-slate-700"
+          }`}
+        >
+          {obs.status}
+        </span>
+        {obs.source === "llm_extracted" && (
+          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">AI</span>
+        )}
+        {obs.source === "siteeye_hit" && (
+          <span className="rounded-full bg-purple-50 px-2 py-0.5 text-xs text-purple-700">SiteEye</span>
+        )}
       </div>
       <p className="mt-1 text-slate-700">{obs.description}</p>
     </li>

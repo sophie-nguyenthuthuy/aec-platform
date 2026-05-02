@@ -274,6 +274,29 @@ async def daily_activity_digest_cron(ctx: dict) -> dict:
         return await dispatch_daily_digests(session)
 
 
+async def retention_prune_cron(ctx: dict) -> dict:
+    """Daily prune of unbounded growth tables — see services.retention.
+
+    Runs at 03:00 UTC (~10:00 ICT) so it lands during the quietest
+    customer-facing window. The job is bounded by
+    `_MAX_PRUNE_ROWS_PER_RUN` per table per run; a backed-up tenant
+    catches up over multiple days, never blocking inserts.
+
+    Cross-tenant: `AdminSessionFactory` (BYPASSRLS) so we see all
+    orgs' rows. The age filter is the per-table predicate; org
+    isolation isn't a correctness concern here because we're deleting
+    by `created_at`, not exposing rows back to a user.
+    """
+    from db.session import AdminSessionFactory
+    from services.retention import run_retention_cron
+
+    async with AdminSessionFactory() as session:
+        summaries = await run_retention_cron(session)
+    total = sum(s.get("deleted_count", 0) for s in summaries)
+    logger.info("retention_prune_cron: deleted %d rows across %d tables: %s", total, len(summaries), summaries)
+    return {"deleted_total": total, "tables": summaries}
+
+
 async def webhook_drain_cron(ctx: dict) -> dict:
     """Drain the webhook outbox: pick due deliveries, sign + POST,
     mark delivered or schedule retry.
@@ -483,6 +506,12 @@ class WorkerSettings:
         # via `SELECT … FOR UPDATE SKIP LOCKED` so two workers running
         # concurrently won't double-deliver.
         cron(webhook_drain_cron, minute={i for i in range(60)}),
+        # Daily 03:00 UTC (~10:00 ICT) — prune unbounded telemetry
+        # tables (audit_events, search_queries, import_jobs,
+        # delivered/failed webhook_deliveries) per `RETENTION_POLICIES`.
+        # Capped at 10k rows per table per run so a backed-up tenant
+        # catches up over multiple days without locking up the table.
+        cron(retention_prune_cron, hour=3, minute=0),
     ]
     max_jobs = 8
     job_timeout = 900  # 15 min — weekly report with PDF rendering can be slow

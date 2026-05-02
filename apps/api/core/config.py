@@ -50,6 +50,22 @@ class Settings(BaseSettings):
     aws_region: str = "ap-southeast-1"
     s3_bucket: str = "aec-platform-files"
 
+    # Per-table retention overrides for the nightly prune cron
+    # (`services.retention.run_retention_cron`). When unset, each
+    # table falls back to `RetentionPolicy.default_days`. Set in env as
+    # `AEC_RETENTION_AUDIT_EVENTS_DAYS=730` to extend audit retention
+    # for a compliance-conscious tenant. The cron is platform-global,
+    # so per-org overrides aren't a thing — those would need a real
+    # `retention_policies` table.
+    retention_audit_events_days: int | None = Field(default=None, validation_alias="AEC_RETENTION_AUDIT_EVENTS_DAYS")
+    retention_webhook_deliveries_days: int | None = Field(
+        default=None, validation_alias="AEC_RETENTION_WEBHOOK_DELIVERIES_DAYS"
+    )
+    retention_search_queries_days: int | None = Field(
+        default=None, validation_alias="AEC_RETENTION_SEARCH_QUERIES_DAYS"
+    )
+    retention_import_jobs_days: int | None = Field(default=None, validation_alias="AEC_RETENTION_IMPORT_JOBS_DAYS")
+
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_user: str | None = None

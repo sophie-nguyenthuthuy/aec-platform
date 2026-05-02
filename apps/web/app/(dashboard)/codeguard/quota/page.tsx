@@ -3,7 +3,8 @@
 /**
  * CODEGUARD per-tenant quota dashboard.
  *
- * The `<QuotaStatusBanner>` (in the codeguard layout) already surfaces
+ * The `<QuotaStatusBanner>` (mounted in the dashboard-root layout, so
+ * it shows up across every LLM-touching surface) already surfaces
  * "you're at X%" when usage crosses 80% — that's reactive. This page
  * is the *planning* surface: how much have we spent, what's the cap,
  * how many days until it resets, and what does the recent trend look

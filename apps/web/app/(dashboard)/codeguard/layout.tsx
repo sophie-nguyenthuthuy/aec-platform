@@ -1,8 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { QuotaStatusBanner } from "./QuotaStatusBanner";
-
 // `as const` keeps each `href` as its literal type so it satisfies the
 // typedRoutes `Route` union (next.config: experimental.typedRoutes = true).
 const NAV = [
@@ -13,6 +11,12 @@ const NAV = [
   { href: "/codeguard/history", label: "Lịch sử kiểm tra" },
   { href: "/codeguard/quota", label: "Hạn mức" },
 ] as const;
+
+// `<QuotaStatusBanner>` used to live here. It's been promoted to the
+// dashboard-root layout so it covers every LLM-touching surface
+// (drawbridge, costpulse, winwork, codeguard) — the org-level cap
+// applies to all of them. Rendering it here too would double-print
+// on /codeguard/* pages.
 
 export default function CodeguardLayout({ children }: { children: ReactNode }) {
   return (
@@ -33,11 +37,6 @@ export default function CodeguardLayout({ children }: { children: ReactNode }) {
           </nav>
         </div>
       </header>
-      {/* Renders inline above the page content when usage exceeds 80%
-          on either dimension; hidden under that or for unlimited orgs.
-          Closes the loop so users see "approaching cap" before they
-          hit the 429 from the route layer. */}
-      <QuotaStatusBanner />
       <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-6">{children}</main>
     </div>
   );

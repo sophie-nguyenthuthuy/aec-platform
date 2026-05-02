@@ -8,9 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "tsc --noEmit && vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "tsc --noEmit && vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:real-auth": "playwright test --config=playwright.real-auth.config.ts",
     "test:e2e:install": "playwright install chromium"

@@ -77,6 +77,18 @@ AuditAction = Literal[
     "submittals.review.approve_as_noted",
     "submittals.review.revise_resubmit",
     "submittals.review.reject",
+    # Cross-tenant platform admin
+    #
+    # `normalizer_rules` is GLOBAL — a single edit affects every
+    # tenant's price scrapes. That's a meaningful trust transfer that
+    # absolutely needs an audit trail; an enterprise security review
+    # would (rightly) flag silent global config mutations as a red
+    # flag. The audit row is attributed to the actor's org so that
+    # org's admins can see what their members did, even though the
+    # resource itself doesn't belong to any one tenant.
+    "admin.normalizer_rule.create",
+    "admin.normalizer_rule.update",
+    "admin.normalizer_rule.delete",
 ]
 
 

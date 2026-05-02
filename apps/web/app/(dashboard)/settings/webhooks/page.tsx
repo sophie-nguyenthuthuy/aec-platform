@@ -96,7 +96,13 @@ export default function WebhooksSettingsPage() {
           <p className="mt-1 text-sm text-slate-600">
             Đăng ký URL nhận sự kiện từ AEC Platform — change order, RFI, lỗi
             mới, sự cố ATLĐ, v.v. Mỗi delivery được ký HMAC-SHA256 với secret
-            của subscription (header <code>X-AEC-Signature</code>).
+            của subscription (header <code>X-AEC-Signature</code>).{" "}
+            <a
+              href="/docs/webhooks"
+              className="font-medium text-blue-600 hover:underline"
+            >
+              Xem developer docs →
+            </a>
           </p>
         </div>
         <button

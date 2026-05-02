@@ -56,19 +56,19 @@ export default defineConfig({
       ],
       reporter: ["text", "html", "json"],
       reportsDirectory: "./coverage",
-      // Floor pinned at the current baseline (2026-05-02: 5 hooks + 2 lib
-      // specs; ~25 untested hooks pull the line/statement % way down).
-      // The contract here is "don't go down" — a PR that doesn't add
-      // tests but does delete one fires the gate.
+      // Floor pinned at the current baseline. Raise in lockstep with
+      // batches of new hook tests landing — the contract is "don't go
+      // down meaningfully", so the floor is current_value - ~1pt to
+      // absorb v8 run-to-run jitter.
       //
-      // Raise these in lockstep with batches of new hook tests landing.
-      // Branches is high because the few hooks we DO test exercise their
-      // every branch; lines is low because the denominator is large.
+      // 2026-05-02 (initial bootstrap):  6.79 / 44.07 / 19.54 / 6.79
+      // 2026-05-02 round 2 (+5 hooks):  10.62 / 54.64 / 27.92 / 10.62
+      // 2026-05-02 round 3 (+5 hooks):  13.49 / 58.85 / 33.13 / 13.49
       thresholds: {
-        lines: 6,
-        statements: 6,
-        functions: 19,
-        branches: 44,
+        lines: 12,
+        statements: 12,
+        functions: 32,
+        branches: 57,
       },
     },
   },

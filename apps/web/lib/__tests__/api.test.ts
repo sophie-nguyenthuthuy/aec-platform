@@ -259,6 +259,62 @@ describe("apiFetch / error handling", () => {
     });
   });
 
+  test("non-2xx with details_url → ApiError carries detailsUrl", async () => {
+    // Mirrors the codeguard cap-check 429 envelope shape. The frontend
+    // toast/inline-error renderers read `detailsUrl` to decide whether
+    // to show a "Xem hạn mức" CTA — pin both the carry-through AND the
+    // snake_case → camelCase rename here, since a regression on either
+    // would silently drop the CTA.
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: null,
+          errors: [
+            {
+              code: "429",
+              message: "Monthly input-token quota exceeded",
+              field: null,
+              details_url: "/codeguard/quota",
+            },
+          ],
+        }),
+        { status: 429, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    try {
+      await apiFetch("/x", { token: TOKEN, orgId: ORG_ID });
+      expect.fail("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(429);
+      expect((err as ApiError).detailsUrl).toBe("/codeguard/quota");
+    }
+  });
+
+  test("non-2xx without details_url → detailsUrl is undefined", async () => {
+    // Existing 4xx/5xx callers don't populate `details_url`; the
+    // ApiError should carry undefined rather than null. Pin the
+    // distinction so a future refactor that coerces "no URL" → null
+    // doesn't silently start rendering empty-href CTAs.
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: null,
+          errors: [{ code: "400", message: "bad input", field: null }],
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    try {
+      await apiFetch("/x", { token: TOKEN, orgId: ORG_ID });
+      expect.fail("expected throw");
+    } catch (err) {
+      expect((err as ApiError).detailsUrl).toBeUndefined();
+    }
+  });
+
   test("non-2xx with empty body → ApiError falls back to res.statusText", async () => {
     fetchMock.mockResolvedValue(
       new Response("", { status: 502, statusText: "Bad Gateway" }),

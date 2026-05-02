@@ -35,6 +35,11 @@ export default function ComplianceScanWizardPage() {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [done, setDone] = useState<ScanDonePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Optional deep-link surfaced from the error envelope's `details_url`.
+  // Currently only the cap-check 429 sets this (→ /codeguard/quota);
+  // for stream-internal errors it stays null and the error card omits
+  // the CTA.
+  const [errorDetailsUrl, setErrorDetailsUrl] = useState<string | null>(null);
   const [categoryStatus, setCategoryStatus] = useState<
     Record<string, "pending" | "in_progress" | "done">
   >({});
@@ -48,6 +53,7 @@ export default function ComplianceScanWizardPage() {
     setFindings([]);
     setDone(null);
     setError(null);
+    setErrorDetailsUrl(null);
     // Seed every selected category as `pending` so the progress list
     // shows the full slate immediately — categories flip to in_progress
     // and then done as their events arrive.
@@ -72,8 +78,9 @@ export default function ComplianceScanWizardPage() {
         onDone: (payload) => {
           setDone(payload);
         },
-        onError: (message) => {
+        onError: ({ message, detailsUrl }) => {
           setError(message);
+          setErrorDetailsUrl(detailsUrl ?? null);
         },
       },
     );
@@ -207,6 +214,16 @@ export default function ComplianceScanWizardPage() {
             <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-800">
               <div className="mb-1 font-medium">Lỗi khi quét tuân thủ</div>
               <p>{error}</p>
+              {errorDetailsUrl && (
+                <div className="mt-3">
+                  <a
+                    href={errorDetailsUrl}
+                    className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-900 hover:bg-red-50"
+                  >
+                    Xem hạn mức
+                  </a>
+                </div>
+              )}
             </div>
           ) : (
             <>

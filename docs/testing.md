@@ -1,6 +1,6 @@
 # Testing
 
-Six lanes, six invocations. Use the Make target — it sets the env, picks the right working dir, and survives docker-compose port remapping.
+Seven lanes, each with its own Make target. Use the Make target — it sets the env, picks the right working dir, and survives docker-compose port remapping.
 
 ## Quick reference
 
@@ -8,13 +8,28 @@ Six lanes, six invocations. Use the Make target — it sets the env, picks the r
 | --- | --- | --- | --- |
 | API unit | every commit | `make test-api` | Python only |
 | API integration | before merging RLS / arq / scraper changes | `make test-api-integration` | docker compose up |
+| ML pipelines | `apps/ml/*` changes | `make test-ml` | Python only |
 | UI components | `packages/ui/*` changes | `make test-ui` | pnpm |
-| Web lib | `apps/web/lib/*` changes | `make test-web-unit` | pnpm |
-| Web E2E | UI changes | `make test-web` | pnpm + chromium |
+| Web lib + hooks | `apps/web/{lib,hooks}/*` changes | `make test-web-unit` | pnpm |
+| Web E2E | UI / page changes | `make test-web` | pnpm + chromium |
 | Worker tasks | Celery / beat changes | `pytest apps/worker/tests` | Python + celery |
-| Everything | pre-push sanity | `make test` | pnpm + chromium |
+| **Everything** | pre-push sanity | `make test` | pnpm + chromium |
+| **Coverage everywhere** | quarterly / pre-release | `make test-cov` | pnpm + Python |
 
-`make test` runs `test-api` + `test-ui` + `test-web-unit` + `test-web`. The integration lane is opt-in because it needs the docker stack — running it implicitly would surprise people on a fresh clone.
+`make test` runs `test-api` + `test-ml` + `test-ui` + `test-web-unit` + `test-web`. The integration lane is opt-in because it needs the docker stack — running it implicitly would surprise people on a fresh clone.
+
+`make test-cov` runs `test-api-cov` + `test-ml-cov` + `test-ui-cov` + `test-web-unit-cov` and **enforces the per-lane coverage floors** (a PR that drops any lane below its threshold red-gates). Use this before opening a PR if you've touched code that affects multiple lanes (e.g. a hook + the api route it calls).
+
+## Coverage floors at a glance
+
+Each `*-cov` target enforces a pinned floor — the contract is "don't go down meaningfully." Floors are at the current baseline minus ~1pt of headroom for v8 / pytest-cov run-to-run jitter.
+
+| Lane | Lines | Branches | Functions | Where it's pinned |
+| --- | --- | --- | --- | --- |
+| `apps/api` | 80% | — | — | `apps/api/pyproject.toml` `[tool.coverage.report]` |
+| `apps/ml` | _not yet pinned_ | — | — | baseline 55% in [`docs/ml-coverage-audit.md`](./ml-coverage-audit.md) |
+| `packages/ui` | 20% | 60% | 35% | `packages/ui/vitest.config.ts` |
+| `apps/web` | 12% | 57% | 32% | `apps/web/vitest.config.ts` |
 
 ## API unit lane (`make test-api`)
 

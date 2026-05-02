@@ -570,3 +570,212 @@ def test_format_list_renders_table_with_percents():
     assert "00000000-0000-0000-0000-000000000abc" in out
     assert "500,000" in out
     assert "80.0" in out
+
+
+# ---------- cmd_audit ---------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_audit_returns_rows_in_descending_order(monkeypatch):
+    """Standard happy path: cmd_audit returns whatever the SQL produces,
+    most-recent first. The ORDER BY in the SQL is what guarantees that
+    ordering — pin via the rendered list shape so a regression that
+    drops `ORDER BY occurred_at DESC` is visible."""
+    import datetime as _dt
+
+    org_id = uuid4()
+    rows = [
+        _RowStub(
+            id=uuid4(),
+            occurred_at=_dt.datetime(2026, 5, 1, 12, 0, 0),
+            actor="bob",
+            action="quota_set",
+            before={"monthly_input_token_limit": 1_000_000},
+            after={"monthly_input_token_limit": 5_000_000},
+        ),
+        _RowStub(
+            id=uuid4(),
+            occurred_at=_dt.datetime(2026, 4, 1, 9, 0, 0),
+            actor="alice",
+            action="quota_set",
+            before=None,
+            after={"monthly_input_token_limit": 1_000_000},
+        ),
+    ]
+    _stub_engine_factory(monkeypatch, [rows])
+
+    result = await cli.cmd_audit(org_id, limit=50, since=None, action=None)
+    assert len(result) == 2
+    assert result[0]["actor"] == "bob"
+    assert result[0]["action"] == "quota_set"
+    # ISO timestamp surfaces as a string for `--json` consumers.
+    assert result[0]["occurred_at"].startswith("2026-05-01T12:00:00")
+    # `before` / `after` round-trip the JSONB dicts unchanged.
+    assert result[1]["before"] is None
+    assert result[1]["after"] == {"monthly_input_token_limit": 1_000_000}
+
+
+@pytest.mark.asyncio
+async def test_audit_binds_filter_params_when_provided(monkeypatch):
+    """`--since` and `--action` bind to the SQL only when set. Pin the
+    parameter shape so a refactor that reorders the WHERE clauses or
+    drops a filter is visible."""
+    org_id = uuid4()
+    session = _stub_engine_factory(monkeypatch, [[]])
+
+    await cli.cmd_audit(org_id, limit=10, since="2026-04-01", action="quota_reset")
+
+    # The single execute call binds org, limit, since, and action — all four.
+    params = session.execute.call_args.args[1]
+    assert params["org"] == str(org_id)
+    assert params["limit"] == 10
+    assert params["since"] == "2026-04-01"
+    assert params["action"] == "quota_reset"
+
+
+@pytest.mark.asyncio
+async def test_audit_omits_filter_params_when_not_provided(monkeypatch):
+    """No filters → the SQL has no `since` or `action` placeholder, so
+    those keys must NOT appear in the bound params (binding an unused
+    `:since` would be either ignored or rejected depending on driver,
+    but it'd also signal that the assembly logic isn't actually
+    excluding the clause). Pin the omission."""
+    org_id = uuid4()
+    session = _stub_engine_factory(monkeypatch, [[]])
+
+    await cli.cmd_audit(org_id, limit=50, since=None, action=None)
+
+    params = session.execute.call_args.args[1]
+    assert "since" not in params
+    assert "action" not in params
+    # `org` and `limit` always bind.
+    assert set(params.keys()) == {"org", "limit"}
+
+
+# ---------- format_audit ------------------------------------------------
+
+
+def test_format_audit_compresses_quota_set_diff():
+    """A `quota_set` row's summary should compress like:
+        input 1M→5M, output 200k→1M
+    Pinning this exact shape so the column-widths don't silently drift
+    and break ops dashboards that grep the output."""
+    rows = [
+        {
+            "occurred_at": "2026-05-01T12:00:00",
+            "actor": "bob",
+            "action": "quota_set",
+            "before": {
+                "monthly_input_token_limit": 1_000_000,
+                "monthly_output_token_limit": 200_000,
+            },
+            "after": {
+                "monthly_input_token_limit": 5_000_000,
+                "monthly_output_token_limit": 1_000_000,
+            },
+        }
+    ]
+    out = cli.format_audit(rows)
+    assert "bob" in out
+    assert "quota_set" in out
+    # Compressed token counts ("1M→5M" not "1000000 → 5000000").
+    assert "input 1M→5M" in out
+    assert "output 200k→1M" in out
+
+
+def test_format_audit_handles_first_time_provisioning():
+    """When `before` is None (first `set` for an org), the diff renders
+    as ∞→<value> — nothing → cap. The infinity shorthand for "no prior
+    limit" matches the display elsewhere in the CLI."""
+    rows = [
+        {
+            "occurred_at": "2026-04-01T09:00:00",
+            "actor": "alice",
+            "action": "quota_set",
+            "before": None,
+            "after": {
+                "monthly_input_token_limit": 1_000_000,
+                "monthly_output_token_limit": 200_000,
+            },
+        }
+    ]
+    out = cli.format_audit(rows)
+    # `before` None → both fields render as ∞ (the unlimited shorthand).
+    assert "input ∞→1M" in out
+    assert "output ∞→200k" in out
+
+
+def test_format_audit_summarizes_quota_reset():
+    """A `quota_reset` row surfaces what was zeroed."""
+    rows = [
+        {
+            "occurred_at": "2026-04-15T09:30:00",
+            "actor": "oncall",
+            "action": "quota_reset",
+            "before": {
+                "period_start": "2026-04-01",
+                "input_tokens": 850_000,
+                "output_tokens": 120_000,
+            },
+            "after": {
+                "period_start": "2026-04-01",
+                "input_tokens": 0,
+                "output_tokens": 0,
+            },
+        }
+    ]
+    out = cli.format_audit(rows)
+    assert "input 850k→0" in out
+    assert "output 120k→0" in out
+
+
+def test_format_audit_handles_reset_against_no_usage_row():
+    """`quota_reset` with `before=None` (no usage row existed) renders a
+    "(no usage row — nothing to zero)" hint rather than fabricating
+    a 0→0 diff."""
+    rows = [
+        {
+            "occurred_at": "2026-05-01T00:00:00",
+            "actor": "bob",
+            "action": "quota_reset",
+            "before": None,
+            "after": None,
+        }
+    ]
+    out = cli.format_audit(rows)
+    assert "nothing to zero" in out
+
+
+def test_format_audit_falls_back_for_unknown_action():
+    """Unknown action types render `(see --json for details)` rather
+    than guessing the diff shape — pinning so a future action like
+    `quota_unset` doesn't silently truncate fields."""
+    rows = [
+        {
+            "occurred_at": "2026-05-01T00:00:00",
+            "actor": "bob",
+            "action": "quota_archive",  # hypothetical future action
+            "before": {"foo": "bar"},
+            "after": {"foo": "baz"},
+        }
+    ]
+    out = cli.format_audit(rows)
+    assert "see --json for details" in out
+
+
+def test_format_audit_renders_no_match_message_on_empty():
+    """Empty result set → friendly message rather than a header-only
+    table that looks like a parsing failure."""
+    out = cli.format_audit([])
+    assert "No audit entries match" in out
+
+
+def test_short_num_formats_compactly():
+    """Spot-check the compact number helper — it's what the audit table
+    relies on to keep summary lines under a terminal width."""
+    assert cli._short_num(None) == "∞"
+    assert cli._short_num(0) == "0"
+    assert cli._short_num(500) == "500"
+    assert cli._short_num(1_500) == "2k"  # rounds
+    assert cli._short_num(1_000_000) == "1M"  # 1.0M → 1M (suffix collapse)
+    assert cli._short_num(5_500_000) == "5.5M"

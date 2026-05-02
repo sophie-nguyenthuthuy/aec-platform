@@ -84,3 +84,34 @@ class ScraperRunOut(BaseModel):
     def unmatched_ratio(self) -> float | None:
         """Convenience for the UI — drift signal, on the wire as a number."""
         return self.unmatched / self.scraped if self.scraped else None
+
+
+class ScraperRunsSummaryPoint(BaseModel):
+    """One drift data point inside `ScraperRunsSummaryRow.points`.
+
+    `ratio` is `unmatched / scraped` for that single run. `None` when
+    the run had `scraped == 0` (couldn't drive a ratio without
+    division-by-zero) — the sparkline renders such points as gaps.
+    """
+
+    started_at: datetime
+    ratio: float | None = None
+
+
+class ScraperRunsSummaryRow(BaseModel):
+    """Per-slug aggregate over a configurable window. Drives the
+    `/admin/scrapers` dashboard summary table + drift sparkline.
+
+    `points` is the per-run drift series (oldest first), bounded by
+    the same `days` window used for the aggregates. The series is
+    intentionally NOT downsampled — daily-cron slugs produce ~30 points
+    over a 30d window, which is fine for an inline SVG sparkline.
+    """
+
+    slug: str
+    total_runs: int
+    failure_rate: float | None = None
+    avg_drift: float | None = None
+    last_run_at: datetime | None = None
+    last_run_ok: bool | None = None
+    points: list[ScraperRunsSummaryPoint] = Field(default_factory=list)

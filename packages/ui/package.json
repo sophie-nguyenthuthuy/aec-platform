@@ -9,9 +9,9 @@
     "./*": "./*"
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "tsc --noEmit && vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "tsc --noEmit && vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {

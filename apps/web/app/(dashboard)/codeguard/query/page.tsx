@@ -20,6 +20,11 @@ interface AssistantTurnState {
   response?: QueryResponse;
   /** True from when the user submits until the terminal SSE event. */
   streaming: boolean;
+  /** Deep-link surfaced from an error-envelope `details_url`. Today
+   *  only the codeguard cap-check 429 populates it (→ /codeguard/quota);
+   *  the AssistantTurn renderer reads this and renders a "Xem hạn mức"
+   *  CTA below the error text. Undefined for non-429 errors. */
+  errorDetailsUrl?: string;
 }
 
 type ChatTurn = UserTurn | AssistantTurnState;
@@ -84,10 +89,16 @@ export default function RegulationChatPage() {
             streaming: false,
           }));
         },
-        onError: (message) => {
+        onError: ({ message, detailsUrl }) => {
           patchAssistant((a) => ({
             ...a,
             text: `Lỗi: ${message}`,
+            // Preserve the deep-link CTA so the assistant turn can
+            // render a "Xem hạn mức" button below the error text. Only
+            // the cap-check 429 sets this today; for stream-internal
+            // errors `detailsUrl` is undefined and the renderer skips
+            // the button.
+            errorDetailsUrl: detailsUrl,
             streaming: false,
           }));
         },
@@ -158,7 +169,7 @@ function AssistantTurn({
   turn: AssistantTurnState;
   onAskRelated: (q: string) => void;
 }) {
-  const { text, response, streaming } = turn;
+  const { text, response, streaming, errorDetailsUrl } = turn;
 
   // Backend abstain contract (see `_abstain_response` in
   // apps/ml/pipelines/codeguard.py): when retrieval returns no chunks the
@@ -242,6 +253,22 @@ function AssistantTurn({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      {/* Deep-link CTA surfaced from the error envelope's `details_url`.
+          Today the only path that sets this is the codeguard cap-check
+          429 (errorDetailsUrl="/codeguard/quota"). Render it as a
+          regular Next.js Link so typedRoutes validates the destination
+          at build time — a regression that points at a non-existent
+          page would fail to compile rather than ship a broken CTA. */}
+      {!streaming && errorDetailsUrl && (
+        <div className="mt-3">
+          <a
+            href={errorDetailsUrl}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Xem hạn mức
+          </a>
         </div>
       )}
     </div>

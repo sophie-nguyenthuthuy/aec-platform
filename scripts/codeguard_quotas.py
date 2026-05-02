@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Manage per-org CODEGUARD token quotas from the command line.
 
-Four subcommands cover the full ops loop:
+Five subcommands cover the full ops loop:
 
     # Set or update an org's monthly cap. Either limit can be omitted
     # (NULL = unlimited on that dimension); both omitted = unlimited.
@@ -17,6 +17,11 @@ Four subcommands cover the full ops loop:
     # Zero an org's current-month usage row. Use for billing disputes,
     # contract changes, or cleaning up after a load test.
     python scripts/codeguard_quotas.py reset <org-uuid> --confirm
+
+    # Read the audit log for one org. Surfaces what `set` / `reset`
+    # did, by whom, and when — closes the loop on the audit table.
+    python scripts/codeguard_quotas.py audit <org-uuid> \\
+      --since 2026-04-01 --action quota_set
 
 The script imports `services.codeguard_quotas` so the SQL stays in
 exactly one place — drift between the CLI's INSERT and the route
@@ -489,6 +494,84 @@ async def cmd_list(*, over_pct: float | None) -> list[dict[str, Any]]:
     return out
 
 
+# ---------- `audit` ------------------------------------------------------
+
+
+async def cmd_audit(
+    org_id: UUID,
+    *,
+    limit: int = 50,
+    since: str | None = None,
+    action: str | None = None,
+) -> list[dict[str, Any]]:
+    """Read the `codeguard_quota_audit_log` for one org, most-recent first.
+
+    Closes the loop on the audit table the `set`/`reset` mutations
+    write to — without this subcommand, compliance asking "who raised
+    this org's cap last week" still requires opening psql and writing
+    JSONB queries by hand. The CLI knows which columns matter; ops
+    shouldn't have to.
+
+    Filters compose with AND:
+      * `limit`  — hard cap on rows returned (defaults to 50, the
+                   typical "show me the recent activity" window).
+      * `since`  — ISO date (YYYY-MM-DD); only rows at or after this
+                   day are included. Omit for "everything we have."
+      * `action` — restrict to one action string (e.g. "quota_set").
+
+    Returns a list of dicts with `occurred_at`, `actor`, `action`, and
+    the raw `before` / `after` JSONB snapshots. The formatter renders a
+    one-line summary; `--json` exposes the full snapshots for richer
+    downstream tooling.
+    """
+    from sqlalchemy import text
+
+    # Build the WHERE clause incrementally so we don't bind unused
+    # parameters. Doing this with f-string interpolation of column
+    # names is safe (we're not concatenating user input into SQL),
+    # and it keeps the active filters visible in the assembled query.
+    where_clauses: list[str] = ["organization_id = :org"]
+    params: dict[str, Any] = {"org": str(org_id), "limit": int(limit)}
+    if since is not None:
+        where_clauses.append("occurred_at >= CAST(:since AS DATE)")
+        params["since"] = since
+    if action is not None:
+        where_clauses.append("action = :action")
+        params["action"] = action
+
+    sql = f"""
+        SELECT id, occurred_at, actor, action, before, after
+        FROM codeguard_quota_audit_log
+        WHERE {" AND ".join(where_clauses)}
+        ORDER BY occurred_at DESC, id DESC
+        LIMIT :limit
+    """
+    # ORDER BY also includes `id DESC` so two rows with the same
+    # `occurred_at` (NOW() inside one transaction) sort deterministically.
+    # Without that tiebreaker, the same rows can appear in different
+    # order across runs, which trips up integration tests and confuses
+    # operators reading scrollback.
+
+    engine, factory = await _engine_factory()
+    try:
+        async with factory() as session:
+            rows = (await session.execute(text(sql), params)).all()
+    finally:
+        await engine.dispose()
+
+    return [
+        {
+            "id": str(r.id),
+            "occurred_at": r.occurred_at.isoformat() if r.occurred_at else None,
+            "actor": r.actor,
+            "action": r.action,
+            "before": r.before,
+            "after": r.after,
+        }
+        for r in rows
+    ]
+
+
 # ---------- Output formatting -------------------------------------------
 
 
@@ -519,6 +602,83 @@ def format_get(data: dict[str, Any]) -> str:
         + (f"  ({pct['output']:.1f}%)" if pct["output"] is not None else ""),
     ]
     return "\n".join(lines) + "\n"
+
+
+def format_audit(rows: list[dict[str, Any]]) -> str:
+    """Render audit rows as a compact table:
+
+        2026-05-01T12:00Z  alice            quota_set     input 1M→5M, output 200k→1M
+        2026-04-15T09:30Z  bob              quota_reset   input 850k→0, output 120k→0
+
+    The summary column compresses the JSONB snapshots into the diff
+    operators care about ("what changed"). For complex / future actions
+    where the diff doesn't compress cleanly, the formatter falls back
+    to a "see --json for details" hint rather than truncating fields
+    silently.
+    """
+    if not rows:
+        return "No audit entries match the filter.\n"
+    # Fixed columns: time (20), actor (16), action (14), summary (rest).
+    # Widths chosen so an actor like "oncall-engineer" (15) fits without
+    # wrapping and the action column accommodates `quota_reset` (12).
+    header = f"{'occurred_at':<20}  {'actor':<16}  {'action':<14}  summary"
+    lines = [header, "-" * (len(header) + 40)]
+    for r in rows:
+        lines.append(
+            f"{(r.get('occurred_at') or '')[:19]:<20}  "
+            f"{(r.get('actor') or '')[:16]:<16}  "
+            f"{(r.get('action') or '')[:14]:<14}  "
+            f"{_summarize_audit_diff(r)}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _summarize_audit_diff(row: dict[str, Any]) -> str:
+    """Compress an audit row's before/after into a one-line diff."""
+    before = row.get("before")
+    after = row.get("after")
+    action = row.get("action") or ""
+
+    # quota_set: surface the limit columns (the only fields that can
+    # change). "1M→5M" reads better than "1000000 → 5000000" in a
+    # terminal — use the same suffix shorthand `format_get` uses.
+    if action == "quota_set":
+        b_in = (before or {}).get("monthly_input_token_limit")
+        b_out = (before or {}).get("monthly_output_token_limit")
+        a_in = (after or {}).get("monthly_input_token_limit")
+        a_out = (after or {}).get("monthly_output_token_limit")
+        return (
+            f"input {_short_num(b_in)}→{_short_num(a_in)}, "
+            f"output {_short_num(b_out)}→{_short_num(a_out)}"
+        )
+
+    # quota_reset: before/after are usage rows; show the totals zeroed.
+    if action == "quota_reset":
+        if before is None:
+            return "(no usage row — nothing to zero)"
+        return (
+            f"input {_short_num(before.get('input_tokens'))}→0, "
+            f"output {_short_num(before.get('output_tokens'))}→0"
+        )
+
+    # Unknown action — don't lie about the diff shape. Hint at --json.
+    return "(see --json for details)"
+
+
+def _short_num(n: Any) -> str:
+    """Format a token count compactly: 1234567 → '1.2M'. Used by the
+    audit table where horizontal space matters more than precision."""
+    if n is None:
+        return "∞"  # NULL limit = unlimited
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return str(n)
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M".replace(".0M", "M")
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}k"
+    return str(n)
 
 
 def format_set(data: dict[str, Any]) -> str:
@@ -650,6 +810,35 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Override the audit `actor` (default: $USER).",
     )
 
+    audit_p = sub.add_parser(
+        "audit",
+        help="Show audit log entries for an org's quota mutations.",
+    )
+    audit_p.add_argument("org_id", type=UUID, help="Organization UUID.")
+    audit_p.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Max rows to return (default 50). The table is append-only "
+        "and unbounded; the limit keeps an `audit` against an old org "
+        "from spilling thousands of rows into the terminal.",
+    )
+    audit_p.add_argument(
+        "--since",
+        type=str,
+        default=None,
+        help="ISO date (YYYY-MM-DD); show only entries at or after that "
+        'day. Example: --since 2026-04-01 for "this month and later."',
+    )
+    audit_p.add_argument(
+        "--action",
+        type=str,
+        default=None,
+        choices=("quota_set", "quota_reset"),
+        help="Filter to one action type. Useful when chasing down a "
+        "specific category of change (e.g. only the `reset` events).",
+    )
+
     args = parser.parse_args(argv)
 
     if args.cmd == "set":
@@ -681,6 +870,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.stdout.write("\n")
         else:
             sys.stdout.write(format_list(rows))
+    elif args.cmd == "audit":
+        rows = asyncio.run(
+            cmd_audit(
+                args.org_id,
+                limit=args.limit,
+                since=args.since,
+                action=args.action,
+            )
+        )
+        if args.json:
+            json.dump(rows, sys.stdout, indent=2, default=str)
+            sys.stdout.write("\n")
+        else:
+            sys.stdout.write(format_audit(rows))
     elif args.cmd == "reset":
         if not args.confirm:
             # Refuse without `--confirm` rather than silently zeroing

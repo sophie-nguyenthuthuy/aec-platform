@@ -1,4 +1,4 @@
-.PHONY: seed-codeguard seed-demo eval-codeguard test test-api test-api-integration test-api-integration-up test-ui test-web test-web-unit hooks lint backfill-rfi-embeddings backfill-dailylog
+.PHONY: seed-codeguard seed-demo eval-codeguard test test-cov test-api test-api-cov test-api-integration test-api-integration-up test-ml test-ml-cov test-ui test-ui-cov test-web test-web-unit test-web-unit-cov hooks lint backfill-rfi-embeddings backfill-dailylog
 
 # Install local pre-commit hooks. Run once per clone. After this, every
 # `git commit` runs ruff check + ruff format + basic hygiene checks on
@@ -72,10 +72,37 @@ eval-codeguard:
 #
 # `pnpm exec playwright install` ensures the chromium build is on the
 # machine; subsequent runs no-op when already installed.
-test: test-api test-ui test-web-unit test-web
+test: test-api test-ml test-ui test-web-unit test-web
+
+# Run every coverage lane — api + ml (pytest-cov) + ui + web (Vitest +
+# coverage-v8). Each lane enforces its own floor (see vitest.config.ts
+# / pyproject.toml [tool.coverage.report]). A single failure red-gates
+# the whole aggregator. Useful before opening a PR — gives you the
+# global coverage picture in one command, vs. running 4 separately.
+#
+# Order matters slightly: web-unit-cov has typecheck baked in, so
+# running it last surfaces TS regressions even if earlier lanes pass.
+test-cov: test-api-cov test-ml-cov test-ui-cov test-web-unit-cov
 
 test-api:
 	cd apps/api && pytest -q
+
+# apps/ml — codeguard pipeline + scan + retrieval + winwork pipeline
+# unit tests. Self-contained: mocks LLMs + DB at the public-import
+# boundary. Excludes the Tier 4 quality eval that burns real OpenAI/
+# Anthropic credit (run via `make eval-codeguard` when intentional).
+test-ml:
+	pytest apps/ml/tests/ -q --ignore=apps/ml/tests/test_codeguard_quality_eval.py
+
+# Same with coverage. Baseline + uncovered modules tracked in
+# `docs/ml-coverage-audit.md` — raise the floor as new tests land.
+test-ml-cov:
+	pytest apps/ml/tests/ -q \
+	    --ignore=apps/ml/tests/test_codeguard_quality_eval.py \
+	    --cov=apps/ml \
+	    --cov-report=term-missing:skip-covered \
+	    --cov-report=html:apps/ml/test-results/coverage \
+	    --cov-report=xml:apps/ml/test-results/coverage.xml
 
 # Run the API unit lane with coverage measurement. Branch + line coverage
 # over apps/api/{core,db,middleware,models,routers,schemas,services,workers}.

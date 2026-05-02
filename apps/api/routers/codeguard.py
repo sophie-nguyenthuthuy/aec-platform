@@ -248,30 +248,95 @@ async def codeguard_health(
 # ---------- Quota helper ----------
 
 
+def _format_vi_int(n: int | None) -> str:
+    """Format an integer with Vietnamese number grouping (dots, not commas).
+
+    `1500000` → `"1.500.000"`. The whole codeguard surface (banner copy,
+    quota page, toast errors) renders numbers vi-VN style; the 429
+    message used to drift to comma-grouped because Python's `:,` format
+    spec produces `1,500,000`. Pin the helper so the message format
+    matches what users see everywhere else without depending on locale
+    state on the server.
+
+    Returns "?" for None — keeps the message readable when the limit
+    column is NULL (an unlimited dimension that somehow tripped the
+    over_limit branch shouldn't crash the format).
+    """
+    if n is None:
+        return "?"
+    # `:,d` produces "1,500,000"; replace the separator. Faster and
+    # locale-independent compared to `locale.format_string`.
+    return f"{n:,d}".replace(",", ".")
+
+
 async def _check_quota_or_raise(db: AsyncSession, organization_id: UUID) -> None:
     """Pre-flight quota check shared by every LLM-invoking route.
 
     Raises a structured 429 if the org is over their monthly cap. The
     message names the binding dimension (input vs output) so debugging a
-    block doesn't require cross-referencing two dashboards. Numbers are
-    comma-formatted for readability in error logs.
+    block doesn't require cross-referencing two dashboards. Numbers use
+    vi-VN dot grouping ("1.500.000") so the toast copy matches the
+    `<QuotaStatusBanner>` and `/codeguard/quota` page that surface the
+    same numbers in the surrounding UI.
 
     Putting this in a single helper rather than copying the inline check
     into six routes means a future tweak (caching, soft-warn band, etc.)
     lands in one place. Tests can monkeypatch
     `services.codeguard_quotas.check_org_quota` to control behaviour
     without having to know which routes wire the gate.
+
+    Observability: every call observes `codeguard_quota_check_duration_seconds`
+    (so ops can spot the cap-check inflating p95 on LLM routes) and
+    over_limit calls also tick `codeguard_quota_429_total{limit_kind}`
+    (so dashboards can show "tenants getting capped today" without
+    grepping logs). Both flow through the existing /metrics scrape.
     """
+    import time as _time
+
+    from core.metrics import (
+        codeguard_quota_429_total,
+        codeguard_quota_check_duration_seconds,
+    )
     from services import codeguard_quotas as _q
 
-    quota = await _q.check_org_quota(db, organization_id)
+    # Observe the SELECT latency even on the over_limit path — that's
+    # the one that adds the most variance (tripping the if-branch is
+    # negligible vs the round-trip to Postgres). Using `try/finally`
+    # so a check_org_quota that raises (e.g. DB connection drop) still
+    # contributes its tail latency to the histogram, which is what ops
+    # needs to see when investigating "the cap-check started timing
+    # out around 14:30."
+    start = _time.perf_counter()
+    try:
+        quota = await _q.check_org_quota(db, organization_id)
+    finally:
+        codeguard_quota_check_duration_seconds.observe(_time.perf_counter() - start)
+
     if quota.over_limit:
-        used_fmt = f"{quota.used:,}"
-        limit_fmt = f"{quota.limit:,}" if quota.limit is not None else "?"
+        # Tick the counter BEFORE constructing the exception so a
+        # downstream raise from the format helpers (shouldn't happen
+        # but defensively) still shows up in the metric. The dashboard
+        # cares about "we tried to refuse" more than "we successfully
+        # built the response body."
+        codeguard_quota_429_total.inc({"limit_kind": quota.limit_kind})
+
+        used_fmt = _format_vi_int(quota.used)
+        limit_fmt = _format_vi_int(quota.limit)
+        # Dimension label is rendered as-is ("input" / "output") rather
+        # than translated — the banner uses the same English keywords
+        # in its copy ("Đã dùng X% hạn mức input"), so consistency
+        # across the user-facing surfaces beats a more polished
+        # translation that drifts from what the rest of the UI says.
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
-            f"Monthly {quota.limit_kind}-token quota exceeded "
-            f"({used_fmt} / {limit_fmt}). Contact admin to raise the cap.",
+            {
+                "message": (
+                    f"Đã vượt hạn mức token {quota.limit_kind} tháng này "
+                    f"({used_fmt} / {limit_fmt}). "
+                    f"Liên hệ quản trị để tăng hạn mức."
+                ),
+                "details_url": "/codeguard/quota",
+            },
         )
 
 

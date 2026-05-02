@@ -162,4 +162,70 @@ test.describe("CODEGUARD / QuotaStatusBanner", () => {
 
     await expect(page.getByRole("status")).toHaveCount(0);
   });
+
+  // ---------- Cross-surface visibility ----------
+  //
+  // The org-level quota applies to LLM calls from every dashboard
+  // surface (drawbridge, costpulse, winwork, codeguard). The banner
+  // used to render only inside `/codeguard/*` — which meant a user
+  // pushing usage from drawbridge would hit a 429 with no warning,
+  // even though they were sitting at 96% the whole time. The fix
+  // promoted the banner to the dashboard-root layout. Pin that
+  // contract explicitly: navigating to a non-codeguard page must
+  // still render the banner when usage is over threshold.
+
+  test("renders on non-codeguard pages (cross-surface visibility)", async ({ page }) => {
+    // 96% on output → red "imminent" banner. Same shape as the
+    // /codeguard/regulations test above, but the destination is
+    // `/changeorder` to prove the banner travels.
+    await page.route(
+      QUOTA_PATH_GLOB,
+      fulfillQuota({
+        organization_id: "77777777-7777-7777-7777-777777777777",
+        unlimited: false,
+        input: { used: 200_000, limit: 1_000_000, percent: 20.0 },
+        output: { used: 192_000, limit: 200_000, percent: 96.0 },
+        period_start: "2026-05-01",
+      }),
+    );
+    // Stub the change-order list with an empty array so the page
+    // renders without erroring on a missing API. We don't care about
+    // the page contents here — only that the banner renders above
+    // whatever page is mounted.
+    await page.route("**/api/v1/changeorder/list*", async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ data: [], meta: null, errors: null }),
+      });
+    });
+    await page.goto("/changeorder");
+
+    // The banner is visible AND carries the imminent-cap copy. Same
+    // role/copy contract as inside /codeguard/* — proves no codeguard-
+    // specific styling was lost in the layout move.
+    await expect(page.getByRole("status")).toBeVisible();
+    await expect(page.getByText(/Sắp đạt hạn mức tháng — output/)).toBeVisible();
+  });
+
+  test("does not double-render on /codeguard/* pages", async ({ page }) => {
+    // The codeguard layout used to render the banner itself; the move
+    // promoted it to the dashboard layout. If both still mounted, a
+    // user on /codeguard/regulations would see two banners. Pin
+    // exactly one role="status" in the at-risk band.
+    await page.route(
+      QUOTA_PATH_GLOB,
+      fulfillQuota({
+        organization_id: "88888888-8888-8888-8888-888888888888",
+        unlimited: false,
+        input: { used: 850_000, limit: 1_000_000, percent: 85.0 },
+        output: { used: 100_000, limit: 200_000, percent: 50.0 },
+        period_start: "2026-05-01",
+      }),
+    );
+    await page.goto("/codeguard/regulations");
+
+    await expect(page.getByRole("status")).toHaveCount(1);
+  });
 });

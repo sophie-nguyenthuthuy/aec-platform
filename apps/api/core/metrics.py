@@ -155,6 +155,40 @@ arq_queue_depth = _register(
     )
 )
 
+# ---------- Codeguard cap-check ----------
+#
+# `codeguard_quota_429_total` ticks once per inbound LLM-route request
+# that the cap-check refused. `limit_kind` is "input" or "output" — the
+# binding dimension on the failing org's row. Cardinality is bounded
+# (2 values) so this is safe to leave on every route.
+#
+# We deliberately don't add an `org_id` label here. Per-org cardinality
+# would explode the series count to thousands once the platform scales,
+# and the dashboard question this metric answers ("how often are we
+# capping out tenants?") doesn't need per-org breakdown — that's what
+# the audit log + the /quota page are for. If a future runbook wants
+# "which orgs cap most," query the audit log, not Prometheus.
+#
+# `codeguard_quota_check_duration_seconds` wraps the SELECT used by
+# every LLM route's pre-flight. Pinning latency here is what lets ops
+# answer "did adding the cap-check inflate p95 across the platform?"
+# without running a separate benchmark — the existing scrape gives
+# them the histogram for free.
+codeguard_quota_429_total = _register(
+    Counter(
+        "codeguard_quota_429_total",
+        ["limit_kind"],
+        help_text="Cap-check 429s by binding dimension (input|output).",
+    )
+)
+codeguard_quota_check_duration_seconds = _register(
+    Histogram(
+        "codeguard_quota_check_duration_seconds",
+        [],
+        help_text="Pre-flight cap-check (SELECT) duration on every LLM route.",
+    )
+)
+
 
 # ---------- Renderer ----------
 
