@@ -131,7 +131,14 @@ export function CommandPalette() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
-  const results: SearchResult[] = search.data?.results ?? [];
+  // Memoised so the `?? []` fallback returns a stable reference across
+  // renders. Without this, every render produces a fresh `[]`, which makes
+  // any downstream `useCallback`/`useMemo` keyed on `results` re-run every
+  // tick (caught by react-hooks/exhaustive-deps).
+  const results: SearchResult[] = useMemo(
+    () => search.data?.results ?? [],
+    [search.data?.results],
+  );
 
   // Reset the selection when the result list changes shape. Otherwise
   // ↑/↓ off the end of an old longer list lands on a stale index.

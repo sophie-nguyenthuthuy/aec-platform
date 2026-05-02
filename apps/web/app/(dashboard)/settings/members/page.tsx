@@ -365,8 +365,12 @@ function PendingInvitationRow({
 
 function Avatar({ name, src }: { name: string; src: string | null }) {
   if (src) {
-    // eslint-disable-next-line @next/next/no-img-element
+    // Plain <img> is intentional here — avatar URLs come from arbitrary
+    // upstream identity providers (Google, etc.), and `next/image` would
+    // require enumerating every host in `next.config.mjs` or running them
+    // through a Vercel image optimizer for a 32×32 thumbnail. Not worth it.
     return (
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={src}
         alt=""

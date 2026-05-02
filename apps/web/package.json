@@ -7,10 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit",
-    "test": "tsc --noEmit && vitest run",
+    "typecheck": "rm -f tsconfig.tsbuildinfo && tsc --noEmit",
+    "test": "rm -f tsconfig.tsbuildinfo && tsc --noEmit && vitest run",
     "test:watch": "vitest",
-    "test:coverage": "tsc --noEmit && vitest run --coverage",
+    "test:coverage": "rm -f tsconfig.tsbuildinfo && tsc --noEmit && vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:real-auth": "playwright test --config=playwright.real-auth.config.ts",
     "test:e2e:install": "playwright install chromium"
