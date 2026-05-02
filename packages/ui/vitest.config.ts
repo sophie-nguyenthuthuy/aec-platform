@@ -62,15 +62,18 @@ export default defineConfig({
       ],
       reporter: ["text", "html", "json"],
       reportsDirectory: "./coverage",
-      // Floor pinned at the current baseline (2026-05-01: 7 specs covering
-      // 7 of ~50 components, so coverage is intentionally low). The point
-      // of pinning is "don't go down" — every batch of new tests should
-      // raise these numbers. CI fails the run if any drops below.
+      // Floor pinned at the current baseline. Raise in lockstep with
+      // batches of new component tests landing — the contract is
+      // "don't go down meaningfully."
+      //
+      // Trajectory:
+      //   2026-05-01 (7 specs):                 20 / 60 / 35 / 20
+      //   2026-05-02 round 6 (15 specs, +5):    25 / 69 / 47 / 25
       thresholds: {
-        lines: 20,
-        statements: 20,
-        functions: 35,
-        branches: 60,
+        lines: 25,
+        statements: 25,
+        functions: 47,
+        branches: 69,
       },
     },
   },

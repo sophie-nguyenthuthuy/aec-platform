@@ -757,3 +757,218 @@ counter would be 0.
   round — the previous wiring called `record_org_usage(in_tok=...,
   out_tok=...)` with kwarg names that didn't match the function's
   signature, so every call raised `TypeError` and got swallowed).
+
+## 14. Quotas — Operations runbook
+
+This section is the operator's surface for the quota story. Sections
+1–13 above describe what's there and why; this one is "you got paged
+at 2am, what do you do."
+
+### 14.1 The CLI: `scripts/codeguard_quotas.py`
+
+Five subcommands. All read `DATABASE_URL` (asyncpg form) — the same
+env var the API server uses, so running locally hits the same DB the
+API pod will read.
+
+```bash
+# Set or update an org's monthly cap. Either limit can be omitted
+# (NULL = unlimited on that dimension); both omitted = unlimited.
+python scripts/codeguard_quotas.py set <org-uuid> \
+  --input-limit 5000000 --output-limit 1000000 \
+  --actor "$USER"
+
+# Show one org's quota row + current-month usage with %-of-cap.
+python scripts/codeguard_quotas.py get <org-uuid>
+
+# List all orgs with quotas, sorted by binding %. `--over-pct 80`
+# filters to the at-risk cohort (the ops dashboard view).
+python scripts/codeguard_quotas.py list --over-pct 80
+
+# Zero an org's current-month usage row. Use for billing disputes
+# or cleanup after a load test. The QUOTA itself is untouched —
+# only the running totals are reset. Requires `--confirm` so a
+# fat-fingered command in shell history can't zero a customer's
+# spend by accident.
+python scripts/codeguard_quotas.py reset <org-uuid> --confirm \
+  --actor "$USER"
+
+# Read the audit log for one org, most-recent first. `--since`
+# filters to a date range, `--action` to one mutation type.
+python scripts/codeguard_quotas.py audit <org-uuid> \
+  --since 2026-04-01 --action quota_set --limit 50
+```
+
+Mutating subcommands (`set`, `reset`) write to
+`codeguard_quota_audit_log` in the same transaction as the
+operation. The `actor` field defaults to `$USER`; override with
+`--actor` for service-account runs (CI bots, shared ops boxes).
+`--json` (top-level flag, before the subcommand) flips every
+subcommand to machine-readable output for piping into `jq`.
+
+`set` ALSO fires `check_and_notify_thresholds` after commit — covers
+the "ops lowers a cap below current usage and nobody hits an LLM
+route to trigger the usage-side check" edge case. The dedupe table
+prevents a double-fire if the org happens to also cross via usage in
+the same period.
+
+### 14.2 Threshold notifications (80% / 95%)
+
+When an org's monthly usage crosses 80% (warn) or 95% (critical) on
+either dimension, every user opted into `notification_preferences.
+key='quota_warn'` for that org gets pinged — once per `(org,
+dimension, threshold, period)` thanks to the dedupe table at
+`codeguard_quota_threshold_notifications` (added in migration
+`0030_codeguard_quota_thresholds`).
+
+Per-channel intent:
+
+- `email_enabled=TRUE` → email via `services.mailer.send_mail`
+  (vi-VN copy, absolute URL pointing at `<WEB_BASE_URL>/codeguard/quota`).
+- `slack_enabled=TRUE` → POST to `OPS_SLACK_WEBHOOK_URL` via
+  `services.slack.send_slack`. Currently fires AT MOST ONCE per
+  event regardless of how many users opted in (single global
+  webhook). Per-user Slack DMs are a future feature.
+- both flags TRUE → both channels fire.
+- both flags FALSE → user filtered out at the SQL level.
+
+Opt a user in:
+
+```sql
+INSERT INTO notification_preferences
+  (user_id, organization_id, key, email_enabled, slack_enabled)
+VALUES
+  ('<user-uuid>', '<org-uuid>', 'quota_warn', TRUE, TRUE);
+```
+
+Or via the UI: `/settings/notifications` → CODEGUARD section
+(once that page surfaces the `quota_warn` row).
+
+If finance complains "I'm not getting the alerts": (1) confirm a
+row exists with `key='quota_warn'` and at least one channel
+enabled, (2) confirm `OPS_SLACK_WEBHOOK_URL` is set if they
+expected Slack, (3) check the dedupe table — they may have
+already received the alert this period:
+
+```sql
+SELECT * FROM codeguard_quota_threshold_notifications
+WHERE organization_id = '<org-uuid>'
+  AND period_start = date_trunc('month', NOW())::date;
+```
+
+### 14.3 The `/metrics` series
+
+Two cap-check metrics flow through the existing `/metrics` scrape
+(stdlib renderer in `core.metrics`, not the `prometheus_client`
+SDK). Both have bounded label cardinality — safe to leave on
+every LLM route.
+
+- **`codeguard_quota_429_total{limit_kind}`** — counter, ticks once
+  per cap-check refusal labelled by binding dimension (`input` |
+  `output`). Use this to answer "how often are we capping out
+  tenants today" without grepping logs.
+
+  ```promql
+  # Refusals per minute, broken out by dimension:
+  sum by (limit_kind) (rate(codeguard_quota_429_total[1m]))
+  ```
+
+- **`codeguard_quota_check_duration_seconds`** — histogram, observes
+  the pre-flight SELECT on every cap-check (allow OR refuse). Use
+  this to answer "is the cap-check inflating p95 on LLM routes?"
+
+  ```promql
+  # p99 cap-check latency:
+  histogram_quantile(0.99,
+    rate(codeguard_quota_check_duration_seconds_bucket[5m]))
+  ```
+
+Neither metric carries an `org_id` label — per-org cardinality
+would explode the series count once the platform scales. For "which
+orgs cap most," query the audit log (`scripts/codeguard_quotas.py
+audit ...`), not Prometheus.
+
+### 14.4 The 429 client contract
+
+Every LLM-invoking route returns this error envelope on cap-out:
+
+```json
+{
+  "data": null,
+  "meta": null,
+  "errors": [{
+    "code": "429",
+    "message": "Đã vượt hạn mức token output tháng này (210.000 / 200.000). Liên hệ quản trị để tăng hạn mức.",
+    "field": null,
+    "details_url": "/codeguard/quota"
+  }]
+}
+```
+
+Notes:
+
+- Copy is Vietnamese, numbers use vi-VN dot grouping. Matches
+  what the `<QuotaStatusBanner>` and `/codeguard/quota` page
+  surface in the surrounding UI.
+- `details_url` is what the frontend reads to render a "Xem hạn
+  mức" CTA on the toast / inline error. The CTA is a relative
+  link inside the app — do NOT hardcode the host on the client
+  side; the field is structured precisely so the API owns this.
+- The dimension label (`input` / `output`) is rendered as-is, not
+  translated, so it matches the banner copy elsewhere ("hạn mức
+  input").
+
+### 14.5 Billing-dispute runbook (3 steps)
+
+Customer claims they were charged for traffic that never reached
+their endpoint. Walk through the audit + reset path:
+
+1. **Audit-log lookup** — confirm what happened on their org:
+
+   ```bash
+   python scripts/codeguard_quotas.py audit <org-uuid> \
+     --since 2026-05-01 --json | jq .
+   ```
+
+   Look for unexpected `quota_set` events (someone raised the cap
+   without notice?) or anomalous `quota_reset` events.
+
+2. **Reset usage** — zero the running counters for the current
+   period. The QUOTA stays put; only `codeguard_org_usage` for the
+   current month is affected:
+
+   ```bash
+   python scripts/codeguard_quotas.py reset <org-uuid> --confirm \
+     --actor "ops-billing-dispute-${TICKET_ID}"
+   ```
+
+   The `--actor` field is free-text — use it to pin the audit-log
+   trail to a specific support ticket so compliance can answer "why
+   did we zero this org" later.
+
+3. **Verify in the audit log** — confirm the reset row appears:
+
+   ```bash
+   python scripts/codeguard_quotas.py audit <org-uuid> \
+     --action quota_reset --limit 5
+   ```
+
+   Should show your reset event at the top, with `before` capturing
+   the pre-zero totals (the evidence the customer was charged for)
+   and `after` showing zeros.
+
+If the customer also wants the cap raised: chain `set` after the
+reset, with a separate `--actor` so the two events are attributable
+independently.
+
+### 14.6 Migration index
+
+| Migration | Adds |
+| --- | --- |
+| `0023_codeguard_quotas` | `codeguard_org_quotas` + `codeguard_org_usage` |
+| `0026_codeguard_quota_audit_log` | `codeguard_quota_audit_log` (JSONB before/after, FK SET NULL) |
+| `0030_codeguard_quota_thresholds` | `codeguard_quota_threshold_notifications` (dedupe, FK CASCADE) |
+
+All three use FK relationships with `organizations.id` but with
+intentionally different deletion behaviour: usage CASCADE (clean up
+running counters), audit log SET NULL (preserve paper trail),
+notification dedupe CASCADE (operational state only).

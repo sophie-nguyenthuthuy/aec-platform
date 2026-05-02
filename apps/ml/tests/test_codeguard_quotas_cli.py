@@ -94,6 +94,29 @@ class _RowStub:
             setattr(self, k, v)
 
 
+def _stub_threshold_notify_noop(monkeypatch):
+    """Stub `services.codeguard_quotas.check_and_notify_thresholds` to
+    a no-op for tests that focus on the CLI's set/upsert/audit shape
+    rather than the post-commit notification fan-out.
+
+    `cmd_set` now calls this helper after commit (to cover the cap-
+    lowering edge case where ops drops the cap below current usage and
+    nobody hits an LLM route to trigger the usage-side check). For
+    tests that don't care about the notification path, stubbing avoids
+    having to pad the execute() queue with the helper's internal SQL —
+    a leakier coupling that breaks every time the helper's query
+    pattern changes.
+    """
+    import importlib
+
+    services_q = importlib.import_module("services.codeguard_quotas")
+
+    async def _noop(*_a, **_kw):
+        return []
+
+    monkeypatch.setattr(services_q, "check_and_notify_thresholds", _noop)
+
+
 # ---------- cmd_set -----------------------------------------------------
 
 
@@ -109,6 +132,7 @@ async def test_set_upserts_with_both_limits(monkeypatch):
     here; pluck it by index rather than relying on call order, so this
     test stays robust to a future refactor that reorders the helpers.
     """
+    _stub_threshold_notify_noop(monkeypatch)
     # Three execute() calls per set: pre-read (no row), upsert, audit.
     session = _stub_engine_factory(monkeypatch, [None, None, None])
 
@@ -141,6 +165,7 @@ async def test_set_passes_none_for_unlimited_dimension(monkeypatch):
     documented "unlimited on this axis" semantic. A regression that
     coerced None → 0 would silently zero an org's cap and trip 429
     on every subsequent request."""
+    _stub_threshold_notify_noop(monkeypatch)
     session = _stub_engine_factory(monkeypatch, [None, None, None])
 
     org_id = uuid4()
@@ -170,6 +195,7 @@ async def test_set_writes_audit_row_with_before_after_and_actor(monkeypatch):
     """
     import json as _json
 
+    _stub_threshold_notify_noop(monkeypatch)
     org_id = uuid4()
     # Pre-read returns a row → tests the `before` snapshot path that
     # captures the predecessor state. Other two executes return None.
@@ -212,6 +238,7 @@ async def test_set_audit_before_is_null_for_first_set_on_an_org(monkeypatch):
     (encoded as None on the bound parameter), not an empty dict — the
     `before IS NULL` query is how ops finds "first-time provisioning"
     events."""
+    _stub_threshold_notify_noop(monkeypatch)
     org_id = uuid4()
     session = _stub_engine_factory(monkeypatch, [None, None, None])
 
@@ -227,6 +254,7 @@ async def test_set_audit_before_is_null_for_first_set_on_an_org(monkeypatch):
 async def test_set_resolves_actor_from_os_user_when_not_passed(monkeypatch):
     """No `--actor` → fall back to OS username. Audit log can't be
     blank, so this is the path most invocations actually take."""
+    _stub_threshold_notify_noop(monkeypatch)
     monkeypatch.setattr(cli.getpass, "getuser", lambda: "thuy")
 
     session = _stub_engine_factory(monkeypatch, [None, None, None])
@@ -251,6 +279,93 @@ async def test_resolve_actor_falls_back_to_unknown_when_getuser_raises(monkeypat
     assert cli._resolve_actor(None) == "unknown"
     # Explicit override still wins.
     assert cli._resolve_actor("svc-account") == "svc-account"
+
+
+# ---------- cmd_set fires threshold check on cap-lower -----------------
+
+
+@pytest.mark.asyncio
+async def test_set_calls_threshold_check_after_commit(monkeypatch):
+    """The cap-lowering edge case: ops drops an org's cap from 1M to
+    500k while they're sitting at 600k. Pre-this-fix, no email fires
+    until the org's next LLM call runs `record_org_usage`. With the
+    fix, `cmd_set` calls `check_and_notify_thresholds` post-commit so
+    the email goes out immediately.
+
+    Pin via call observation: `check_and_notify_thresholds` must be
+    invoked with the same `org_id` the set targeted, AND it must run
+    AFTER the audit insert (otherwise the dedupe row would land
+    against the pre-set state).
+    """
+    import importlib
+
+    _stub_engine_factory(monkeypatch, [None, None, None])
+    services_q = importlib.import_module("services.codeguard_quotas")
+
+    invocations: list[tuple] = []
+
+    async def _spy_notify(db, org_id, **kw):
+        invocations.append((db, org_id, kw))
+        return [{"dimension": "input", "threshold": 80, "recipients": ["x@y.z"], "delivered": 1}]
+
+    monkeypatch.setattr(services_q, "check_and_notify_thresholds", _spy_notify)
+
+    target_org = uuid4()
+    result = await cli.cmd_set(
+        target_org,
+        input_limit=500_000,  # lowered cap
+        output_limit=200_000,
+        actor="ops-bot",
+    )
+
+    assert len(invocations) == 1, (
+        f"check_and_notify_thresholds should have been called exactly once "
+        f"after commit; was called {len(invocations)} times."
+    )
+    _, called_org, _ = invocations[0]
+    assert called_org == target_org
+
+    # The result surfaces the notification summaries so an operator
+    # running this can see at a glance whether the email actually went.
+    # Pin the field shape so the audit-trail story stays consistent.
+    assert result["notifications"] == [
+        {"dimension": "input", "threshold": 80, "recipients": ["x@y.z"], "delivered": 1}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_set_swallows_notification_failures(monkeypatch, capsys):
+    """An SMTP outage / notification-prefs query failure must NOT roll
+    back the cap update or the audit row. Pin the swallow + warning
+    behaviour: the result still comes back successful, with empty
+    `notifications`, and a stderr warning surfaces so the operator
+    sees something went wrong with the ancillary channel."""
+    import importlib
+
+    _stub_engine_factory(monkeypatch, [None, None, None])
+    services_q = importlib.import_module("services.codeguard_quotas")
+
+    async def _boom(*_a, **_kw):
+        raise RuntimeError("SMTP unreachable")
+
+    monkeypatch.setattr(services_q, "check_and_notify_thresholds", _boom)
+
+    target_org = uuid4()
+    result = await cli.cmd_set(
+        target_org,
+        input_limit=1_000_000,
+        output_limit=200_000,
+        actor="ops-bot",
+    )
+    # The set itself succeeded.
+    assert result["org_id"] == str(target_org)
+    assert result["monthly_input_token_limit"] == 1_000_000
+    # Notifications field is present but empty — distinguishable from
+    # "everything went fine, nobody to notify" via the stderr warning.
+    assert result["notifications"] == []
+    captured = capsys.readouterr()
+    assert "warning" in captured.err.lower()
+    assert "check_and_notify_thresholds" in captured.err
 
 
 # ---------- cmd_reset ---------------------------------------------------

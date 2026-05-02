@@ -33,7 +33,10 @@ const NAV: Array<{ href: Route; label: string; section?: string }> = [
   { href: "/settings/search-analytics", label: "Phân tích tìm kiếm" },
   { href: "/settings/import", label: "Nhập dữ liệu" },
   { href: "/settings/export", label: "Xuất dữ liệu" },
+  { href: "/settings/retention", label: "Retention" },
+  { href: "/settings/api-keys", label: "API keys" },
   { section: "Tài liệu", href: "/docs/webhooks", label: "Webhooks" },
+  { href: "/docs/api", label: "API reference" },
 ];
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {

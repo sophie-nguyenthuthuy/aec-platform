@@ -200,6 +200,598 @@ async def test_record_usage_calls_db_when_tokens_present():
     assert params["out_tok"] == 100
 
 
+# ---------- Threshold notifications ----------------------------------------
+#
+# `check_and_notify_thresholds` is the post-`record_org_usage` hook
+# that emails the org's quota_warn opt-in list when usage crosses 80%
+# or 95%. Pinned contracts:
+#   1. First crossing → email; second crossing same period → silent.
+#   2. New period (next month) → email fires again.
+#   3. Recipients pulled from notification_preferences with
+#      key='quota_warn' AND email_enabled=true.
+#   4. The dedupe row lands EVEN when the mailer fails — a flapping
+#      SMTP outage must not multi-send to the same inbox once recovered.
+
+
+def _execute_returning(*results):
+    """Build an `AsyncMock` for `db.execute` that returns successive
+    results from `results`. Mirrors the helper used elsewhere in this
+    file for SQL-shape mocking — each entry can be a `_RowStub`,
+    a list, or None."""
+
+    queue = list(results)
+
+    async def _exec(*_a, **_kw):
+        nxt = queue.pop(0) if queue else None
+        result = MagicMock()
+        if isinstance(nxt, list):
+            result.all.return_value = nxt
+            result.first.return_value = nxt[0] if nxt else None
+            result.rowcount = len(nxt)
+        else:
+            result.first.return_value = nxt
+            result.all.return_value = [nxt] if nxt is not None else []
+            # Default rowcount=1 for non-list non-None (a successful
+            # INSERT/UPDATE) and 0 for None (ON CONFLICT DO NOTHING).
+            result.rowcount = 0 if nxt is None else 1
+        return result
+
+    return AsyncMock(side_effect=_exec)
+
+
+async def test_threshold_fires_email_when_crossing_80pct(monkeypatch):
+    """Standard happy path: usage just crossed 80% on input → claim
+    the dedupe row, look up recipients, send one email per recipient."""
+    import datetime as _dt
+
+    from services import codeguard_quotas as _q
+
+    org_id = uuid4()
+    db = MagicMock()
+    # Execute call sequence:
+    #   1. quota+usage SELECT (returns the at-85% row)
+    #   2. SELECT existing dedupe rows (none yet)
+    #   3. SELECT period_start (a single-column row)
+    #   4. INSERT…ON CONFLICT (rowcount=1 → claimed)
+    #   5. SELECT quota_warn recipients
+    db.execute = _execute_returning(
+        _RowStub(
+            in_lim=1_000_000,
+            out_lim=200_000,
+            in_used=850_000,  # 85%
+            out_used=10_000,  # 5%, below threshold
+            period_start=_dt.date(2026, 5, 1),
+        ),
+        [],  # no existing dedupe rows
+        _RowStub(p=_dt.date(2026, 5, 1)),  # period_start lookup
+        # Bare INSERT…ON CONFLICT result — `_execute_returning` defaults
+        # `rowcount=1` for a non-None first row. We pass a placeholder
+        # (any non-None value) so the rowcount=1 (claimed) path fires.
+        _RowStub(),
+        # Recipients now carry per-channel intent. Email-only user.
+        [_RowStub(email="finance@example.com", email_enabled=True, slack_enabled=False)],
+    )
+
+    sent: list[dict] = []
+
+    async def _fake_mailer(**kwargs):
+        sent.append(kwargs)
+        return {"to": kwargs["to"], "delivered": True, "reason": None}
+
+    async def _fake_slacker(**_kw):
+        raise AssertionError("Slack must NOT fire for an email-only recipient")
+
+    summaries = await _q.check_and_notify_thresholds(db, org_id, mailer=_fake_mailer, slacker=_fake_slacker)
+
+    assert len(summaries) == 1
+    assert summaries[0]["dimension"] == "input"
+    assert summaries[0]["threshold"] == 80
+    assert summaries[0]["recipients"] == ["finance@example.com"]
+    assert summaries[0]["delivered_email"] == 1
+    assert summaries[0]["delivered_slack"] == 0
+    # Email actually went out — pin subject substring + recipient.
+    assert len(sent) == 1
+    assert sent[0]["to"] == "finance@example.com"
+    assert "85.0%" in sent[0]["subject"]
+
+
+async def test_threshold_fires_critical_email_at_95pct():
+    """At 95%+, the email uses the "Sắp đạt" critical copy and points
+    at /codeguard/quota in the body. Pin both halves so a refactor
+    that mixes up the warn/critical templates is visible."""
+    import datetime as _dt
+
+    from services import codeguard_quotas as _q
+
+    org_id = uuid4()
+    db = MagicMock()
+    db.execute = _execute_returning(
+        _RowStub(
+            in_lim=1_000_000,
+            out_lim=200_000,
+            in_used=200_000,  # 20%
+            out_used=192_000,  # 96%
+            period_start=_dt.date(2026, 5, 1),
+        ),
+        [],  # no dedupe rows yet
+        _RowStub(p=_dt.date(2026, 5, 1)),  # period_start lookup, ONCE
+        # _crossed_thresholds returns BOTH 95 AND 80 (descending) since
+        # 96% has crossed both bands for the first time. The helper
+        # iterates over them; each event needs claim + recipients.
+        _RowStub(),  # claim 95% row
+        # Email-only recipient — same shape as test above.
+        [_RowStub(email="oncall@example.com", email_enabled=True, slack_enabled=False)],
+        _RowStub(),  # claim 80% row
+        [_RowStub(email="oncall@example.com", email_enabled=True, slack_enabled=False)],
+    )
+
+    sent: list[dict] = []
+
+    async def _fake_mailer(**kwargs):
+        sent.append(kwargs)
+        return {"to": kwargs["to"], "delivered": True, "reason": None}
+
+    summaries = await _q.check_and_notify_thresholds(db, org_id, mailer=_fake_mailer)
+    # Both thresholds fire on the same call (96% crosses BOTH bands
+    # for the first time). Pin the 95% one specifically.
+    critical = next(s for s in summaries if s["threshold"] == 95)
+    assert critical["dimension"] == "output"
+    # Two emails went out — one per threshold.
+    critical_email = next(e for e in sent if "Sắp đạt" in e["subject"])
+    assert "96.0%" in critical_email["subject"]
+    # Absolute URL — relative paths render as inert text in most email
+    # clients. The link MUST be `<base>/codeguard/quota`, not a bare
+    # path. Assert the host portion appears alongside the path so a
+    # regression that drops the prefix is visible.
+    assert "://" in critical_email["text_body"], (
+        f"Expected an absolute URL in the email body, got: {critical_email['text_body']!r}. "
+        "If the link starts with `/codeguard/quota`, the `_quota_page_url` helper "
+        "wasn't called or `web_base_url` got dropped from the format string."
+    )
+    assert "/codeguard/quota" in critical_email["text_body"]
+    assert "/codeguard/quota" in critical_email["html_body"]
+
+
+async def test_threshold_silent_when_dedupe_row_exists():
+    """Already-sent threshold for this period → no email, no claim
+    insert. The whole point of the dedupe table — finance shouldn't
+    get spammed every minute when the org is parked at 81%."""
+    import datetime as _dt
+
+    from services import codeguard_quotas as _q
+
+    org_id = uuid4()
+    db = MagicMock()
+    # 80% on input crossed AND a dedupe row already exists for it.
+    db.execute = _execute_returning(
+        _RowStub(
+            in_lim=1_000_000,
+            out_lim=200_000,
+            in_used=820_000,
+            out_used=10_000,
+            period_start=_dt.date(2026, 5, 1),
+        ),
+        # Existing dedupe row covers the (input, 80) band.
+        [_RowStub(dimension="input", threshold=80)],
+    )
+
+    async def _mailer_should_never_be_called(**_kw):
+        raise AssertionError("mailer must not fire when dedupe row exists")
+
+    summaries = await _q.check_and_notify_thresholds(db, org_id, mailer=_mailer_should_never_be_called)
+    assert summaries == []
+
+
+async def test_threshold_silent_for_unlimited_org():
+    """No quota row → unlimited org → nothing to fire. The check must
+    short-circuit at the first SELECT and not even look up the dedupe
+    table."""
+    from services import codeguard_quotas as _q
+
+    db = MagicMock()
+    db.execute = _execute_returning(None)  # quota+usage SELECT returns nothing
+
+    async def _mailer_should_never_be_called(**_kw):
+        raise AssertionError("mailer must not fire for unlimited orgs")
+
+    summaries = await _q.check_and_notify_thresholds(db, uuid4(), mailer=_mailer_should_never_be_called)
+    assert summaries == []
+
+
+async def test_threshold_silent_when_claim_loses_race():
+    """Two concurrent `record_org_usage` calls both see "no dedupe
+    row exists" but only ONE INSERT lands. The loser must observe
+    rowcount=0 from `ON CONFLICT DO NOTHING` and skip the email.
+
+    Without this pin, a tight burst of LLM calls all crossing 80%
+    in the same second could fan out N emails to the same recipient."""
+    import datetime as _dt
+
+    from services import codeguard_quotas as _q
+
+    db = MagicMock()
+    # Quota+usage at 85%, no existing dedupe rows... but the INSERT
+    # claim returns rowcount=0 (concurrent peer beat us to it).
+    losing_claim = MagicMock()
+    losing_claim.rowcount = 0  # peer claimed first
+    losing_claim.first.return_value = None
+    losing_claim.all.return_value = []
+
+    queue = [
+        _RowStub(
+            in_lim=1_000_000,
+            out_lim=200_000,
+            in_used=850_000,
+            out_used=10_000,
+            period_start=_dt.date(2026, 5, 1),
+        ),
+        [],  # no dedupe rows yet
+        _RowStub(p=_dt.date(2026, 5, 1)),  # period_start
+        losing_claim,  # rowcount=0 claim path
+    ]
+
+    async def _exec(*_a, **_kw):
+        nxt = queue.pop(0) if queue else None
+        if hasattr(nxt, "rowcount"):
+            return nxt
+        result = MagicMock()
+        if isinstance(nxt, list):
+            result.all.return_value = nxt
+            result.first.return_value = nxt[0] if nxt else None
+        else:
+            result.first.return_value = nxt
+            result.all.return_value = [nxt] if nxt is not None else []
+            result.rowcount = 0 if nxt is None else 1
+        return result
+
+    db.execute = AsyncMock(side_effect=_exec)
+
+    async def _mailer_should_not_fire(**_kw):
+        raise AssertionError("mailer must not fire when the claim was lost")
+
+    summaries = await _q.check_and_notify_thresholds(db, uuid4(), mailer=_mailer_should_not_fire)
+    assert summaries == []
+
+
+async def test_threshold_records_no_recipients_summary_when_nobody_opted_in():
+    """If the org has no users opted into `quota_warn`, the dedupe row
+    still gets claimed (so we don't re-attempt later) but the summary
+    records `recipients=[]` and `delivered=0`. Lets the caller's logs
+    surface "warned but nobody listening" — useful for getting opt-in
+    coverage right during rollout."""
+    import datetime as _dt
+
+    from services import codeguard_quotas as _q
+
+    org_id = uuid4()
+    db = MagicMock()
+    db.execute = _execute_returning(
+        _RowStub(
+            in_lim=1_000_000,
+            out_lim=200_000,
+            in_used=850_000,
+            out_used=10_000,
+            period_start=_dt.date(2026, 5, 1),
+        ),
+        [],  # no dedupe yet
+        _RowStub(p=_dt.date(2026, 5, 1)),
+        _RowStub(),  # claim succeeds
+        [],  # no recipients
+    )
+
+    async def _mailer_should_never_fire(**_kw):
+        raise AssertionError("mailer must not fire when there are no recipients")
+
+    summaries = await _q.check_and_notify_thresholds(db, org_id, mailer=_mailer_should_never_fire)
+    assert len(summaries) == 1
+    assert summaries[0]["recipients"] == []
+    assert summaries[0]["delivered_email"] == 0
+    assert summaries[0]["delivered_slack"] == 0
+
+
+# ---------- Threshold cross-channel dispatch ------------------------------
+#
+# `notification_preferences` has both `email_enabled` AND `slack_enabled`
+# columns — pre-this-fix only email was wired. Pin all four combinations:
+#   email-only / slack-only / both / neither
+# A regression that drops one channel (or fans out wrong) would silently
+# under-notify the recipients that opted in to it.
+
+
+async def test_threshold_slack_only_user_gets_slack_post_no_email(monkeypatch):
+    """User with `slack_enabled=TRUE, email_enabled=FALSE` — must get
+    a Slack post and NO email. Pin so the email channel doesn't
+    accidentally become a fallback for Slack-only opt-ins."""
+    import datetime as _dt
+
+    from services import codeguard_quotas as _q
+
+    org_id = uuid4()
+    db = MagicMock()
+    db.execute = _execute_returning(
+        _RowStub(
+            in_lim=1_000_000,
+            out_lim=200_000,
+            in_used=850_000,
+            out_used=10_000,
+            period_start=_dt.date(2026, 5, 1),
+        ),
+        [],
+        _RowStub(p=_dt.date(2026, 5, 1)),
+        _RowStub(),  # claim
+        [_RowStub(email="ops@example.com", email_enabled=False, slack_enabled=True)],
+    )
+
+    slack_calls: list[dict] = []
+
+    async def _fake_slack(**kwargs):
+        slack_calls.append(kwargs)
+        return {"delivered": True, "reason": None, "status": 200}
+
+    async def _mailer_must_not_fire(**_kw):
+        raise AssertionError("Email must not fire for slack-only recipient")
+
+    summaries = await _q.check_and_notify_thresholds(db, org_id, mailer=_mailer_must_not_fire, slacker=_fake_slack)
+    assert summaries[0]["delivered_email"] == 0
+    assert summaries[0]["delivered_slack"] == 1
+    # Recipients list excludes slack-only users (it's email-shaped for
+    # backwards-compat) — pin so a refactor that conflates the two
+    # views doesn't accidentally start emailing slack-only users.
+    assert summaries[0]["recipients"] == []
+    assert len(slack_calls) == 1
+    # Block-Kit shape: text + blocks. The Slack helper renders a
+    # header + section + context. Pin enough to catch a regression
+    # that swaps the renderer for a plain-text fallback.
+    assert "85.0%" in slack_calls[0]["text"]
+    assert any(b.get("type") == "header" for b in slack_calls[0]["blocks"])
+
+
+async def test_threshold_dual_channel_user_gets_both(monkeypatch):
+    """User with both channels enabled gets BOTH an email and a Slack
+    post. Pin so a refactor that introduces "prefer one channel"
+    routing doesn't silently demote dual-opt-in to single-channel."""
+    import datetime as _dt
+
+    from services import codeguard_quotas as _q
+
+    org_id = uuid4()
+    db = MagicMock()
+    db.execute = _execute_returning(
+        _RowStub(
+            in_lim=1_000_000,
+            out_lim=200_000,
+            in_used=850_000,
+            out_used=10_000,
+            period_start=_dt.date(2026, 5, 1),
+        ),
+        [],
+        _RowStub(p=_dt.date(2026, 5, 1)),
+        _RowStub(),
+        [_RowStub(email="alice@example.com", email_enabled=True, slack_enabled=True)],
+    )
+
+    emails: list[dict] = []
+    slacks: list[dict] = []
+
+    async def _fake_mailer(**kwargs):
+        emails.append(kwargs)
+        return {"to": kwargs["to"], "delivered": True, "reason": None}
+
+    async def _fake_slacker(**kwargs):
+        slacks.append(kwargs)
+        return {"delivered": True, "reason": None, "status": 200}
+
+    summaries = await _q.check_and_notify_thresholds(db, org_id, mailer=_fake_mailer, slacker=_fake_slacker)
+    assert summaries[0]["delivered_email"] == 1
+    assert summaries[0]["delivered_slack"] == 1
+    assert len(emails) == 1
+    assert len(slacks) == 1
+    assert summaries[0]["recipients"] == ["alice@example.com"]
+
+
+async def test_threshold_slack_fires_at_most_once_per_event(monkeypatch):
+    """When N opted-in users all have `slack_enabled=TRUE`, the global
+    webhook is hit ONCE per event (not N times). Posting per user
+    would spam the same #channel N times for the same threshold
+    crossing — comically bad UX. Pin until per-user Slack DMs are
+    a feature."""
+    import datetime as _dt
+
+    from services import codeguard_quotas as _q
+
+    org_id = uuid4()
+    db = MagicMock()
+    db.execute = _execute_returning(
+        _RowStub(
+            in_lim=1_000_000,
+            out_lim=200_000,
+            in_used=850_000,
+            out_used=10_000,
+            period_start=_dt.date(2026, 5, 1),
+        ),
+        [],
+        _RowStub(p=_dt.date(2026, 5, 1)),
+        _RowStub(),
+        [
+            _RowStub(email="a@x.com", email_enabled=True, slack_enabled=True),
+            _RowStub(email="b@x.com", email_enabled=True, slack_enabled=True),
+            _RowStub(email="c@x.com", email_enabled=True, slack_enabled=True),
+        ],
+    )
+
+    slacks: list[dict] = []
+
+    async def _fake_mailer(**_kw):
+        return {"delivered": True}
+
+    async def _fake_slacker(**kwargs):
+        slacks.append(kwargs)
+        return {"delivered": True}
+
+    summaries = await _q.check_and_notify_thresholds(db, org_id, mailer=_fake_mailer, slacker=_fake_slacker)
+    # 3 emails, exactly 1 Slack post.
+    assert summaries[0]["delivered_email"] == 3
+    assert summaries[0]["delivered_slack"] == 1
+    assert len(slacks) == 1
+
+
+async def test_threshold_slack_failure_does_not_block_email(monkeypatch):
+    """Slack webhook returns `delivered=False` (timeout, 4xx, missing
+    config) — email should still fire. Cross-channel failure
+    isolation: one channel down must not silently take down the
+    other. Pin via a slacker that returns `delivered=False`."""
+    import datetime as _dt
+
+    from services import codeguard_quotas as _q
+
+    org_id = uuid4()
+    db = MagicMock()
+    db.execute = _execute_returning(
+        _RowStub(
+            in_lim=1_000_000,
+            out_lim=200_000,
+            in_used=850_000,
+            out_used=10_000,
+            period_start=_dt.date(2026, 5, 1),
+        ),
+        [],
+        _RowStub(p=_dt.date(2026, 5, 1)),
+        _RowStub(),
+        [_RowStub(email="finance@example.com", email_enabled=True, slack_enabled=True)],
+    )
+
+    async def _fake_mailer(**_kw):
+        return {"delivered": True}
+
+    async def _slack_down(**_kw):
+        return {"delivered": False, "reason": "slack_not_configured", "status": None}
+
+    summaries = await _q.check_and_notify_thresholds(db, org_id, mailer=_fake_mailer, slacker=_slack_down)
+    # Email succeeded, Slack didn't — both reported in the summary.
+    assert summaries[0]["delivered_email"] == 1
+    assert summaries[0]["delivered_slack"] == 0
+
+
+async def test_render_threshold_slack_critical_uses_rotating_light(monkeypatch):
+    """95%+ → rotating-light emoji (matches the red banner color band).
+    80% → plain warning emoji. Pin both so a refactor that flips them
+    is visible — the Slack convention encodes urgency at a glance."""
+    from core.config import get_settings
+    from services.codeguard_quotas import _render_threshold_slack
+
+    monkeypatch.setattr(get_settings(), "web_base_url", "https://app.example.com")
+
+    crit_text, crit_blocks = _render_threshold_slack(
+        dimension="output", threshold=95, used=192_000, limit=200_000, percent=96.0
+    )
+    assert ":rotating_light:" in crit_text
+    # Quota URL absolute, embedded in the context block.
+    ctx = next(b for b in crit_blocks if b["type"] == "context")
+    assert "https://app.example.com/codeguard/quota" in ctx["elements"][0]["text"]
+
+    warn_text, _ = _render_threshold_slack(dimension="input", threshold=80, used=850_000, limit=1_000_000, percent=85.0)
+    assert ":warning:" in warn_text
+    assert ":rotating_light:" not in warn_text
+
+
+# ---------- Threshold-email body rendering ---------------------------------
+
+
+async def test_render_threshold_email_uses_absolute_url(monkeypatch):
+    """The text + HTML bodies must embed an absolute URL built from
+    `Settings.web_base_url`. Most email clients (Gmail, Outlook web,
+    Apple Mail) won't make a relative `/codeguard/quota` href clickable
+    — without the host prefix the CTA we built becomes inert text.
+
+    Pin via a settings override so a regression that hardcodes the
+    prefix (or drops the prefix entirely) is caught here, not via a
+    user complaint about a dead link.
+    """
+    from core.config import get_settings
+    from services.codeguard_quotas import _render_threshold_email
+
+    # Override `web_base_url` on the cached settings object. This is
+    # the same shape as the override-pattern used in test_*_router.py
+    # files for `email_from`, `smtp_host`, etc.
+    settings = get_settings()
+    monkeypatch.setattr(settings, "web_base_url", "https://app.example.com")
+
+    subject, text_body, html_body = _render_threshold_email(
+        dimension="input",
+        threshold=80,
+        used=850_000,
+        limit=1_000_000,
+        percent=85.0,
+    )
+
+    expected_url = "https://app.example.com/codeguard/quota"
+    assert expected_url in text_body, f"Expected absolute URL {expected_url!r} in text body, got: {text_body!r}"
+    assert f'href="{expected_url}"' in html_body, f'Expected `href="{expected_url}"` in HTML body, got: {html_body!r}'
+    # Sanity: the bare relative path must NOT appear standalone in the
+    # text body (else a refactor that left a dangling `/codeguard/quota`
+    # alongside the absolute URL would still pass).
+    bare_relative_count = text_body.count("/codeguard/quota")
+    absolute_count = text_body.count(expected_url)
+    assert bare_relative_count == absolute_count, (
+        f"Found {bare_relative_count} `/codeguard/quota` substrings vs "
+        f"{absolute_count} absolute URLs — there's a stray relative path "
+        "somewhere in the body that wasn't prefixed."
+    )
+
+
+async def test_render_threshold_email_strips_trailing_slash_from_base():
+    """`web_base_url` may legitimately have a trailing slash from env
+    config (`WEB_BASE_URL=https://app.example.com/`). The helper must
+    normalise so the URL doesn't render as `app.example.com//codeguard/quota`
+    (some clients tolerate the double slash, others don't)."""
+    from core.config import get_settings
+    from services.codeguard_quotas import _quota_page_url
+
+    settings = get_settings()
+    original = settings.web_base_url
+    try:
+        settings.web_base_url = "https://app.example.com/"
+        assert _quota_page_url() == "https://app.example.com/codeguard/quota"
+        settings.web_base_url = "https://app.example.com"  # no slash
+        assert _quota_page_url() == "https://app.example.com/codeguard/quota"
+    finally:
+        settings.web_base_url = original
+
+
+async def test_render_threshold_email_critical_uses_critical_copy(monkeypatch):
+    """`threshold=95` → "Sắp đạt" critical subject + "may 429" body.
+    `threshold=80` → "Cảnh báo" warn subject + "reset đầu tháng" body.
+    The two paths have visibly different urgency; pin both so a refactor
+    that mistakenly routes 95 through the warn template (or vice versa)
+    is caught."""
+    from core.config import get_settings
+    from services.codeguard_quotas import _render_threshold_email
+
+    monkeypatch.setattr(get_settings(), "web_base_url", "https://x.test")
+
+    crit_subject, crit_text, _ = _render_threshold_email(
+        dimension="output",
+        threshold=95,
+        used=192_000,
+        limit=200_000,
+        percent=96.0,
+    )
+    assert "Sắp đạt" in crit_subject
+    assert "HTTP 429" in crit_text
+
+    warn_subject, warn_text, _ = _render_threshold_email(
+        dimension="input",
+        threshold=80,
+        used=850_000,
+        limit=1_000_000,
+        percent=85.0,
+    )
+    assert "Đã dùng" in warn_subject
+    assert "reset" in warn_text.lower()
+    # Critical copy must NOT leak into the warn body.
+    assert "HTTP 429" not in warn_text
+
+
 # ---------- vi-VN number formatter -----------------------------------------
 
 
@@ -225,15 +817,11 @@ async def test_cap_check_ticks_429_counter_and_observes_latency(client, monkeypa
     # already fired the cap-check (the metrics module is process-wide
     # state). We diff before/after rather than asserting absolute counts.
     before_429 = metrics.codeguard_quota_429_total._values.get(("input",), 0.0)
-    before_obs = metrics.codeguard_quota_check_duration_seconds._observations.get(
-        (), [0.0, 0.0]
-    )
+    before_obs = metrics.codeguard_quota_check_duration_seconds._observations.get((), [0.0, 0.0])
     before_count = before_obs[1] if len(before_obs) >= 2 else 0.0
 
     async def _over_quota(_db, _org_id):
-        return QuotaCheckResult(
-            over_limit=True, limit_kind="input", used=1_500_000, limit=1_000_000
-        )
+        return QuotaCheckResult(over_limit=True, limit_kind="input", used=1_500_000, limit=1_000_000)
 
     monkeypatch.setattr("services.codeguard_quotas.check_org_quota", _over_quota)
 
@@ -244,9 +832,7 @@ async def test_cap_check_ticks_429_counter_and_observes_latency(client, monkeypa
     assert res.status_code == 429
 
     after_429 = metrics.codeguard_quota_429_total._values.get(("input",), 0.0)
-    after_count = (
-        metrics.codeguard_quota_check_duration_seconds._observations.get((), [0.0, 0.0])[1]
-    )
+    after_count = metrics.codeguard_quota_check_duration_seconds._observations.get((), [0.0, 0.0])[1]
     assert after_429 == before_429 + 1, (
         "Counter `codeguard_quota_429_total{limit_kind=input}` should have "
         f"incremented by exactly 1 (was {before_429}, now {after_429}). "
@@ -259,54 +845,47 @@ async def test_cap_check_ticks_429_counter_and_observes_latency(client, monkeypa
     )
 
 
-async def test_cap_check_does_not_tick_429_when_under_limit(client, monkeypatch):
+async def test_cap_check_does_not_tick_429_when_under_limit(monkeypatch):
     """The histogram observation fires on every cap-check (under or
     over), but the 429 counter must ONLY tick on refused requests. A
     regression that increments the counter unconditionally would inflate
     the dashboard's "tenants getting capped" view by every successful
-    request — silent but very wrong."""
+    request — silent but very wrong.
+
+    Calls the helper directly rather than through a route — keeps the
+    test self-contained (doesn't depend on the LLM mocking, auth, etc.)
+    and pins the contract at the helper boundary where the observation
+    happens.
+    """
+    from uuid import uuid4
+
     from core import metrics
+    from routers.codeguard import _check_quota_or_raise
     from services.codeguard_quotas import QuotaCheckResult
 
     before_429_input = metrics.codeguard_quota_429_total._values.get(("input",), 0.0)
     before_429_output = metrics.codeguard_quota_429_total._values.get(("output",), 0.0)
-    before_count = (
-        metrics.codeguard_quota_check_duration_seconds._observations.get((), [0.0, 0.0])[1]
-    )
+    before_count = metrics.codeguard_quota_check_duration_seconds._observations.get((), [0.0, 0.0])[1]
 
     async def _under_quota(_db, _org_id):
         return QuotaCheckResult(over_limit=False, limit_kind="unlimited", used=0, limit=None)
 
     monkeypatch.setattr("services.codeguard_quotas.check_org_quota", _under_quota)
 
-    # Call a cheap LLM-touching route. We don't actually need the LLM
-    # to run; we just need to traverse the cap-check helper. Use the
-    # /quota route — wait, that doesn't run the cap-check. Use /query
-    # but stub the LLM via the same monkeypatch the file already does
-    # implicitly via mock_llm fixture in other tests. Simplest: call
-    # /query and let it 500 if the LLM stub is missing — we don't
-    # assert on the response here, only the metric deltas.
-    try:
-        await client.post(
-            "/api/v1/codeguard/query",
-            json={"question": "ok"},
-        )
-    except Exception:
-        # Don't care about the LLM-side outcome; the cap-check fired
-        # before any LLM call. Pinning the metric deltas is the point.
-        pass
+    # `db` is unused by the stubbed check_org_quota; passing None is
+    # fine here. The point is the helper runs to completion without
+    # raising, and the metric deltas reflect "observed once, no 429."
+    await _check_quota_or_raise(None, uuid4())  # type: ignore[arg-type]
 
     after_429_input = metrics.codeguard_quota_429_total._values.get(("input",), 0.0)
     after_429_output = metrics.codeguard_quota_429_total._values.get(("output",), 0.0)
-    after_count = (
-        metrics.codeguard_quota_check_duration_seconds._observations.get((), [0.0, 0.0])[1]
-    )
+    after_count = metrics.codeguard_quota_check_duration_seconds._observations.get((), [0.0, 0.0])[1]
 
     # Counter unchanged on the under-limit path.
     assert after_429_input == before_429_input
     assert after_429_output == before_429_output
     # Histogram still got an observation (cap-check ran).
-    assert after_count >= before_count + 1
+    assert after_count == before_count + 1
 
 
 async def test_format_vi_int_uses_dot_grouping_not_comma():

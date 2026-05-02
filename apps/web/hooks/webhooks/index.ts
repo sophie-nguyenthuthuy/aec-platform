@@ -1,6 +1,8 @@
 export {
   useCreateWebhook,
   useDeleteWebhook,
+  useDeliveriesHistogram,
+  useRedeliverWebhook,
   useTestWebhook,
   useUpdateWebhook,
   useWebhookDeliveries,
@@ -8,6 +10,8 @@ export {
 } from "./useWebhooks";
 export type {
   CreateWebhookRequest,
+  DeliveriesFilters,
+  DeliveriesHistogramBucket,
   UpdateWebhookRequest,
   WebhookCreated,
   WebhookDelivery,

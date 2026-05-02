@@ -9,3 +9,51 @@ requires-python = ">=3.11"
 
 [tool.setuptools.packages.find]
 include = ["pipelines*"]
+
+# ---------- Coverage ----------
+#
+# `pytest --cov` opts coverage on; this section pins HOW it measures.
+# Default plain `pytest` doesn't run with coverage (would inflate the
+# unit-test loop). Run via `make test-ml-cov` or pass `--cov` explicitly.
+#
+# Branch coverage is on because line-only misses important things like
+# "this `if status == 'won'` branch is never taken in tests."
+
+[tool.coverage.run]
+branch = true
+source = ["apps/ml/pipelines"]
+omit = [
+    "*/__init__.py",
+    "*/conftest.py",
+    "tests/*",
+    # Ray Serve entrypoint — covered by integration only.
+    "*/server.py",
+    # Tier 4 quality eval driver — burns real LLM credit.
+    "*/eval_*.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+show_missing = true
+skip_covered = true
+# Coverage floor — a PR that drops the global average below 56% red-gates
+# in CI. Baseline trajectory:
+#   2026-05-02 round 5 (initial pin): 54.95% / 179 tests
+#   2026-05-02 round 6 (+orchestration): 57.04% / 185 tests
+# 1pt headroom for run-to-run jitter; same pattern as the other coverage
+# lanes. Top remaining gaps tracked in `docs/ml-coverage-audit.md`.
+#
+# Raise this only after a batch of new tests lands and you've confirmed
+# the new baseline is stable across a few runs — an aspirational floor
+# that flaps is worse than no floor at all.
+#
+# Note: the canonical `--cov-fail-under` value is on the CLI in the
+# Makefile (`make test-ml-cov`) because pytest-cov resolves config
+# from CWD, not from `--cov`'s target. This value here is for tooling
+# that DOES read this file (IDE plugins, future inversions).
+fail_under = 56

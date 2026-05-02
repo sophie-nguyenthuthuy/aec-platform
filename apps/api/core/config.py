@@ -72,6 +72,20 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     email_from: str = "no-reply@aec-platform.vn"
 
+    # Public-facing web app origin used when building absolute URLs for
+    # email bodies, Slack messages, etc. The codeguard threshold-warning
+    # emails use this to render `<base>/codeguard/quota` — relative paths
+    # render as non-clickable text in most email clients (Gmail, Outlook
+    # web). No trailing slash convention: callers append `/codeguard/...`
+    # so the helper enforces it via `.rstrip('/')`.
+    #
+    # Default `https://app.aec-platform.vn` is the production hostname;
+    # local dev overrides via `WEB_BASE_URL=http://localhost:3000`.
+    web_base_url: str = Field(
+        default="https://app.aec-platform.vn",
+        validation_alias="WEB_BASE_URL",
+    )
+
     # Recipients for ops drift alerts (codeguard quota drift, queue-depth
     # alarms, etc.). Empty list disables alerting entirely — services check
     # this list and short-circuit before rendering bodies. Comma-separated

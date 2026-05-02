@@ -13,14 +13,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID, uuid4
+from unittest.mock import MagicMock
+from uuid import uuid4
 
 import pytest
 
 from services.retention import (
     RETENTION_POLICIES,
-    RetentionPolicy,
     collect_stats,
     policy_ttl_days,
     prune_table,
@@ -58,7 +57,9 @@ class FakeAsyncSession:
         r = MagicMock()
         r.mappings.return_value.all.return_value = []
         r.mappings.return_value.one.return_value = {
-            "row_count": 0, "oldest_at": None, "overdue_count": 0,
+            "row_count": 0,
+            "oldest_at": None,
+            "overdue_count": 0,
         }
         return r
 
@@ -187,9 +188,7 @@ async def test_prune_table_archives_to_s3_when_enabled(monkeypatch):
     We mock the boto3 client at the aioboto3.Session.client layer so
     the call shape is verified without real network."""
     fake = FakeAsyncSession()
-    deleted_rows = [
-        {"id": uuid4(), "action": "x", "created_at": datetime(2025, 1, 1, tzinfo=UTC)}
-    ]
+    deleted_rows = [{"id": uuid4(), "action": "x", "created_at": datetime(2025, 1, 1, tzinfo=UTC)}]
     r = MagicMock()
     r.mappings.return_value.all.return_value = deleted_rows
     fake.push(r)
@@ -214,11 +213,14 @@ async def test_prune_table_archives_to_s3_when_enabled(monkeypatch):
         def client(self, name):
             return FakeS3Client()
 
-    monkeypatch.setattr("services.retention.get_settings", lambda: type(
-        "S", (), {"s3_bucket": "test-bucket", "aws_region": "ap-southeast-1"}
-    )())
+    monkeypatch.setattr(
+        "services.retention.get_settings",
+        lambda: type("S", (), {"s3_bucket": "test-bucket", "aws_region": "ap-southeast-1"})(),
+    )
     # Patch aioboto3 inside the lazy import.
-    import sys, types
+    import sys
+    import types
+
     fake_aioboto3 = types.ModuleType("aioboto3")
     fake_aioboto3.Session = FakeAioSession  # type: ignore[attr-defined]
     sys.modules["aioboto3"] = fake_aioboto3
@@ -235,6 +237,7 @@ async def test_prune_table_archives_to_s3_when_enabled(monkeypatch):
     assert body.count("\n") == 0  # one row → one line, no trailing newline
     # UUID + datetime survive serialisation via default=str.
     import json
+
     parsed = json.loads(body)
     assert parsed["action"] == "x"
 

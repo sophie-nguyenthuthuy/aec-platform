@@ -48,6 +48,7 @@ from routers import (  # noqa: E402
     webhooks,
     winwork,
 )
+from routers import api_keys as api_keys_router  # noqa: E402
 from routers import exports as exports_router  # noqa: E402
 from routers import imports as imports_router  # noqa: E402
 
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(onboarding.router)
     app.include_router(imports_router.router)
     app.include_router(exports_router.router)
+    app.include_router(api_keys_router.router)
     app.include_router(winwork.router)
     app.include_router(pulse.router)
     app.include_router(bidradar.router)

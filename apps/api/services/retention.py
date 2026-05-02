@@ -132,6 +132,16 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
         extra_where=None,
         archive=True,
     ),
+    # Per-minute API call rollup. A busy partner produces ~1.5k
+    # rows/key/day; 30d caps a single key at ~45k rows. Pure
+    # observability — no archive value beyond the dashboard window.
+    RetentionPolicy(
+        table="api_key_calls",
+        age_column="minute_bucket",
+        default_days=30,
+        extra_where=None,
+        archive=False,
+    ),
 )
 
 

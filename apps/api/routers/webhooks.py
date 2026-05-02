@@ -11,11 +11,12 @@ real action to happen in the platform.
 
 from __future__ import annotations
 
-from typing import Annotated
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -209,29 +210,152 @@ async def test_webhook(
 # ---------- Recent deliveries ----------
 
 
+DeliveryStatus = Literal["pending", "delivered", "failed"]
+
+
 @router.get("/{webhook_id}/deliveries")
 async def list_deliveries(
     webhook_id: UUID,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    status_filter: Annotated[DeliveryStatus | None, Query(alias="status")] = None,
+    since_days: Annotated[int, Query(ge=1, le=90)] = 7,
     limit: int = 50,
 ):
     """Recent delivery attempts — debug aid when a customer says
     "your webhook didn't fire." Includes status code + error +
-    response snippet."""
+    response snippet.
+
+    Filters:
+      * `status` — narrow to one of pending/delivered/failed.
+      * `since_days` — only rows from the last N days (default 7).
+        Capped at 90 because retention prunes terminal rows at 30d
+        anyway; longer windows would always be nearly-empty.
+    """
+    stmt = (
+        select(WebhookDelivery)
+        .where(
+            WebhookDelivery.subscription_id == webhook_id,
+            WebhookDelivery.organization_id == auth.organization_id,
+            WebhookDelivery.created_at >= datetime.now(UTC) - timedelta(days=since_days),
+        )
+        .order_by(WebhookDelivery.created_at.desc())
+        .limit(min(limit, 200))
+    )
+    if status_filter is not None:
+        stmt = stmt.where(WebhookDelivery.status == status_filter)
+    rows = (await db.execute(stmt)).scalars().all()
+    return ok([WebhookDeliveryOut.model_validate(r).model_dump(mode="json") for r in rows])
+
+
+@router.get("/{webhook_id}/deliveries/histogram")
+async def deliveries_histogram(
+    webhook_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    days: Annotated[int, Query(ge=1, le=30)] = 7,
+):
+    """Day-bucketed delivery counts by status. Drives the small
+    histogram on `/settings/webhooks/[id]` so admins can spot failure
+    spikes at a glance.
+
+    Postgres `date_trunc('day', created_at AT TIME ZONE 'UTC')` keeps
+    the bucket boundary in the same TZ across daylight savings — the
+    UI labels read "today / yesterday / 2 days ago" so absolute time
+    isn't shown.
+    """
     rows = (
         (
             await db.execute(
-                select(WebhookDelivery)
-                .where(
-                    WebhookDelivery.subscription_id == webhook_id,
-                    WebhookDelivery.organization_id == auth.organization_id,
-                )
-                .order_by(WebhookDelivery.created_at.desc())
-                .limit(min(limit, 200))
+                text(
+                    f"""
+                    SELECT date_trunc('day', created_at AT TIME ZONE 'UTC') AS day,
+                           status,
+                           COUNT(*) AS count
+                    FROM webhook_deliveries
+                    WHERE subscription_id = :sub_id
+                      AND organization_id = :org_id
+                      AND created_at >= NOW() - INTERVAL '{int(days)} days'
+                    GROUP BY day, status
+                    ORDER BY day ASC
+                    """
+                ),
+                {"sub_id": str(webhook_id), "org_id": str(auth.organization_id)},
             )
         )
-        .scalars()
+        .mappings()
         .all()
     )
-    return ok([WebhookDeliveryOut.model_validate(r).model_dump(mode="json") for r in rows])
+    # Pivot into one entry per day with status counts. Frontend renders
+    # the bars without further computation.
+    by_day: dict[str, dict[str, int]] = {}
+    for r in rows:
+        key = r["day"].isoformat() if r["day"] else ""
+        bucket = by_day.setdefault(key, {"day": key, "delivered": 0, "failed": 0, "pending": 0})
+        bucket[r["status"]] = int(r["count"])
+    return ok(list(by_day.values()))
+
+
+@router.post("/deliveries/{delivery_id}/redeliver", status_code=status.HTTP_202_ACCEPTED)
+async def redeliver(
+    delivery_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Re-enqueue a delivery — usually called on a `failed` row that
+    the customer's receiver was down for. We don't mutate the original
+    row (it's audit history); we INSERT a fresh delivery with the same
+    payload + a new `id` (which doubles as the idempotency key on the
+    receiver side).
+
+    Why a new row instead of resetting the old one's status:
+      * Retention semantics stay simple — the original failed row ages
+        out at 30d; the redelivery is a separate row with its own clock.
+      * Audit history shows BOTH attempts, not just the latest.
+      * The receiver's idempotency key is `id`. Resetting status would
+        keep the same id and the receiver might 200 on the dup without
+        actually processing it — a redeliver wouldn't actually deliver.
+    """
+    src = (
+        await db.execute(
+            select(WebhookDelivery).where(
+                WebhookDelivery.id == delivery_id,
+                WebhookDelivery.organization_id == auth.organization_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if src is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "delivery_not_found")
+
+    new_id = uuid4()
+    await db.execute(
+        text(
+            """
+            INSERT INTO webhook_deliveries (
+                id, subscription_id, organization_id, event_type, payload,
+                status, attempt_count, next_retry_at
+            ) VALUES (
+                :id, :sub_id, :org_id, :event_type, CAST(:payload AS JSONB),
+                'pending', 0, NOW()
+            )
+            """
+        ),
+        {
+            "id": str(new_id),
+            "sub_id": str(src.subscription_id),
+            "org_id": str(auth.organization_id),
+            "event_type": src.event_type,
+            "payload": _json_dumps(src.payload),
+        },
+    )
+    await db.commit()
+    return ok({"id": str(new_id), "subscription_id": str(src.subscription_id)})
+
+
+def _json_dumps(v: object) -> str:
+    """JSONB binding helper — same shape as services/imports uses for
+    `CAST(:x AS JSONB)`. Inlined here so the router doesn't have to
+    pull from services for one line."""
+    import json
+
+    return json.dumps(v, default=str)

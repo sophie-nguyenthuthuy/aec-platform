@@ -410,6 +410,25 @@ async def _with_usage_recording(db: AsyncSession, organization_id: UUID):
                     acc.output_tokens,
                 )
 
+            # Threshold-notification check fires AFTER the usage write
+            # so the percent reads the post-increment value. Wrapped
+            # in its own try/except — the request has already been
+            # served, an SMTP outage or notification-prefs query
+            # failure must NOT propagate to the user. Catching
+            # everything here is the same trade-off as the
+            # `record_org_usage` block above: the audit row + the
+            # cap-check itself are load-bearing; the email is
+            # best-effort.
+            try:
+                await _q.check_and_notify_thresholds(db, organization_id)
+            except Exception:
+                import logging as _logging
+
+                _logging.getLogger(__name__).warning(
+                    "codeguard_quotas.check_and_notify_thresholds failed for org=%s — request already served",
+                    organization_id,
+                )
+
 
 # ---------- Q&A ----------
 

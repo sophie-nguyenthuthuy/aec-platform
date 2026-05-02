@@ -32,6 +32,11 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    // Imports `@testing-library/jest-dom/vitest` so component tests
+    // can use `toBeInTheDocument` / `toHaveClass`. See file for scope
+    // discussion — TL;DR pure components are OK here, anything router
+    // or RSC-dependent goes through Playwright.
+    setupFiles: ["./vitest.setup.ts"],
     include: ["**/__tests__/**/*.test.{ts,tsx}"],
     // Don't pick up the Playwright suite — those run via `playwright test`.
     exclude: ["tests/e2e/**", "node_modules/**", ".next/**"],

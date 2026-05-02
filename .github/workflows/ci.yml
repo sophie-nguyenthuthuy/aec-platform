@@ -86,6 +86,18 @@ jobs:
           # happy if the dep gets bumped or rolled back.
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
 
+      # Bundle-size guard. Compares the just-built `.next/static/{chunks,css}`
+      # against the baseline in `apps/web/.bundle-baseline.json` and fails
+      # if any section grew by more than 10%. Catches the kind of
+      # regression that lands when someone pulls in a heavy library by
+      # accident (e.g. the full lodash bundle instead of `lodash-es`).
+      #
+      # When a feature legitimately needs more bytes, regenerate the
+      # baseline locally with `pnpm --filter @aec/web bundle:update` and
+      # commit the updated JSON in the same PR.
+      - name: Bundle size guard
+        run: pnpm --filter @aec/web bundle:check
+
       # ---- Playwright E2E ----
       # Tests live in apps/web/tests/e2e/*.spec.ts. The Playwright config
       # boots `next dev --port 3101` itself (webServer block) and intercepts

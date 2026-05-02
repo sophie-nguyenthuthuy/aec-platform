@@ -461,3 +461,309 @@ async def test_audit_log_rejects_bogus_org_fk(session):
     # Roll back the failed transaction so subsequent fixtures see a
     # clean session.
     await session.rollback()
+
+
+# ---------- threshold-notification dedupe table ------------------------
+#
+# Migration 0030 created `codeguard_quota_threshold_notifications` with:
+#   * Composite PK on (org_id, dimension, threshold, period_start) — the
+#     whole row IS the dedupe key.
+#   * `ON CONFLICT DO NOTHING` is what makes a losing concurrent claim
+#     observable as `rowcount=0` (the helper's race-safety primitive).
+#   * `organization_id` FK with `ON DELETE CASCADE` — dedupe rows are
+#     operational state, not audit history; clean them up when the
+#     org goes away rather than holding a phantom reference.
+#
+# Tier 1 mocks all three. A regression that swapped the PK for a
+# surrogate id, dropped DO NOTHING, or changed CASCADE to RESTRICT
+# would still pass every Tier 1 test. These cases pin the SQL.
+
+
+async def test_threshold_dedupe_pk_blocks_duplicate_claims(session, two_test_orgs):
+    """Second INSERT for the same `(org, dimension, threshold, period)`
+    tuple must return `rowcount=0` thanks to `ON CONFLICT DO NOTHING`.
+    The race-safety of `_claim_threshold_or_skip` rests on this — a
+    regression that dropped DO NOTHING (so dups raise IntegrityError
+    instead) would propagate through to the helper and crash the
+    request post-LLM-call, which is the exact failure mode the dedupe
+    is meant to prevent.
+    """
+    import datetime as _dt
+
+    org_a, _ = two_test_orgs
+    period = _dt.date(2026, 5, 1)
+
+    # First claim: lands.
+    first = await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_quota_threshold_notifications
+                (organization_id, dimension, threshold, period_start)
+            VALUES (:o, 'input', 80, :p)
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {"o": str(org_a), "p": period},
+    )
+    assert first.rowcount == 1, (
+        f"First claim returned rowcount={first.rowcount}, expected 1. "
+        "Did the table get the wrong INSERT rights, or is `rowcount` "
+        "not being populated for this driver?"
+    )
+
+    # Second claim of the SAME tuple: silently no-ops.
+    second = await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_quota_threshold_notifications
+                (organization_id, dimension, threshold, period_start)
+            VALUES (:o, 'input', 80, :p)
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {"o": str(org_a), "p": period},
+    )
+    assert second.rowcount == 0, (
+        f"Duplicate claim returned rowcount={second.rowcount}, expected 0. "
+        "This is the dedupe contract `_claim_threshold_or_skip` relies on — "
+        "if the regression is `ON CONFLICT … DO UPDATE` instead of `DO NOTHING`, "
+        "rowcount would be 1 and the helper would multi-send."
+    )
+
+    # Different threshold for the same (org, dim, period) is a NEW row,
+    # not a dupe. Pin so the PK includes `threshold` correctly.
+    third = await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_quota_threshold_notifications
+                (organization_id, dimension, threshold, period_start)
+            VALUES (:o, 'input', 95, :p)
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {"o": str(org_a), "p": period},
+    )
+    assert third.rowcount == 1, (
+        "(org, input, 95, 2026-05-01) should land as a fresh row even though "
+        "(org, input, 80, 2026-05-01) already exists — the PK includes "
+        "`threshold`. If you see rowcount=0, the PK has been narrowed."
+    )
+
+    # Different period for the same (org, dim, threshold) is also a NEW
+    # row — month rollover must let the email fire again.
+    next_period = _dt.date(2026, 6, 1)
+    fourth = await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_quota_threshold_notifications
+                (organization_id, dimension, threshold, period_start)
+            VALUES (:o, 'input', 80, :p)
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {"o": str(org_a), "p": next_period},
+    )
+    assert fourth.rowcount == 1, (
+        "Next month's (org, input, 80, 2026-06-01) should land — without "
+        "this, an org that crossed 80% in May would never get a fresh "
+        "warning in June."
+    )
+
+    await session.commit()
+
+
+async def test_threshold_dedupe_isolates_per_org(session, two_test_orgs):
+    """Two orgs claiming the same `(dimension, threshold, period)` band
+    are independent — `organization_id` is part of the PK. A regression
+    that dropped `organization_id` from the PK would silently let one
+    org's claim block another org's email."""
+    import datetime as _dt
+
+    org_a, org_b = two_test_orgs
+    period = _dt.date(2026, 5, 1)
+
+    a_claim = await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_quota_threshold_notifications
+                (organization_id, dimension, threshold, period_start)
+            VALUES (:o, 'input', 80, :p)
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {"o": str(org_a), "p": period},
+    )
+    assert a_claim.rowcount == 1
+
+    # Org B claiming the SAME band must succeed — different PK tuple.
+    b_claim = await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_quota_threshold_notifications
+                (organization_id, dimension, threshold, period_start)
+            VALUES (:o, 'input', 80, :p)
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {"o": str(org_b), "p": period},
+    )
+    assert b_claim.rowcount == 1, (
+        "Org B's claim got blocked by org A's row — the PK must include "
+        "`organization_id`. Without per-org isolation, finance for one tenant "
+        "would receive emails about another tenant crossing 80%."
+    )
+    await session.commit()
+
+
+async def test_threshold_dedupe_cascades_on_org_delete(session):
+    """`organization_id` FK with `ON DELETE CASCADE`: when the org goes
+    away, its dedupe rows go with it. Different choice from the audit
+    log (SET NULL there) because dedupe rows are pure operational
+    state — keeping them after the org is gone would just bloat the
+    table without a reader."""
+    import datetime as _dt
+
+    org_id = uuid4()
+    period = _dt.date(2026, 5, 1)
+
+    await session.execute(
+        text("INSERT INTO organizations (id, name, slug) VALUES (:o, 'Threshold Cascade Test', :s)"),
+        {"o": str(org_id), "s": f"threshold-cascade-{org_id}"},
+    )
+    await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_quota_threshold_notifications
+                (organization_id, dimension, threshold, period_start)
+            VALUES (:o, 'input', 80, :p), (:o, 'output', 95, :p)
+            """
+        ),
+        {"o": str(org_id), "p": period},
+    )
+    await session.commit()
+
+    # Sanity: rows are there.
+    pre = (
+        await session.execute(
+            text("SELECT COUNT(*) AS n FROM codeguard_quota_threshold_notifications WHERE organization_id = :o"),
+            {"o": str(org_id)},
+        )
+    ).scalar_one()
+    assert pre == 2
+
+    # Delete the org — cascade should drop both dedupe rows.
+    await session.execute(text("DELETE FROM organizations WHERE id = :o"), {"o": str(org_id)})
+    await session.commit()
+
+    surviving = (
+        await session.execute(
+            text("SELECT COUNT(*) AS n FROM codeguard_quota_threshold_notifications WHERE organization_id = :o"),
+            {"o": str(org_id)},
+        )
+    ).scalar_one()
+    assert surviving == 0, (
+        f"Found {surviving} surviving dedupe rows after deleting the org. "
+        "The FK action must be ON DELETE CASCADE — anything else (RESTRICT, "
+        "SET NULL) leaves orphaned rows that bloat the table forever."
+    )
+
+
+async def test_quota_warn_recipients_filters_on_at_least_one_channel(session, two_test_orgs):
+    """`_quota_warn_recipients` returns users opted in to AT LEAST ONE
+    channel (email_enabled=TRUE OR slack_enabled=TRUE). Both-disabled
+    users are filtered out — they have a `quota_warn` row but no
+    intent to receive anything, so the dispatcher would do zero work
+    for them anyway. The shape is per-channel `(_Recipient)` records,
+    not flat email strings — pre-Slack the function returned
+    `list[str]`; pin the new shape so a regression that re-flattens
+    breaks visibly."""
+    from services.codeguard_quotas import _quota_warn_recipients, _Recipient
+
+    org_a, _ = two_test_orgs
+
+    # Four users covering all four (email_enabled, slack_enabled) cells:
+    user_email_only = uuid4()  # email-only: TRUE / FALSE
+    user_slack_only = uuid4()  # slack-only: FALSE / TRUE
+    user_both = uuid4()  # both:    TRUE / TRUE
+    user_neither = uuid4()  # neither:  FALSE / FALSE — filtered out
+    user_unconfigured = uuid4()  # no row at all — filtered out
+
+    await session.execute(
+        text(
+            "INSERT INTO users (id, email, full_name) VALUES "
+            "(:a, 'email-only@example.com', 'A'), "
+            "(:b, 'slack-only@example.com', 'B'), "
+            "(:c, 'both@example.com', 'C'), "
+            "(:d, 'neither@example.com', 'D'), "
+            "(:e, 'unconfigured@example.com', 'E')"
+        ),
+        {
+            "a": str(user_email_only),
+            "b": str(user_slack_only),
+            "c": str(user_both),
+            "d": str(user_neither),
+            "e": str(user_unconfigured),
+        },
+    )
+    await session.execute(
+        text(
+            """
+            INSERT INTO notification_preferences
+                (user_id, organization_id, key, email_enabled, slack_enabled)
+            VALUES
+                (:a, :org, 'quota_warn', TRUE,  FALSE),
+                (:b, :org, 'quota_warn', FALSE, TRUE),
+                (:c, :org, 'quota_warn', TRUE,  TRUE),
+                (:d, :org, 'quota_warn', FALSE, FALSE)
+            """
+        ),
+        {
+            "a": str(user_email_only),
+            "b": str(user_slack_only),
+            "c": str(user_both),
+            "d": str(user_neither),
+            "org": str(org_a),
+        },
+    )
+    await session.commit()
+
+    recipients = await _quota_warn_recipients(session, org_a)
+    # Map by email so the test isn't ordering-dependent (the SQL has
+    # no ORDER BY — Postgres is free to return rows in any order).
+    by_email = {r.email: r for r in recipients}
+
+    # Three users in: email-only, slack-only, both. Two filtered out:
+    # neither (both flags FALSE) and unconfigured (no row).
+    assert set(by_email.keys()) == {
+        "email-only@example.com",
+        "slack-only@example.com",
+        "both@example.com",
+    }, (
+        f"Got {set(by_email.keys())}. If 'neither@example.com' is in, "
+        "the SQL's `OR slack_enabled` clause is too permissive. If "
+        "'slack-only@example.com' is missing, the clause was reduced "
+        "back to email_enabled-only and Slack-only opt-ins are dropped."
+    )
+
+    # Per-channel intent surfaces faithfully — pre-Slack we returned
+    # flat email strings and dropped this metadata. Pin all four cells.
+    assert isinstance(by_email["email-only@example.com"], _Recipient)
+    assert by_email["email-only@example.com"].email_enabled is True
+    assert by_email["email-only@example.com"].slack_enabled is False
+    assert by_email["slack-only@example.com"].email_enabled is False
+    assert by_email["slack-only@example.com"].slack_enabled is True
+    assert by_email["both@example.com"].email_enabled is True
+    assert by_email["both@example.com"].slack_enabled is True
+
+    # Cleanup — prefs cascade-delete via users.id FK.
+    await session.execute(
+        text("DELETE FROM users WHERE id IN (:a, :b, :c, :d, :e)"),
+        {
+            "a": str(user_email_only),
+            "b": str(user_slack_only),
+            "c": str(user_both),
+            "d": str(user_neither),
+            "e": str(user_unconfigured),
+        },
+    )
+    await session.commit()

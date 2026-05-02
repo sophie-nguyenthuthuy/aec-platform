@@ -94,12 +94,19 @@ test-api:
 test-ml:
 	pytest apps/ml/tests/ -q --ignore=apps/ml/tests/test_codeguard_quality_eval.py
 
-# Same with coverage. Baseline + uncovered modules tracked in
-# `docs/ml-coverage-audit.md` — raise the floor as new tests land.
+# Same with coverage + an enforced floor. Baseline + uncovered modules
+# tracked in `docs/ml-coverage-audit.md` — raise the floor as new
+# tests land.
+#
+# `--cov-fail-under` is passed on the CLI rather than read from
+# `apps/ml/pyproject.toml::[tool.coverage.report]` because pytest is
+# invoked from the repo root and pytest-cov resolves the config from
+# CWD, not from `--cov`'s target. The CLI flag is explicit + visible.
 test-ml-cov:
 	pytest apps/ml/tests/ -q \
 	    --ignore=apps/ml/tests/test_codeguard_quality_eval.py \
 	    --cov=apps/ml \
+	    --cov-fail-under=56 \
 	    --cov-report=term-missing:skip-covered \
 	    --cov-report=html:apps/ml/test-results/coverage \
 	    --cov-report=xml:apps/ml/test-results/coverage.xml

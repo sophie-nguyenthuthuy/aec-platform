@@ -323,3 +323,139 @@ async def test_test_fire_enqueues_synthetic_event(fake_db):
     body = res.json()["data"]
     assert body["queued"] == 1
     assert body["subscription_id"] == str(sub.id)
+
+
+# ---------- Deliveries: list + histogram + redeliver ----------
+
+
+def _delivery_row(**overrides: Any):
+    """Mutable stand-in for the WebhookDelivery ORM row."""
+    from types import SimpleNamespace
+
+    base = dict(
+        id=uuid4(),
+        subscription_id=uuid4(),
+        organization_id=ORG_ID,
+        event_type="costpulse.estimate.approve",
+        payload={"estimate_id": str(uuid4())},
+        status="failed",
+        attempt_count=3,
+        next_retry_at=None,
+        response_status=503,
+        response_body_snippet="upstream timeout",
+        error_message="HTTP 503",
+        delivered_at=None,
+        created_at=datetime(2026, 5, 4, tzinfo=UTC),
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+async def test_list_deliveries_filters_by_status(fake_db):
+    """Pin: status=failed only returns failed rows. The shape of the
+    SELECT statement is what the SQL pins — `WebhookDelivery.status`
+    must show up in the executed statement's WHERE."""
+    sub_id = uuid4()
+    failed = _delivery_row(subscription_id=sub_id, status="failed")
+    list_q = MagicMock()
+    list_q.scalars.return_value.all.return_value = [failed]
+    fake_db.push(list_q)
+
+    app = _build_app("admin", fake_db)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get(f"/api/v1/webhooks/{sub_id}/deliveries?status=failed")
+
+    assert res.status_code == 200
+    body = res.json()["data"]
+    assert len(body) == 1
+    assert body[0]["status"] == "failed"
+
+
+async def test_list_deliveries_rejects_oversized_window(fake_db):
+    """`since_days` capped at 90 because retention prunes terminal
+    rows at 30d — longer windows would always be empty."""
+    app = _build_app("admin", fake_db)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get(f"/api/v1/webhooks/{uuid4()}/deliveries?since_days=365")
+    assert res.status_code == 422
+
+
+async def test_deliveries_histogram_pivots_by_day_and_status(fake_db):
+    """Pin the response shape — one entry per day with a count per
+    status. Drives the small bar chart on the detail page."""
+    sub_id = uuid4()
+    day_a = datetime(2026, 5, 3, tzinfo=UTC)
+    day_b = datetime(2026, 5, 4, tzinfo=UTC)
+    histogram_q = MagicMock()
+    histogram_q.mappings.return_value.all.return_value = [
+        {"day": day_a, "status": "delivered", "count": 12},
+        {"day": day_a, "status": "failed", "count": 1},
+        {"day": day_b, "status": "delivered", "count": 8},
+    ]
+    fake_db.push(histogram_q)
+
+    app = _build_app("admin", fake_db)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get(f"/api/v1/webhooks/{sub_id}/deliveries/histogram?days=7")
+
+    assert res.status_code == 200
+    body = res.json()["data"]
+    assert len(body) == 2
+    by_day = {b["day"]: b for b in body}
+    assert by_day[day_a.isoformat()]["delivered"] == 12
+    assert by_day[day_a.isoformat()]["failed"] == 1
+    # Days with no `pending` rows still show 0 — UI doesn't have to
+    # special-case missing keys.
+    assert by_day[day_a.isoformat()]["pending"] == 0
+
+
+async def test_redeliver_inserts_new_row_with_pending_status(fake_db):
+    """Redelivery creates a NEW row (new id, status=pending) — does
+    NOT mutate the original. Pin so a refactor that "resets" the
+    failed row's status would break this test."""
+    src = _delivery_row(status="failed", attempt_count=6)
+    lookup_q = MagicMock()
+    lookup_q.scalar_one_or_none.return_value = src
+    fake_db.push(lookup_q)
+
+    app = _build_app("admin", fake_db)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(f"/api/v1/webhooks/deliveries/{src.id}/redeliver")
+
+    assert res.status_code == 202, res.text
+    body = res.json()["data"]
+    assert body["subscription_id"] == str(src.subscription_id)
+    # Returned id is fresh — different from the source.
+    assert body["id"] != str(src.id)
+    # Source row still failed — we never wrote `status='delivered'` or
+    # mutated `next_retry_at` on it.
+    assert src.status == "failed"
+
+
+async def test_redeliver_404_for_unknown_id(fake_db):
+    """RLS keeps cross-org IDs out of reach → 404. Pin so a forged
+    delivery id from another tenant doesn't trickle down to the
+    INSERT."""
+    lookup_q = MagicMock()
+    lookup_q.scalar_one_or_none.return_value = None
+    fake_db.push(lookup_q)
+
+    app = _build_app("admin", fake_db)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(f"/api/v1/webhooks/deliveries/{uuid4()}/redeliver")
+    assert res.status_code == 404
+
+
+async def test_redeliver_403_for_member(fake_db):
+    """Member role can view deliveries (existing test gates list at
+    admin), but redeliver is destructive — admin-only too."""
+    app = _build_app("member", fake_db)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(f"/api/v1/webhooks/deliveries/{uuid4()}/redeliver")
+    assert res.status_code == 403

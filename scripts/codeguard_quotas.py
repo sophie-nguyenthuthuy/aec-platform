@@ -196,11 +196,22 @@ async def cmd_set(
     `before` snapshot captures the pre-existing quota row (or NULL if
     this is the first `set` for the org); `after` captures the new
     values. A single commit covers both — drift impossible.
+
+    After commit, fires `check_and_notify_thresholds`. Reasoning: the
+    in-app `record_org_usage` path is the normal trigger, but if ops
+    *lowers* an org's cap (1M → 500k while they're sitting at 600k),
+    the org is instantly past 100% and nothing in the usage path runs
+    until the org's next LLM call — which could be hours. Firing the
+    check from `set` closes that window. The dedupe table protects
+    against double-firing if the org happens to also hit the threshold
+    via usage in the same period — same `(org, dim, threshold, period)`
+    PK, no matter which trigger landed first.
     """
     from sqlalchemy import text
 
     actor_name = _resolve_actor(actor)
     engine, factory = await _engine_factory()
+    notify_summaries: list[dict[str, Any]] = []
     try:
         async with factory() as session:
             # Read current state BEFORE the upsert so the audit `before`
@@ -259,6 +270,26 @@ async def cmd_set(
             )
 
             await session.commit()
+
+            # Threshold check runs AFTER commit so the dedupe row +
+            # notification email reference the post-set state, not the
+            # in-flight UPSERT. Wrapped in its own try/except — the
+            # cap is already updated and the audit row is already
+            # committed; an SMTP outage or a notification-prefs
+            # query failure must NOT roll those back. Same posture as
+            # the route-layer hook in `_with_usage_recording`.
+            try:
+                from services import codeguard_quotas as _q
+
+                notify_summaries = await _q.check_and_notify_thresholds(session, org_id)
+            except Exception as exc:
+                # Surface to stderr so the operator sees something went
+                # wrong with notifications — but don't propagate, the
+                # set itself succeeded and that's the load-bearing part.
+                sys.stderr.write(
+                    f"warning: check_and_notify_thresholds failed for org={org_id}: {exc}\n"
+                )
+                notify_summaries = []
     finally:
         await engine.dispose()
     return {
@@ -266,6 +297,7 @@ async def cmd_set(
         "monthly_input_token_limit": input_limit,
         "monthly_output_token_limit": output_limit,
         "actor": actor_name,
+        "notifications": notify_summaries,
     }
 
 

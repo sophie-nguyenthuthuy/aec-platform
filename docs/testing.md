@@ -27,9 +27,22 @@ Each `*-cov` target enforces a pinned floor — the contract is "don't go down m
 | Lane | Lines | Branches | Functions | Where it's pinned |
 | --- | --- | --- | --- | --- |
 | `apps/api` | 80% | — | — | `apps/api/pyproject.toml` `[tool.coverage.report]` |
-| `apps/ml` | _not yet pinned_ | — | — | baseline 55% in [`docs/ml-coverage-audit.md`](./ml-coverage-audit.md) |
-| `packages/ui` | 20% | 60% | 35% | `packages/ui/vitest.config.ts` |
+| `apps/ml` | 56% | — | — | `Makefile::test-ml-cov` (`--cov-fail-under=56`) |
+| `packages/ui` | 25% | 69% | 47% | `packages/ui/vitest.config.ts` |
 | `apps/web` | 12% | 57% | 32% | `apps/web/vitest.config.ts` |
+
+## Bundle-size guard (`apps/web/.bundle-baseline.json`)
+
+Separate from coverage but in the same spirit: the Node CI job compares the just-built `.next/static/{chunks,css}` against a checked-in baseline and fails if any section grew by more than **10%**. Catches the kind of regression that lands when someone pulls in a heavy library by accident (the full `lodash` bundle, all of `moment`, etc.) — exactly the class of bug coverage % can't see.
+
+When a feature legitimately needs more bytes:
+
+```bash
+pnpm --filter @aec/web build       # regenerate .next/static
+pnpm --filter @aec/web bundle:update  # rewrite the baseline
+```
+
+Commit the updated `apps/web/.bundle-baseline.json` in the same PR. CI's `Bundle size guard` step then passes against the new floor. The 10% threshold is per-section and total; the script (`apps/web/scripts/check-bundle-size.mjs`) writes `::error::` annotations naming any section that breaches.
 
 ## API unit lane (`make test-api`)
 
@@ -68,9 +81,22 @@ The Make recipe runs `docker compose up -d postgres redis`, applies migrations (
 
 CI runs this same lane on every PR (`.github/workflows/ci.yml::python-api`). The Postgres + Redis service containers are pre-wired; the env vars in the workflow mirror the Make recipe.
 
+## ML pipelines lane (`make test-ml`)
+
+~155 tests across 23 spec files in `apps/ml/tests/`. Covers the LangGraph CodeGuard pipeline (query + scan + retrieval + telemetry + abstain logic), the WinWork proposal pipeline, and the daily-log + pulse-client report generators. Self-contained — Anthropic + OpenAI clients are mocked via `monkeypatch.setattr` against the module-level `_llm()` factory; the pgvector retrieval path uses a SQLite-backed fake; the schema-walking tests stub `AsyncSession` directly.
+
+The Tier 4 quality eval (`test_codeguard_quality_eval.py`) is excluded by default — it burns real OpenAI/Anthropic credit (~25-40¢/run). Run it via `make eval-codeguard` when intentional; see `docs/codeguard.md` §10.
+
+`make test-ml-cov` adds `--cov=apps/ml` measurement. **Baseline 55%** as of 2026-05-02. Top remaining gaps tracked in [`docs/ml-coverage-audit.md`](./ml-coverage-audit.md):
+
+- `apps/ml/server.py` (Ray Serve entrypoint) — intentionally untested at unit level; covered by integration only.
+- The non-pure `_node_*` functions in `winwork.py` are now at 61% (round 4 of 2026-05-02 added DB + LLM-mock coverage); the remaining 39% is the orchestration glue (`_build_graph`, `run_proposal_pipeline`).
+
+CI runs this lane on every PR (`.github/workflows/ci.yml::python-api`, separate step from `apps/api`).
+
 ## UI component lane (`make test-ui`)
 
-18 tests across 2 specs in `packages/ui/drawbridge/__tests__/` (DisciplineTag, ConflictCard). Vitest + React Testing Library running in jsdom. **No browser, no dev server, no API mocks** — the lane finishes in ~2 seconds.
+~80 tests across 10 specs in `packages/ui/**/__tests__/` (drawbridge, pulse, handover, codeguard so far). Vitest + React Testing Library running in jsdom. **No browser, no dev server, no API mocks** — the lane finishes in ~2 seconds.
 
 The split with the Web E2E lane is intentional:
 
@@ -79,11 +105,16 @@ The split with the Web E2E lane is intentional:
 
 Test files live alongside their subject under `__tests__/<Name>.test.tsx` — same convention as `apps/api/tests/test_<router>.py`. The Vitest config (`packages/ui/vitest.config.ts`) forces `esbuild.jsx: "automatic"` so test files don't need `import React`; the repo's tsconfig sets `jsx: "preserve"` (Next handles the transform downstream) which would otherwise leave JSX untransformed at test time.
 
-CI runs this lane in the Node job, between Lint and "Build web" — fast enough that the cost of running it on every PR is negligible. See `.github/workflows/ci.yml::node`.
+The `pnpm test` script runs `tsc --noEmit && vitest run` so a TS error in any test file (or in the source it imports from) red-gates before Vitest starts. The first time this caught a bug was a hook test using a stale `ProposalGenerateRequest` shape — would have shipped silently otherwise.
 
-## Web lib lane (`make test-web-unit`)
+CI runs this lane via `:coverage` (slower, but enforces the threshold floor) in the Node job, between Lint and "Build web". See `.github/workflows/ci.yml::node`.
 
-25 tests across 2 specs in `apps/web/lib/__tests__/` covering both fetch wrappers — `apiFetch` (used by every TanStack hook outside SiteEye) and `apiRequest` / `apiRequestWithMeta` (the SiteEye + mobile-portal client). Vitest in jsdom, ~2s.
+## Web lib + hooks lane (`make test-web-unit`)
+
+**85 tests across 18 specs** in `apps/web/{lib,hooks}/__tests__/` (as of 2026-05-02 round 3). Two slices:
+
+- `lib/__tests__/` — both fetch wrappers (`apiFetch`, `apiRequest`, `apiRequestWithMeta`) — URL building, header merging, body shapes, error envelope unwrap. ~25 tests.
+- `hooks/__tests__/` — TanStack Query hook contract tests for the highest-mutation surface area: `usePriceAlert` (query-not-body bug regression), `useDrawbridgeQuery`, `useExtract`, `useToggleWatch`, `useConflicts`, `useUploadDocument` (FormData multipart), `useUploadDrawing`, `useGenerateProposal`, `useCodeguardScan`, `useGenerateRFI`, `useAnswerRFI`, plus the list-query hooks (`useDocuments`, `useProposals`, `useTenders`, `usePackages`, `useEstimates`). Each tests the URL/method/payload shape against a mocked global `fetch`. ~60 tests.
 
 What the contract pins:
 

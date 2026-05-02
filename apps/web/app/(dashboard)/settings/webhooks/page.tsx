@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import {
   AlertTriangle,
@@ -7,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  ExternalLink,
   Plug,
   Send,
   Trash2,
@@ -365,6 +367,13 @@ function SubscriptionRow({ sub }: { sub: WebhookSubscription }) {
           )}
         </button>
         <div className="flex items-center gap-2">
+          <Link
+            href={`/settings/webhooks/${sub.id}`}
+            className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+            title="Xem lịch sử delivery + redeliver"
+          >
+            <ExternalLink size={11} /> Chi tiết
+          </Link>
           <button
             type="button"
             onClick={() => test.mutate(sub.id)}

@@ -13,7 +13,9 @@
     "test:coverage": "rm -f tsconfig.tsbuildinfo && tsc --noEmit && vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:real-auth": "playwright test --config=playwright.real-auth.config.ts",
-    "test:e2e:install": "playwright install chromium"
+    "test:e2e:install": "playwright install chromium",
+    "bundle:check": "node scripts/check-bundle-size.mjs",
+    "bundle:update": "node scripts/check-bundle-size.mjs --update"
   },
   "dependencies": {
     "@aec/types": "workspace:*",
@@ -37,6 +39,7 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.0",
     "@playwright/test": "^1.48.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.0.1",
