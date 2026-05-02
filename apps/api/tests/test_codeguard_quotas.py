@@ -486,3 +486,100 @@ async def test_quota_route_handles_null_dimension_limit(client, fake_db):
     assert body["input"]["limit"] is None
     assert body["input"]["percent"] is None
     assert body["output"]["percent"] == 25.0
+
+
+# ---------- GET /quota/history -----------------------------------------
+
+
+async def test_quota_history_returns_recent_months_with_caps(client, fake_db, fake_auth):
+    """Standard happy path. Two execute calls in order:
+      1. SELECT from `codeguard_org_usage` → list of period rows.
+      2. SELECT from `codeguard_org_quotas` → quota row for the caps.
+    The route surfaces both so the frontend can render bars proportional
+    to the configured cap (the "is 800k a lot?" question).
+    """
+    import datetime as _dt
+
+    history_rows = MagicMock()
+    history_rows.all.return_value = [
+        MagicMock(
+            period_start=_dt.date(2026, 5, 1),
+            input_tokens=200_000,
+            output_tokens=50_000,
+        ),
+        MagicMock(
+            period_start=_dt.date(2026, 4, 1),
+            input_tokens=800_000,
+            output_tokens=150_000,
+        ),
+    ]
+    quota_row = MagicMock()
+    quota_row.first.return_value = MagicMock(in_lim=1_000_000, out_lim=200_000)
+    fake_db.set_execute_result(history_rows)
+    fake_db.set_execute_result(quota_row)
+
+    res = await client.get("/api/v1/codeguard/quota/history")
+    assert res.status_code == 200
+    body = res.json()["data"]
+    assert body["organization_id"] == str(fake_auth.organization_id)
+    assert body["months"] == 3  # default
+    assert body["input_limit"] == 1_000_000
+    assert body["output_limit"] == 200_000
+    # Most-recent first; matches the SQL `ORDER BY period_start DESC`.
+    assert body["history"][0] == {
+        "period_start": "2026-05-01",
+        "input_tokens": 200_000,
+        "output_tokens": 50_000,
+    }
+    assert body["history"][1]["period_start"] == "2026-04-01"
+
+
+async def test_quota_history_clamps_months_to_12(client, fake_db):
+    """`months=10000` from a malformed UI shouldn't trigger a tenant-bounded
+    full-table scan. Pin the clamp at 12 (the route's documented ceiling)."""
+    history_rows = MagicMock()
+    history_rows.all.return_value = []
+    quota_row = MagicMock()
+    quota_row.first.return_value = None
+    fake_db.set_execute_result(history_rows)
+    fake_db.set_execute_result(quota_row)
+
+    res = await client.get("/api/v1/codeguard/quota/history?months=10000")
+    body = res.json()["data"]
+    assert body["months"] == 12, (
+        "months should clamp at 12; the page is a dashboard widget, not a "
+        "billing report. A higher ceiling means a single bad URL can scan "
+        "the whole tenant's usage history."
+    )
+
+
+async def test_quota_history_clamps_months_to_at_least_1(client, fake_db):
+    """`months=0` would render an empty strip with no signal about why.
+    Clamp to 1 so the response is at least the current month."""
+    history_rows = MagicMock()
+    history_rows.all.return_value = []
+    quota_row = MagicMock()
+    quota_row.first.return_value = None
+    fake_db.set_execute_result(history_rows)
+    fake_db.set_execute_result(quota_row)
+
+    res = await client.get("/api/v1/codeguard/quota/history?months=0")
+    assert res.json()["data"]["months"] == 1
+
+
+async def test_quota_history_returns_null_caps_when_no_quota_row(client, fake_db):
+    """Unlimited org (no quota row) → caps come back as null. The page
+    still renders the history strip without scaling-to-cap (the "no
+    cap" branch of HistoryBars)."""
+    history_rows = MagicMock()
+    history_rows.all.return_value = []
+    quota_row = MagicMock()
+    quota_row.first.return_value = None
+    fake_db.set_execute_result(history_rows)
+    fake_db.set_execute_result(quota_row)
+
+    res = await client.get("/api/v1/codeguard/quota/history?months=3")
+    body = res.json()["data"]
+    assert body["input_limit"] is None
+    assert body["output_limit"] is None
+    assert body["history"] == []

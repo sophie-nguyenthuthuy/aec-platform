@@ -1,4 +1,4 @@
-.PHONY: seed-codeguard seed-demo eval-codeguard test test-api test-api-integration test-api-integration-up test-ui test-web test-web-unit hooks lint
+.PHONY: seed-codeguard seed-demo eval-codeguard test test-api test-api-integration test-api-integration-up test-ui test-web test-web-unit hooks lint backfill-rfi-embeddings backfill-dailylog
 
 # Install local pre-commit hooks. Run once per clone. After this, every
 # `git commit` runs ruff check + ruff format + basic hygiene checks on
@@ -96,6 +96,12 @@ test-api-cov:
 test-ui:
 	pnpm --filter @aec/ui test
 
+# Same lane with v8 coverage measurement. Slower (~3x) due to
+# instrumentation. Thresholds in `packages/ui/vitest.config.ts`;
+# CI fails if line/branch/function coverage drops below the pinned floor.
+test-ui-cov:
+	pnpm --filter @aec/ui test:coverage
+
 # Library-level Vitest tests for `apps/web/lib/*` — the fetch wrappers
 # (apiFetch, apiRequest, apiRequestWithMeta) and other pure-function
 # helpers. Catches contract regressions (e.g. `usePriceAlert` sending
@@ -103,6 +109,13 @@ test-ui:
 # Playwright to surface them.
 test-web-unit:
 	pnpm --filter @aec/web test
+
+# Same lane with v8 coverage. Thresholds in `apps/web/vitest.config.ts`.
+# Numerator covers `lib/` + `hooks/` only — `app/` is Server-Component +
+# Next-router territory, exercised by Playwright; including it would
+# skew the % toward "framework files we can't unit-test."
+test-web-unit-cov:
+	pnpm --filter @aec/web test:coverage
 
 test-web:
 	pnpm --filter @aec/web exec playwright install chromium
@@ -147,3 +160,45 @@ test-api-integration: test-api-integration-up
 		DATABASE_URL_ADMIN=postgresql+asyncpg://aec:aec@localhost:$$PG_PORT/aec \
 		REDIS_URL=redis://localhost:$$REDIS_PORT/0 \
 		pytest --integration -q
+
+# ---------- Backfill / data-ops scripts ----------
+#
+# These are one-shot CLIs you run against a writable DB to retroactively
+# populate state added by a feature that landed AFTER the affected rows
+# were created. Both are idempotent on their natural keys, so re-running
+# is safe (handy when the first pass got Ctrl-C'd halfway through).
+#
+# Forward extra flags via `ARGS=`. Common ones:
+#   * `--dry-run` — count what would be touched, write nothing.
+#   * `--org-id <uuid>` — scope to one tenant (e.g. after a cross-tenant
+#     restore that left only one org's rows missing the new state).
+#   * `-v` — verbose per-row logging.
+#
+# Examples:
+#   make backfill-rfi-embeddings ARGS="--dry-run -v"
+#   make backfill-dailylog ARGS="--org-id 00000000-... --batch-size 50"
+#
+# Both require `DATABASE_URL` in the environment — same async DSN the
+# API server uses. See docs/operations.md "Backfills" for when to run
+# each, what it does, and rollback notes.
+
+# Walk every row in `rfis` and call ml.pipelines.rfi.upsert_rfi_embedding.
+# Idempotent on `rfi_id` — refreshing an existing row also updates
+# `model_version`, which is what you want when re-embedding against a new
+# OpenAI model. Without OPENAI_API_KEY, the pipeline degrades to zero
+# vectors — the script will complete but the embeddings will all hash to
+# the same point, so the similar-RFI search becomes useless. Run this in
+# an environment with credentials set when you actually want hits.
+backfill-rfi-embeddings:
+	@test -n "$$DATABASE_URL" || { echo "ERROR: DATABASE_URL not set" >&2; exit 1; }
+	cd apps/api && PYTHONPATH=".:../" python -m scripts.backfill_rfi_embeddings $(ARGS)
+
+# Mirror existing safety_incidents into dailylog observations via
+# services.dailylog_sync.sync_incident_to_dailylog. Idempotent — incidents
+# whose mirror observation already exists (linked via
+# `related_safety_incident_id`) are skipped by the sync helper. Commits
+# per incident, so a Ctrl-C leaves the partial backfill intact and the
+# next run picks up where it stopped.
+backfill-dailylog:
+	@test -n "$$DATABASE_URL" || { echo "ERROR: DATABASE_URL not set" >&2; exit 1; }
+	cd apps/api && PYTHONPATH="." python -m scripts.backfill_dailylog_from_siteeye $(ARGS)

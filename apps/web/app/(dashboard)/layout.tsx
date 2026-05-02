@@ -29,6 +29,8 @@ const NAV: Array<{ href: Route; label: string; section?: string }> = [
   { href: "/settings/notifications", label: "Thông báo" },
   { href: "/settings/audit", label: "Nhật ký kiểm tra" },
   { href: "/settings/webhooks", label: "Webhooks" },
+  { href: "/settings/search-analytics", label: "Phân tích tìm kiếm" },
+  { href: "/settings/import", label: "Nhập dữ liệu" },
 ];
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {

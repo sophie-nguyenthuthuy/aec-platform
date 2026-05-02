@@ -11,6 +11,7 @@ guard as the other integration tests.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
@@ -176,6 +177,123 @@ def test_normalise_concrete_grade_specificity():
     matched, _ = normalise(rows)
     codes = [r.material_code for r in matched]
     assert codes == ["CONC_C40", "CONC_C25"]
+
+
+# ---------- DB-backed rules merge ----------
+
+
+def test_db_rules_take_precedence_over_code_rules(monkeypatch):
+    """A DB rule with low `priority` overrides a matching code rule.
+
+    Lets ops fix a misclassification (e.g. a province started using
+    `Bê tông cốt thép M300` and we want to route it to a new
+    `RC_CONC_C30` code) without a deploy.
+    """
+    import re as _re
+
+    from services.price_scrapers import normalizer
+
+    # Inject one DB rule that catches "Bê tông" and emits a custom code.
+    custom_rule = normalizer._Rule(
+        pattern=_re.compile(r"bê\s*tông", _re.IGNORECASE),
+        code="CUSTOM_BT",
+        category="concrete",
+        canonical="Bê tông tùy chỉnh",
+        preferred_units=("m3",),
+    )
+    monkeypatch.setattr(normalizer, "_db_rules_cache", [custom_rule])
+
+    rows = [
+        ScrapedPrice("Bê tông C30", "m3", Decimal("2000000"), date.today(), "Hanoi"),
+    ]
+    matched, _ = normalise(rows)
+    # The custom DB rule wins over `_RULES`'s CONC_C30.
+    assert matched[0].material_code == "CUSTOM_BT"
+
+
+def test_db_rules_fall_through_to_code_rules_when_no_match(monkeypatch):
+    """A DB rule that doesn't match must let the in-code rules fire."""
+    import re as _re
+
+    from services.price_scrapers import normalizer
+
+    # Inject a DB rule that matches NOTHING in the test rows.
+    irrelevant = normalizer._Rule(
+        pattern=_re.compile(r"^never_matches_anything$", _re.IGNORECASE),
+        code="UNUSED",
+        category="other",
+        canonical="x",
+        preferred_units=(),
+    )
+    monkeypatch.setattr(normalizer, "_db_rules_cache", [irrelevant])
+
+    rows = [
+        ScrapedPrice("Bê tông C30", "m3", Decimal("2000000"), date.today(), "Hanoi"),
+    ]
+    matched, _ = normalise(rows)
+    # Code rule wins — DB rule didn't match.
+    assert matched[0].material_code == "CONC_C30"
+
+
+def test_load_db_rules_skips_invalid_regex(monkeypatch, caplog):
+    """A malformed pattern in the DB must NOT crash the scrape — log + skip."""
+    import logging
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from models.core import NormalizerRule
+    from services.price_scrapers import normalizer
+
+    good = NormalizerRule(
+        id=uuid4(),
+        priority=10,
+        pattern="hợp lệ",
+        material_code="GOOD",
+        category=None,
+        canonical_name="Good",
+        preferred_units="",
+        enabled=True,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        created_by=None,
+    )
+    bad = NormalizerRule(
+        id=uuid4(),
+        priority=20,
+        pattern="[unclosed-class",  # bad regex
+        material_code="BAD",
+        category=None,
+        canonical_name="Bad",
+        preferred_units="",
+        enabled=True,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        created_by=None,
+    )
+
+    class _StubSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return None
+
+        async def execute(self, *_a, **_k):
+            from unittest.mock import MagicMock
+
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = [good, bad]
+            return r
+
+    from db import session as db_session
+
+    monkeypatch.setattr(db_session, "AdminSessionFactory", lambda: _StubSession())
+
+    with caplog.at_level(logging.WARNING, logger="services.price_scrapers.normalizer"):
+        rules = asyncio.run(normalizer._load_db_rules())
+
+    assert [r.code for r in rules] == ["GOOD"]  # bad one filtered out
+    assert any("bad regex" in r.getMessage() for r in caplog.records)
 
 
 # ---------- Registry ----------

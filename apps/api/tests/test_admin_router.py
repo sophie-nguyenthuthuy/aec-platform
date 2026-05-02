@@ -157,3 +157,233 @@ async def test_list_scraper_runs_403_for_non_admin(monkeypatch, fake_session):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         res = await ac.get("/api/v1/admin/scraper-runs")
     assert res.status_code == 403
+
+
+# ---------- Normalizer rules CRUD ----------
+
+
+class _RulesSession:
+    """Richer fake session for the normalizer-rules tests.
+
+    `FakeAsyncSession` only handles `execute().scalars().all()`; the
+    rules CRUD also needs `add`, `delete`, `commit`, `refresh`, and
+    `execute().scalar_one_or_none()`. We could extend the shared
+    fixture, but a per-test class keeps the existing tests' simpler
+    queue semantics intact.
+    """
+
+    def __init__(self) -> None:
+        self.added: list[Any] = []
+        self.deleted: list[Any] = []
+        self.committed = False
+        self._next_scalar: Any = None
+        self._next_list: list[Any] = []
+
+    def queue_scalar(self, value: Any) -> None:
+        self._next_scalar = value
+
+    def queue_list(self, value: list[Any]) -> None:
+        self._next_list = value
+
+    def add(self, obj: Any) -> None:
+        self.added.append(obj)
+
+    async def delete(self, obj: Any) -> None:
+        self.deleted.append(obj)
+
+    async def commit(self) -> None:
+        self.committed = True
+
+    async def refresh(self, *_a, **_k) -> None: ...
+
+    async def execute(self, stmt: Any = None, *_a: Any, **_k: Any) -> Any:
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = self._next_scalar
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = self._next_list
+        result.scalars.return_value = scalars_mock
+        return result
+
+
+def _build_rules_app(monkeypatch, session: _RulesSession, *, role: str = "admin"):
+    """Mount only the admin router with the rules-aware session installed."""
+    from fastapi import HTTPException
+
+    from core.envelope import http_exception_handler, unhandled_exception_handler
+    from middleware.auth import AuthContext, require_auth
+    from routers import admin
+
+    class _Factory:
+        def __call__(self):
+            return self
+
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(admin, "AdminSessionFactory", _Factory())
+    # Skip the real refresh — we don't want the test to hit
+    # `_load_db_rules` which would loop back to the same fake session.
+    from services.price_scrapers import normalizer
+
+    async def _no_refresh():
+        return 0
+
+    monkeypatch.setattr(normalizer, "refresh_db_rules", _no_refresh)
+
+    app = FastAPI()
+    app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
+    app.include_router(admin.router)
+    auth_ctx = AuthContext(user_id=USER_ID, organization_id=ORG_ID, role=role, email="ops@example.com")
+    app.dependency_overrides[require_auth] = lambda: auth_ctx
+    return app
+
+
+async def test_create_normalizer_rule_persists_row(monkeypatch):
+    session = _RulesSession()
+    app = _build_rules_app(monkeypatch, session)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(
+            "/api/v1/admin/normalizer-rules",
+            json={
+                "priority": 50,
+                "pattern": r"bê\s*tông.*c30",
+                "material_code": "CONC_C30",
+                "category": "concrete",
+                "canonical_name": "Concrete C30",
+                "preferred_units": "m3",
+            },
+        )
+    assert res.status_code == 201, res.text
+
+    from models.core import NormalizerRule
+
+    inserted = [o for o in session.added if isinstance(o, NormalizerRule)]
+    assert len(inserted) == 1
+    assert inserted[0].material_code == "CONC_C30"
+    assert inserted[0].priority == 50
+    assert inserted[0].pattern == r"bê\s*tông.*c30"
+
+
+async def test_create_normalizer_rule_400_on_bad_regex(monkeypatch):
+    """Invalid regex must surface as a 400 BEFORE the row is written."""
+    session = _RulesSession()
+    app = _build_rules_app(monkeypatch, session)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(
+            "/api/v1/admin/normalizer-rules",
+            json={
+                "pattern": "[unclosed",
+                "material_code": "X",
+                "canonical_name": "X",
+            },
+        )
+    assert res.status_code == 400
+    assert "Invalid regex" in res.json()["errors"][0]["message"]
+    assert session.added == []
+
+
+async def test_create_normalizer_rule_403_for_non_admin(monkeypatch):
+    """Members can read rules (eventually) but creating them is admin-only."""
+    session = _RulesSession()
+    app = _build_rules_app(monkeypatch, session, role="member")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(
+            "/api/v1/admin/normalizer-rules",
+            json={
+                "pattern": "x",
+                "material_code": "X",
+                "canonical_name": "X",
+            },
+        )
+    assert res.status_code == 403
+
+
+async def test_update_normalizer_rule_patches_only_provided_fields(monkeypatch):
+    """PATCH semantics: omitted fields are unchanged."""
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from models.core import NormalizerRule
+
+    rule_id = uuid4()
+    existing = NormalizerRule(
+        id=rule_id,
+        priority=50,
+        pattern="old",
+        material_code="OLD_CODE",
+        category="concrete",
+        canonical_name="Old",
+        preferred_units="m3",
+        enabled=True,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        created_by=None,
+    )
+    session = _RulesSession()
+    session.queue_scalar(existing)
+    app = _build_rules_app(monkeypatch, session)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.patch(
+            f"/api/v1/admin/normalizer-rules/{rule_id}",
+            json={"enabled": False},  # only flipping this flag
+        )
+    assert res.status_code == 200, res.text
+    assert existing.enabled is False
+    # Other fields untouched.
+    assert existing.pattern == "old"
+    assert existing.material_code == "OLD_CODE"
+
+
+async def test_update_normalizer_rule_404_when_missing(monkeypatch):
+    session = _RulesSession()
+    session.queue_scalar(None)
+    app = _build_rules_app(monkeypatch, session)
+
+    from uuid import uuid4
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.patch(
+            f"/api/v1/admin/normalizer-rules/{uuid4()}",
+            json={"enabled": False},
+        )
+    assert res.status_code == 404
+
+
+async def test_delete_normalizer_rule_removes_row(monkeypatch):
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from models.core import NormalizerRule
+
+    existing = NormalizerRule(
+        id=uuid4(),
+        priority=50,
+        pattern="x",
+        material_code="X",
+        category=None,
+        canonical_name="X",
+        preferred_units="",
+        enabled=True,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        created_by=None,
+    )
+    session = _RulesSession()
+    session.queue_scalar(existing)
+    app = _build_rules_app(monkeypatch, session)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.delete(f"/api/v1/admin/normalizer-rules/{existing.id}")
+    assert res.status_code == 204
+    assert existing in session.deleted

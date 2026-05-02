@@ -15,6 +15,7 @@ def register_all() -> None:
         dailylog,  # noqa: F401
         drawbridge,  # noqa: F401
         handover,  # noqa: F401
+        imports,  # noqa: F401
         pulse,  # noqa: F401
         punchlist,  # noqa: F401
         schedulepilot,  # noqa: F401

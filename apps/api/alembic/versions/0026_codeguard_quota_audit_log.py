@@ -33,12 +33,13 @@ Revision ID: 0026_codeguard_quota_audit_log
 Revises: ceff072b3343
 Create Date: 2026-05-01
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 revision = "0026_codeguard_quota_audit_log"
 down_revision = "ceff072b3343"

@@ -52,3 +52,50 @@ export function useCodeguardQuota() {
     },
   });
 }
+
+
+// ---------- Quota history (recent-usage trend) -------------------------
+
+export interface QuotaHistoryEntry {
+  /** First-of-month ISO date (e.g. "2026-05-01"). */
+  period_start: string;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+export interface CodeguardQuotaHistory {
+  organization_id: string;
+  /** Window size requested + clamped (server-side: 1..12). The UI
+   *  reads this back so it can render N bars even for months with
+   *  no usage row (missing months render as zero-width — see route
+   *  docstring for the "nothing happened ≠ no data" rationale). */
+  months: number;
+  input_limit: number | null;
+  output_limit: number | null;
+  /** Most-recent first. Months with no recorded usage are absent. */
+  history: QuotaHistoryEntry[];
+}
+
+/** Fetch the caller's org's last N months of usage for the
+ *  `/codeguard/quota` trend strip. Default 3 months matches the page
+ *  copy ("3 tháng gần nhất"); the backend caps at 12.
+ *
+ *  Different cadence than `useCodeguardQuota`: history changes only at
+ *  month rollover or after a `quotas reset`, neither of which warrants
+ *  per-minute polling. Refresh on page focus + a 5-minute stale window
+ *  is plenty. */
+export function useCodeguardQuotaHistory(months = 3) {
+  const { token, orgId } = useSession();
+  return useQuery({
+    queryKey: ["codeguard", "quota", "history", orgId, months],
+    // 5min staleness — history doesn't change minute-to-minute.
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const res = await apiFetch<CodeguardQuotaHistory>(
+        `/api/v1/codeguard/quota/history?months=${months}`,
+        { method: "GET", token, orgId },
+      );
+      return res.data as CodeguardQuotaHistory;
+    },
+  });
+}

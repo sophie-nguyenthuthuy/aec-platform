@@ -284,20 +284,33 @@ async def test_audit_log_round_trips_through_real_postgres(session, two_test_org
     let the unit tests pass (they stub the engine) but would silently
     drop our ability to query the audit history with `before->>'...'`.
     """
+    import datetime as _dt
     import json as _json
 
     org_a, _ = two_test_orgs
 
-    # Two audit rows for org_a, then one for a NULL org (representing
-    # an org that's since been deleted — `ON DELETE SET NULL`).
-    for action, before, after, actor in [
+    # Two audit rows for org_a. NOW() is constant inside a single
+    # transaction, so we bind explicit `occurred_at` timestamps to
+    # guarantee distinct values — otherwise both rows hash to the same
+    # instant and the `ORDER BY occurred_at DESC` ordering between them
+    # is undefined (a real failure mode operators would hit if two
+    # `set` calls ran back-to-back from a script). Computing the
+    # timestamps Python-side (rather than `NOW() - INTERVAL`) sidesteps
+    # asyncpg's INTERVAL adapter, which has type-coercion quirks when
+    # subtracted from NOW().
+    now = _dt.datetime.now(_dt.UTC)
+    for occurred_at, action, before, after, actor in [
+        # Earlier row: alice's first-time provisioning.
         (
+            now - _dt.timedelta(minutes=1),
             "quota_set",
             None,
             {"monthly_input_token_limit": 1_000_000, "monthly_output_token_limit": 200_000},
             "alice",
         ),
+        # Later row: bob raises the cap.
         (
+            now,
             "quota_set",
             {"monthly_input_token_limit": 1_000_000, "monthly_output_token_limit": 200_000},
             {"monthly_input_token_limit": 5_000_000, "monthly_output_token_limit": 1_000_000},
@@ -308,8 +321,12 @@ async def test_audit_log_round_trips_through_real_postgres(session, two_test_org
             text(
                 """
                 INSERT INTO codeguard_quota_audit_log
-                    (organization_id, action, before, after, actor)
-                VALUES (:org, :action, CAST(:before AS JSONB), CAST(:after AS JSONB), :actor)
+                    (organization_id, action, before, after, actor, occurred_at)
+                VALUES (
+                    :org, :action,
+                    CAST(:before AS JSONB), CAST(:after AS JSONB),
+                    :actor, :occurred_at
+                )
                 """
             ),
             {
@@ -318,6 +335,7 @@ async def test_audit_log_round_trips_through_real_postgres(session, two_test_org
                 "before": _json.dumps(before) if before is not None else None,
                 "after": _json.dumps(after) if after is not None else None,
                 "actor": actor,
+                "occurred_at": occurred_at,
             },
         )
     await session.commit()
@@ -340,7 +358,7 @@ async def test_audit_log_round_trips_through_real_postgres(session, two_test_org
     ).all()
     assert len(rows) == 2
 
-    # Latest row is bob's update (ON DUPLICATE-style cap raise).
+    # Latest row is bob's update (the cap raise, occurred_at = NOW()).
     latest = rows[0]
     assert latest.action == "quota_set"
     assert latest.actor == "bob"
@@ -354,7 +372,7 @@ async def test_audit_log_round_trips_through_real_postgres(session, two_test_org
         "monthly_output_token_limit": 1_000_000,
     }
 
-    # Earlier row is alice's first-time provisioning (before=NULL).
+    # Earlier row is alice's first-time provisioning (occurred_at = NOW() - 1min).
     earliest = rows[1]
     assert earliest.actor == "alice"
     assert earliest.before is None  # NULL JSONB → None, not {}.

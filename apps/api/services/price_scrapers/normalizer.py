@@ -127,11 +127,93 @@ def _strip_accents(s: str) -> str:
 
 
 def _match(raw_name: str) -> _Rule | None:
+    """Try DB-backed rules first (ops-editable), then fall back to code rules.
+
+    DB rules are loaded once per `normalise()` call via the cache in
+    `_get_active_rules()` — re-running a per-row import would otherwise
+    issue one SELECT per row.
+    """
     s = raw_name.strip()
-    for rule in _RULES:
+    for rule in _get_active_rules():
         if rule.pattern.search(s):
             return rule
     return None
+
+
+# DB-rule cache. Refreshed by `normalise()` on each call so the
+# scraper picks up an ops edit without a process restart, but reused
+# within a call to avoid N+1 SELECTs across hundreds of rows.
+_db_rules_cache: list[_Rule] = []
+
+
+def _get_active_rules() -> list[_Rule]:
+    """Return the merged rule list. Used by `_match`.
+
+    DB rules sort first (by priority ascending), then code rules. So:
+      * A DB rule with low priority overrides a code rule that would
+        also match — gives ops a way to short-circuit a known false
+        positive without a deploy.
+      * A DB rule with high priority is a "last-resort" pattern, used
+        for province-specific phrasings that the canonical code rules
+        deliberately don't match.
+    """
+    return _db_rules_cache + _RULES
+
+
+async def _load_db_rules() -> list[_Rule]:
+    """Read enabled `normalizer_rules` rows and compile to `_Rule` shape.
+
+    Best-effort: a malformed regex in one row gets logged and skipped;
+    the rest of the rules still land. We never want a typo in the
+    admin UI to crash the entire scrape.
+
+    Cross-tenant: uses `AdminSessionFactory`. Material rules are
+    platform-wide.
+    """
+    try:
+        from sqlalchemy import select
+
+        from db.session import AdminSessionFactory
+        from models.core import NormalizerRule
+
+        async with AdminSessionFactory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(NormalizerRule)
+                        .where(NormalizerRule.enabled.is_(True))
+                        .order_by(NormalizerRule.priority.asc())
+                    )
+                )
+                .scalars()
+                .all()
+            )
+    except Exception as exc:  # pragma: no cover — defensive (DB outage etc.)
+        logger.warning("normalizer._load_db_rules: failed: %s", exc)
+        return []
+
+    out: list[_Rule] = []
+    for row in rows:
+        try:
+            compiled = _r(row.pattern)
+        except re.error as exc:
+            logger.warning(
+                "normalizer._load_db_rules: skipping rule %s — bad regex: %s",
+                row.id,
+                exc,
+            )
+            continue
+        units = tuple(p.strip() for p in (row.preferred_units or "").split(",") if p.strip())
+        out.append(
+            _Rule(
+                pattern=compiled,
+                code=row.material_code,
+                category=row.category or "other",
+                canonical=row.canonical_name,
+                preferred_units=units,
+            )
+        )
+    return out
 
 
 @dataclass(frozen=True)
@@ -164,6 +246,20 @@ class NormalisationResult:
 # that *should* fire but didn't this run is still in `rule_hits`.
 # Computed once at import.
 _ALL_CODES: tuple[str, ...] = tuple(rule.code for rule in _RULES)
+
+
+async def refresh_db_rules() -> int:
+    """Reload `_db_rules_cache` from the DB. Call this from `run_scraper`
+    before each scrape so an ops edit lands without a process restart.
+
+    Returns the number of rules now in the cache (DB count). Tests can
+    skip this entirely — the in-code `_RULES` are sufficient for the
+    pure-logic suite.
+    """
+    global _db_rules_cache
+    rules = await _load_db_rules()
+    _db_rules_cache = rules
+    return len(rules)
 
 
 def normalise(rows: list[ScrapedPrice]) -> NormalisationResult:

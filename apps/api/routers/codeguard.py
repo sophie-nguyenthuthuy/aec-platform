@@ -1093,3 +1093,91 @@ async def get_codeguard_quota(
             "period_start": row.period_start.isoformat() if row.period_start else None,
         }
     )
+
+
+@router.get("/quota/history")
+async def get_codeguard_quota_history(
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    months: int = 3,
+) -> dict:
+    """Return the caller's org's usage for the last N months (default 3),
+    most-recent first.
+
+    Powers the `/codeguard/quota` page's recent-usage trend strip — a
+    tenant admin planning spend wants to see "we used 800k last month
+    and 600k the month before; this month we're at 200k of a 1M cap"
+    rather than a single bar that resets on the 1st. Without a history
+    surface, the only data the UI has is the *current* row; you can't
+    answer "is our usage trending up?" from that alone.
+
+    The query is bounded to a small N (clamp to [1, 12]) so a typo'd
+    `months=10000` can't accidentally be a tenant-bounded scan of the
+    whole table. 12 is a generous ceiling — anything beyond a year is
+    a separate "billing report" surface, not the dashboard widget this
+    backs.
+
+    Read-only; reuses `codeguard_org_usage` as-is. Months with no row
+    (the org made zero requests that month) are omitted from the
+    response — a missing month renders as a zero-width bar in the UI,
+    which is the right semantic ("nothing happened" not "no data").
+    """
+    # Clamp months to a sane range. Anything outside this is either a
+    # mistake or a different feature (annual billing export). Pinning
+    # the bound here keeps the endpoint dashboard-shaped.
+    bounded_months = max(1, min(int(months), 12))
+
+    from sqlalchemy import text as sa_text
+
+    rows = (
+        await db.execute(
+            sa_text(
+                """
+                SELECT
+                  period_start,
+                  input_tokens,
+                  output_tokens
+                FROM codeguard_org_usage
+                WHERE organization_id = :org
+                  AND period_start >= date_trunc('month', NOW() - (:months || ' months')::INTERVAL)::date
+                ORDER BY period_start DESC
+                """
+            ),
+            {"org": str(auth.organization_id), "months": bounded_months - 1},
+        )
+    ).all()
+
+    # Read the quota row once so the history page can render the cap
+    # alongside each bar (a 800k-month means very different things at a
+    # 1M cap vs a 10M cap). Mirrors the shape of the `/quota` route.
+    quota_row = (
+        await db.execute(
+            sa_text(
+                """
+                SELECT
+                  monthly_input_token_limit  AS in_lim,
+                  monthly_output_token_limit AS out_lim
+                FROM codeguard_org_quotas
+                WHERE organization_id = :org
+                """
+            ),
+            {"org": str(auth.organization_id)},
+        )
+    ).first()
+
+    return ok(
+        {
+            "organization_id": str(auth.organization_id),
+            "months": bounded_months,
+            "input_limit": quota_row.in_lim if quota_row else None,
+            "output_limit": quota_row.out_lim if quota_row else None,
+            "history": [
+                {
+                    "period_start": r.period_start.isoformat(),
+                    "input_tokens": r.input_tokens,
+                    "output_tokens": r.output_tokens,
+                }
+                for r in rows
+            ],
+        }
+    )

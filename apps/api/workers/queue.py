@@ -337,12 +337,16 @@ async def rfq_deadlines_cron(ctx: dict) -> dict:
         # Pull RFQs we might need to mutate. The (status, deadline)
         # combination is bounded — most RFQs close within their
         # deadline, so the result set is small even at year+ runtime.
+        #
+        # `organization_id` joins the audit emit below — each affected
+        # RFQ gets a `costpulse.rfq.slots_expired` row attributed to
+        # its tenant so admins see the auto-expiry trail per-org.
         rows = (
             (
                 await session.execute(
                     sql_text(
                         """
-                        SELECT id, status, sent_to, responses, deadline
+                        SELECT id, organization_id, status, sent_to, responses, deadline
                         FROM rfqs
                         WHERE status NOT IN ('closed', 'expired')
                           AND deadline IS NOT NULL
@@ -356,10 +360,16 @@ async def rfq_deadlines_cron(ctx: dict) -> dict:
             .all()
         )
 
+        # Lazy import — keeps the cron module load cheap and avoids a
+        # cycle (audit imports webhooks, which imports the cron-side
+        # `enqueue_event`).
+        from services.audit import record as audit_record
+
         for row in rows:
             responses = list(row["responses"] or [])
             mutated = False
             any_responded = False
+            row_expired_slots = 0
             for entry in responses:
                 if not isinstance(entry, dict):
                     continue
@@ -369,6 +379,7 @@ async def rfq_deadlines_cron(ctx: dict) -> dict:
                 elif status in ("dispatched", "bounced", None):
                     entry["status"] = "expired"
                     expired_slots += 1
+                    row_expired_slots += 1
                     mutated = True
 
             new_rfq_status = row["status"]
@@ -388,6 +399,24 @@ async def rfq_deadlines_cron(ctx: dict) -> dict:
                         sql_bindparam("responses", type_=_JSONB()),
                     ),
                     {"id": row["id"], "status": new_rfq_status, "responses": responses},
+                )
+                # Audit the auto-expiry. `actor_user_id=None` because
+                # the cron is the actor — there's no human at the
+                # keyboard. The before/after diff captures only the
+                # fields that changed (status + count of expired slots)
+                # so the row stays small and PII-free.
+                await audit_record(
+                    session,
+                    organization_id=row["organization_id"],
+                    actor_user_id=None,
+                    action="costpulse.rfq.slots_expired",
+                    resource_type="rfq",
+                    resource_id=row["id"],
+                    before={"status": row["status"]},
+                    after={
+                        "status": new_rfq_status,
+                        "expired_slot_count": row_expired_slots,
+                    },
                 )
         await session.commit()
 

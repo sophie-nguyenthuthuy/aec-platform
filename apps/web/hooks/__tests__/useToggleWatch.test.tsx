@@ -52,7 +52,7 @@ describe("useToggleWatch / watch", () => {
 
 describe("useToggleWatch / unwatch", () => {
   test("DELETEs /watches/{project_id} with no body", async () => {
-    fetchMock.mockResolvedValue(envelopeResponse(null, { status: 204 }));
+    fetchMock.mockResolvedValue(envelopeResponse(null));
 
     const { result } = renderHook(() => useToggleWatch(PROJECT_ID), {
       wrapper: makeWrapper(),
@@ -73,11 +73,12 @@ describe("useToggleWatch / unwatch", () => {
   });
 
   test("returns null even when the API responds with non-JSON body", async () => {
-    // Common shape for 204 No Content — body is empty string. The hook's
-    // `return null` ensures TanStack Query gets a valid value (otherwise
-    // `data` would be `undefined` and the `isSuccess`/`data` invariant
-    // gets confusing for consumers).
-    fetchMock.mockResolvedValue(new Response("", { status: 204 }));
+    // Empty 200 body — apiFetch's `res.json().catch(() => ({}))` swallow
+    // turns this into an empty envelope. The hook's `return null`
+    // ensures TanStack Query gets a valid value (otherwise `data` would
+    // be `undefined` and the `isSuccess`/`data` invariant gets confusing
+    // for consumers).
+    fetchMock.mockResolvedValue(new Response("", { status: 200 }));
 
     const { result } = renderHook(() => useToggleWatch(PROJECT_ID), {
       wrapper: makeWrapper(),
@@ -97,7 +98,7 @@ describe("useToggleWatch / project_id baked into closure", () => {
     // that read project_id from elsewhere (context, store) without an
     // explicit re-render would silently change the URL between mutate()
     // calls.
-    fetchMock.mockResolvedValue(envelopeResponse(null, { status: 204 }));
+    fetchMock.mockResolvedValue(envelopeResponse(null));
 
     const { result } = renderHook(() => useToggleWatch(PROJECT_ID), {
       wrapper: makeWrapper(),

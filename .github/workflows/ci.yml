@@ -59,8 +59,12 @@ jobs:
       # `packages/ui`. Fast (~2s), runs in jsdom, no browser. Catches
       # prop/state/handler regressions that Playwright can only see via
       # full-page workflows. See docs/testing.md §"UI component lane".
-      - name: Vitest (packages/ui — component tests)
-        run: pnpm --filter @aec/ui test
+      # `:coverage` runs the same suite under v8 instrumentation and
+      # enforces the thresholds in `packages/ui/vitest.config.ts`.
+      # Slower than plain `test` (~3x) but catches "tests dropped"
+      # regressions that would otherwise silently land.
+      - name: Vitest (packages/ui — component tests + coverage)
+        run: pnpm --filter @aec/ui test:coverage
 
       # Library-level tests for `apps/web/lib/*` — apiFetch + the
       # api-client.ts wrapper. Pure-function unit tests, ~1-2s in jsdom.
@@ -68,8 +72,8 @@ jobs:
       # body=undefined → no body, error envelope unwrap) is what every
       # TanStack hook in the app depends on; a regression here breaks
       # every dashboard page. See docs/testing.md §"Web lib lane".
-      - name: Vitest (apps/web — lib unit tests)
-        run: pnpm --filter @aec/web test
+      - name: Vitest (apps/web — lib + hooks unit tests + coverage)
+        run: pnpm --filter @aec/web test:coverage
 
       - name: Build web
         run: pnpm --filter @aec/web build
