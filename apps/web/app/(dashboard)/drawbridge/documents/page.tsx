@@ -84,7 +84,7 @@ export default function DocumentLibraryPage() {
             placeholder="project_id"
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
-            className="w-64 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+            className="w-64 rounded-md border border-slate-300 px-3 py-1.5 text-sm placeholder:text-slate-500"
           />
           <select
             value={discipline}
@@ -116,7 +116,7 @@ export default function DocumentLibraryPage() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Tìm kiếm..."
-              className="w-56 rounded-md border border-slate-300 py-1.5 pl-7 pr-3 text-sm"
+              className="w-56 rounded-md border border-slate-300 py-1.5 pl-7 pr-3 text-sm placeholder:text-slate-500"
             />
           </div>
         </div>
@@ -133,7 +133,7 @@ export default function DocumentLibraryPage() {
             <DocumentRow key={d.id} doc={d} />
           ))}
           {!isLoading && docs.length === 0 && (
-            <li className="px-4 py-12 text-center text-sm text-slate-400">
+            <li className="px-4 py-12 text-center text-sm text-slate-500">
               Chưa có tài liệu nào. Tải lên để bắt đầu.
             </li>
           )}

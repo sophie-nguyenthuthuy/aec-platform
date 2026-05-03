@@ -193,9 +193,9 @@ resource "aws_ecs_task_definition" "api_migrate" {
   task_role_arn            = aws_iam_role.task.arn
 
   container_definitions = jsonencode([{
-    name        = "aec-api"
-    image       = var.api_image
-    essential   = true
+    name      = "aec-api"
+    image     = var.api_image
+    essential = true
     # The deploy workflow overrides `command` per invocation
     # (`alembic upgrade head` for normal rollouts, ad-hoc commands for
     # backfills). The default here is a no-op so an accidental `run-task`

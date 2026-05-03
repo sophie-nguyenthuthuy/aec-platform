@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -32,7 +32,7 @@ from core.envelope import ok
 from db.session import TenantAwareSession
 from middleware.auth import AuthContext
 from middleware.rbac import Role, require_min_role
-from services.api_keys import SCOPES, mint_key, usage_for_key
+from services.api_keys import SCOPES, mint_key
 
 router = APIRouter(prefix="/api/v1/api-keys", tags=["api-keys"])
 
