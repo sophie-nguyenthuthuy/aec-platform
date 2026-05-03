@@ -285,7 +285,11 @@ async def test_audit_event_emitted_per_mutated_rfq_with_correct_diff(install_adm
 
     a = by_resource[rfq_a]
     assert a["organization_id"] == org_a
-    assert a["actor_user_id"] is None  # cron is the actor
+    # Cron is the actor — both actor columns must end up NULL on the row.
+    # The new `audit.record(..., auth=...)` signature derives that from
+    # `auth=None`; asserting `auth is None` is the post-refactor
+    # equivalent of the old `actor_user_id is None` check.
+    assert a["auth"] is None
     assert a["action"] == "costpulse.rfq.slots_expired"
     assert a["resource_type"] == "rfq"
     assert a["before"] == {"status": "sent"}

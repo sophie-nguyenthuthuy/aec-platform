@@ -34,6 +34,12 @@ class AuditEvent(Base):
         PGUUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
     )
+    # Set when the actor is an api key. Mutually exclusive with
+    # `actor_user_id` by call-site convention (see services.audit).
+    actor_api_key_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("api_keys.id", ondelete="SET NULL"),
+    )
     action: Mapped[str] = mapped_column(Text, nullable=False)
     resource_type: Mapped[str] = mapped_column(Text, nullable=False)
     resource_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))

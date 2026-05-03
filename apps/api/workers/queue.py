@@ -423,15 +423,15 @@ async def rfq_deadlines_cron(ctx: dict) -> dict:
                     ),
                     {"id": row["id"], "status": new_rfq_status, "responses": responses},
                 )
-                # Audit the auto-expiry. `actor_user_id=None` because
-                # the cron is the actor — there's no human at the
-                # keyboard. The before/after diff captures only the
-                # fields that changed (status + count of expired slots)
-                # so the row stays small and PII-free.
+                # Audit the auto-expiry. `auth=None` because the cron
+                # is the actor — there's no human at the keyboard. The
+                # before/after diff captures only the fields that
+                # changed (status + count of expired slots) so the row
+                # stays small and PII-free.
                 await audit_record(
                     session,
                     organization_id=row["organization_id"],
-                    actor_user_id=None,
+                    auth=None,
                     action="costpulse.rfq.slots_expired",
                     resource_type="rfq",
                     resource_id=row["id"],

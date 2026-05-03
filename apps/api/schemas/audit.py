@@ -14,7 +14,10 @@ class AuditEventOut(BaseModel):
     id: UUID
     organization_id: UUID
     actor_user_id: UUID | None
-    actor_email: str | None = None  # joined from users table at read time
+    actor_api_key_id: UUID | None = None
+    # Joined at read time: users.email for human actors, or
+    # `api_key:<name>` for api-key actors. NULL for cron / system rows.
+    actor_email: str | None = None
     action: str
     resource_type: str
     resource_id: UUID | None

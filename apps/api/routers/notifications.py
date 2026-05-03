@@ -304,7 +304,7 @@ async def upsert_preference(
     await record_audit(
         db,
         organization_id=auth.organization_id,
-        actor_user_id=auth.user_id,
+        auth=auth,
         action="notifications.preference.update",
         resource_type="notification_preference",
         resource_id=existing.id,

@@ -436,7 +436,7 @@ async def record_approval(
             await _audit.record(
                 session,
                 organization_id=auth.organization_id,
-                actor_user_id=auth.user_id,
+                auth=auth,
                 action=("pulse.change_order.approve" if new_status == "approved" else "pulse.change_order.reject"),
                 resource_type="change_orders",
                 resource_id=co_id,

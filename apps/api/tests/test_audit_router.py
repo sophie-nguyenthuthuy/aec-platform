@@ -31,6 +31,28 @@ pytestmark = pytest.mark.asyncio
 
 ORG_ID = UUID("22222222-2222-2222-2222-222222222222")
 USER_ID = UUID("11111111-1111-1111-1111-111111111111")
+API_KEY_ID = UUID("33333333-3333-3333-3333-333333333333")
+
+
+def _user_auth() -> AuthContext:
+    """Standard human-actor AuthContext for the helper tests."""
+    return AuthContext(
+        user_id=USER_ID,
+        organization_id=ORG_ID,
+        role="admin",
+        email="caller@example.com",
+    )
+
+
+def _api_key_auth() -> AuthContext:
+    """API-key actor: `user_id` carries the api_keys.id and role is
+    `api_key`. Mirrors what `middleware.api_key_auth` synthesises."""
+    return AuthContext(
+        user_id=API_KEY_ID,
+        organization_id=ORG_ID,
+        role="api_key",
+        email="",
+    )
 
 
 class FakeAsyncSession:
@@ -211,7 +233,7 @@ async def test_audit_record_helper_adds_event_to_session(fake_db):
     await record(
         fake_db,  # type: ignore[arg-type]
         organization_id=ORG_ID,
-        actor_user_id=USER_ID,
+        auth=_user_auth(),
         action="costpulse.estimate.approve",
         resource_type="estimates",
         resource_id=rid,
@@ -239,7 +261,7 @@ async def test_audit_record_extracts_ip_from_x_forwarded_for(fake_db):
     await record(
         fake_db,  # type: ignore[arg-type]
         organization_id=ORG_ID,
-        actor_user_id=USER_ID,
+        auth=_user_auth(),
         action="org.member.role_change",
         resource_type="org_members",
         resource_id=uuid4(),
@@ -260,7 +282,7 @@ async def test_audit_record_falls_back_to_client_host(fake_db):
     await record(
         fake_db,  # type: ignore[arg-type]
         organization_id=ORG_ID,
-        actor_user_id=USER_ID,
+        auth=_user_auth(),
         action="org.member.remove",
         resource_type="org_members",
         resource_id=uuid4(),
@@ -283,7 +305,7 @@ async def test_audit_record_caps_user_agent_length(fake_db):
     await record(
         fake_db,  # type: ignore[arg-type]
         organization_id=ORG_ID,
-        actor_user_id=USER_ID,
+        auth=_user_auth(),
         action="org.member.role_change",
         resource_type="org_members",
         resource_id=uuid4(),
@@ -294,3 +316,99 @@ async def test_audit_record_caps_user_agent_length(fake_db):
     audits = [o for o in fake_db.added if isinstance(o, AuditEvent)]
     assert audits[0].user_agent is not None
     assert len(audits[0].user_agent) == 500
+
+
+# ---------- API-key actors ----------
+
+
+async def test_audit_record_api_key_actor_routes_to_api_key_column(fake_db):
+    """When the caller is an api key, `auth.user_id` is the api_keys.id
+    (NOT a real user id). The helper must route it to
+    `actor_api_key_id` and leave `actor_user_id` NULL — otherwise the
+    FK to `users.id` rejects the INSERT."""
+    from models.audit import AuditEvent
+    from services.audit import record
+
+    await record(
+        fake_db,  # type: ignore[arg-type]
+        organization_id=ORG_ID,
+        auth=_api_key_auth(),
+        action="costpulse.estimate.approve",
+        resource_type="estimates",
+        resource_id=uuid4(),
+    )
+
+    audits = [o for o in fake_db.added if isinstance(o, AuditEvent)]
+    assert len(audits) == 1
+    assert audits[0].actor_user_id is None
+    assert audits[0].actor_api_key_id == API_KEY_ID
+
+
+async def test_list_audit_events_surfaces_api_key_name_as_actor_email(fake_db):
+    """The list endpoint COALESCEs users.email with `api_key:<name>` so
+    api-key-driven rows render with a clear, human-readable label in
+    the admin audit page (instead of falling through to the
+    'system'/anonymous path)."""
+    count_q = MagicMock()
+    count_q.scalar_one.return_value = 1
+    rows_q = MagicMock()
+    rows_q.mappings.return_value.all.return_value = [
+        {
+            "id": uuid4(),
+            "organization_id": ORG_ID,
+            "actor_user_id": None,
+            "actor_api_key_id": API_KEY_ID,
+            # The router computes this via
+            # `COALESCE(u.email, 'api_key:' || ak.name)`. With the user
+            # join missing (api-key actor), this is what falls out.
+            "actor_email": "api_key:My CRM",
+            "action": "costpulse.estimate.approve",
+            "resource_type": "estimates",
+            "resource_id": uuid4(),
+            "before": {},
+            "after": {"status": "approved"},
+            "ip": "10.0.0.1",
+            "user_agent": "MyCRM/1.0",
+            "created_at": datetime(2026, 5, 2, 17, 0, tzinfo=UTC),
+        },
+    ]
+    fake_db.push(count_q)
+    fake_db.push(rows_q)
+
+    app = _build_audit_app("admin", fake_db)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/api/v1/audit/events")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["data"][0]["actor_email"] == "api_key:My CRM"
+    assert body["data"][0]["actor_user_id"] is None
+    assert body["data"][0]["actor_api_key_id"] == str(API_KEY_ID)
+
+
+async def test_list_audit_events_actor_kind_api_key_filter_passes_validation(fake_db):
+    """`actor_kind=api_key` is accepted by the pydantic pattern and the
+    request executes (returns 200 with empty list against an empty
+    fake_db)."""
+    count_q = MagicMock()
+    count_q.scalar_one.return_value = 0
+    rows_q = MagicMock()
+    rows_q.mappings.return_value.all.return_value = []
+    fake_db.push(count_q)
+    fake_db.push(rows_q)
+
+    app = _build_audit_app("admin", fake_db)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/api/v1/audit/events?actor_kind=api_key")
+    assert res.status_code == 200
+
+
+async def test_list_audit_events_actor_kind_validates_pattern(fake_db):
+    """Junk `actor_kind` value → 422 from the pydantic Query pattern.
+    Pin so a forged value never reaches the WHERE construction."""
+    app = _build_audit_app("admin", fake_db)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/api/v1/audit/events?actor_kind=hacker")
+    assert res.status_code == 422

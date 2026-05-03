@@ -216,7 +216,7 @@ async def create_normalizer_rule(
         await audit_record(
             session,
             organization_id=auth.organization_id,
-            actor_user_id=auth.user_id,
+            auth=auth,
             action="admin.normalizer_rule.create",
             resource_type="normalizer_rule",
             resource_id=row.id,
@@ -306,7 +306,7 @@ async def update_normalizer_rule(
             await audit_record(
                 session,
                 organization_id=auth.organization_id,
-                actor_user_id=auth.user_id,
+                auth=auth,
                 action="admin.normalizer_rule.update",
                 resource_type="normalizer_rule",
                 resource_id=row.id,
@@ -365,7 +365,7 @@ async def delete_normalizer_rule(
         await audit_record(
             session,
             organization_id=auth.organization_id,
-            actor_user_id=auth.user_id,
+            auth=auth,
             action="admin.normalizer_rule.delete",
             resource_type="normalizer_rule",
             resource_id=rule_id_captured,

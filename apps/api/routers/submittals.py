@@ -392,7 +392,7 @@ async def review_revision(
             await _audit.record(
                 session,
                 organization_id=auth.organization_id,
-                actor_user_id=auth.user_id,
+                auth=auth,
                 action=verdict_action,  # type: ignore[arg-type]
                 resource_type="submittals",
                 resource_id=rev_d["submittal_id"],

@@ -195,7 +195,11 @@ async def update_boq(
     to the latest version's URL.
     """
     estimate = await _load_writable_estimate(db, auth, estimate_id)
-    new_estimate = _supersede_and_clone(db, estimate, actor_user_id=auth.user_id)
+    # `created_by` is a users.id FK; for api-key callers `auth.user_id`
+    # is actually api_keys.id and would FK-violate. Pass None for those
+    # callers — the audit row above carries the real api-key actor.
+    creator = None if auth.role == "api_key" else auth.user_id
+    new_estimate = _supersede_and_clone(db, estimate, actor_user_id=creator)
     await db.flush()  # populate new_estimate.id without committing yet
 
     total = _persist_items(db, new_estimate.id, payload.items, recompute=payload.recompute_totals)
@@ -287,7 +291,7 @@ async def import_boq_xlsx(
     await record_audit(
         db,
         organization_id=auth.organization_id,
-        actor_user_id=auth.user_id,
+        auth=auth,
         action="costpulse.boq.import",
         resource_type="estimate",
         resource_id=estimate_id,
@@ -759,7 +763,7 @@ async def import_suppliers(
     await record_audit(
         db,
         organization_id=auth.organization_id,
-        actor_user_id=auth.user_id,
+        auth=auth,
         action="costpulse.suppliers.import",
         resource_type="supplier_directory",
         resource_id=None,

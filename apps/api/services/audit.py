@@ -28,6 +28,7 @@ from uuid import UUID, uuid4
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from middleware.auth import AuthContext
 from models.audit import AuditEvent
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ async def record(
     session: AsyncSession,
     *,
     organization_id: UUID,
-    actor_user_id: UUID | None,
+    auth: AuthContext | None,
     action: AuditAction,
     resource_type: str,
     resource_id: UUID | None,
@@ -105,6 +106,14 @@ async def record(
     request: Request | None = None,
 ) -> AuditEvent:
     """Append one audit row.
+
+    `auth` is the caller's auth context, or None for system-driven
+    events (cron jobs, queue workers). When `auth.role == "api_key"`,
+    `auth.user_id` is actually the api_keys.id — we route it to the
+    `actor_api_key_id` column so the FK to `users.id` doesn't trip,
+    and the read endpoint can surface the key's name. Otherwise it's a
+    real user UUID and goes to `actor_user_id`. Exactly one of the
+    two is non-NULL on a row with a known actor.
 
     `request` is optional but recommended — it gives us caller IP +
     User-Agent without the call site needing to pluck them off itself.
@@ -115,10 +124,19 @@ async def record(
     their own transaction so a failed handler rolls back the audit
     too.
     """
+    actor_user_id: UUID | None = None
+    actor_api_key_id: UUID | None = None
+    if auth is not None:
+        if auth.role == "api_key":
+            actor_api_key_id = auth.user_id
+        else:
+            actor_user_id = auth.user_id
+
     event = AuditEvent(
         id=uuid4(),
         organization_id=organization_id,
         actor_user_id=actor_user_id,
+        actor_api_key_id=actor_api_key_id,
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
@@ -145,6 +163,7 @@ async def record(
             "resource_type": resource_type,
             "resource_id": str(resource_id) if resource_id else None,
             "actor_user_id": str(actor_user_id) if actor_user_id else None,
+            "actor_api_key_id": str(actor_api_key_id) if actor_api_key_id else None,
             "before": before or {},
             "after": after or {},
         },

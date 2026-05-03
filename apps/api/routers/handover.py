@@ -324,7 +324,7 @@ async def update_package(
             await _audit.record(
                 audit_session,
                 organization_id=auth.organization_id,
-                actor_user_id=auth.user_id,
+                auth=auth,
                 action="handover.package.deliver",
                 resource_type="handover_packages",
                 resource_id=package_id,

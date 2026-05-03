@@ -279,7 +279,7 @@ async def sign_off(
         await _audit.record(
             session,
             organization_id=auth.organization_id,
-            actor_user_id=auth.user_id,
+            auth=auth,
             action="punchlist.list.sign_off",
             resource_type="punch_lists",
             resource_id=list_id,

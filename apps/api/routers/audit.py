@@ -42,6 +42,7 @@ async def list_audit_events(
     resource_type: str | None = None,
     resource_id: UUID | None = None,
     action: str | None = None,
+    actor_kind: Annotated[str | None, Query(pattern="^(user|api_key|system)$")] = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
@@ -50,6 +51,13 @@ async def list_audit_events(
     Filter params compose: pass `resource_type=change_orders` +
     `resource_id=<uuid>` to see one CO's full audit trail; pass `action`
     to scope to one verb (e.g. `org.member.role_change`).
+
+    `actor_kind` narrows by what KIND of actor produced the row:
+      * `user` — human, attributed via `actor_user_id`.
+      * `api_key` — programmatic, attributed via `actor_api_key_id`.
+        Customer Success uses this to answer "what did partner X's
+        integration do this week."
+      * `system` — both columns NULL; cron / queue worker actors.
     """
     where_clauses = ["organization_id = :org"]
     params: dict[str, object] = {"org": str(auth.organization_id)}
@@ -62,6 +70,12 @@ async def list_audit_events(
     if action:
         where_clauses.append("action = :action")
         params["action"] = action
+    if actor_kind == "user":
+        where_clauses.append("actor_user_id IS NOT NULL")
+    elif actor_kind == "api_key":
+        where_clauses.append("actor_api_key_id IS NOT NULL")
+    elif actor_kind == "system":
+        where_clauses.append("actor_user_id IS NULL AND actor_api_key_id IS NULL")
 
     where_sql = " AND ".join(where_clauses)
 
@@ -72,22 +86,27 @@ async def list_audit_events(
     )
     total = total_q.scalar_one()
 
-    # Join to `users` to surface the actor's email — the audit row only
-    # carries the FK. LEFT JOIN because actor_user_id is nullable
-    # (system-driven events).
+    # Join to `users` for human actors and to `api_keys` for api-key
+    # actors. Both joins are LEFT because at most one of the two FK
+    # columns is populated on any row (and both are NULL for cron /
+    # system events). The `api_key:<name>` prefix on the displayed
+    # email keeps the column human-readable while making it obvious in
+    # the admin UI that the actor wasn't a person.
     rows = (
         (
             await db.execute(
                 text(
                     f"""
                     SELECT
-                        a.id, a.organization_id, a.actor_user_id,
-                        u.email AS actor_email,
+                        a.id, a.organization_id,
+                        a.actor_user_id, a.actor_api_key_id,
+                        COALESCE(u.email, 'api_key:' || ak.name) AS actor_email,
                         a.action, a.resource_type, a.resource_id,
                         a.before, a.after, a.ip, a.user_agent,
                         a.created_at
                     FROM audit_events a
                     LEFT JOIN users u ON u.id = a.actor_user_id
+                    LEFT JOIN api_keys ak ON ak.id = a.actor_api_key_id
                     WHERE {where_sql}
                     ORDER BY a.created_at DESC
                     LIMIT :limit OFFSET :offset
