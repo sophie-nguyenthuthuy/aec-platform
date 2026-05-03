@@ -11,6 +11,9 @@ export interface AuditEvent {
   id: UUID;
   organization_id: UUID;
   actor_user_id: UUID | null;
+  actor_api_key_id: UUID | null;
+  // For human actors this is `users.email`; for api-key actors it's
+  // `api_key:<name>` (server-side COALESCE). NULL on cron / system rows.
   actor_email: string | null;
   action: string;
   resource_type: string;
