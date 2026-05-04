@@ -421,3 +421,33 @@ async def retention_run_now(
     async with AdminSessionFactory() as session:
         summaries = await run_retention_cron(session)
     return ok({"tables": summaries})
+
+
+# ---------- API-usage observability ----------
+#
+# `usage_top_keys` is cross-tenant (BYPASSRLS via AdminSessionFactory)
+# because the answer to "which integrations are noisy" only makes sense
+# at platform scope. Per-tenant equivalents live under /api/v1/api-keys
+# (their session is tenant-scoped via TenantAwareSession).
+
+
+@router.get("/api-usage/top-keys")
+async def admin_api_usage_top_keys(
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+    hours: int = Query(default=24, ge=1, le=24 * 30),
+    limit: int = Query(default=10, ge=1, le=100),
+):
+    """Top API keys by call volume in the last N hours, across every
+    tenant. Drives the `/admin/api-usage` operator page.
+
+    Returns one row per key, with `name`, `prefix`, `organization_id`,
+    `revoked` flag, plus `total_count` and `error_count` aggregated
+    over the window. Includes revoked keys because their last-activity
+    burst is exactly the kind of signal an operator wants when
+    chasing a partner-key blowup that just got pulled.
+    """
+    from services.api_keys import usage_top_keys
+
+    async with AdminSessionFactory() as session:
+        rows = await usage_top_keys(session, hours=hours, limit=limit)
+    return ok(rows)
