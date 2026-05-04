@@ -73,7 +73,10 @@ export function DocumentUploadZone({
       >
         <Upload className={cn("mb-2", isDragging ? "text-blue-600" : "text-slate-400")} size={28} />
         <p className="text-sm font-medium text-slate-700">Kéo thả bản vẽ / tài liệu vào đây</p>
-        <p className="mt-1 text-xs text-slate-500">hoặc bấm để chọn tệp — PDF, DOCX, DWG (tối đa 100MB)</p>
+        {/* slate-600 (not -500) so the subtitle still passes WCAG AA when
+            the disabled-state bg is `bg-slate-100`: -500 lands at ~4.34:1
+            on slate-100, just below the 4.5:1 floor for body text. */}
+        <p className="mt-1 text-xs text-slate-600">hoặc bấm để chọn tệp — PDF, DOCX, DWG (tối đa 100MB)</p>
         <input
           ref={inputRef}
           type="file"

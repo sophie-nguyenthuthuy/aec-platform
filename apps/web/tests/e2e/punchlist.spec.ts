@@ -218,6 +218,15 @@ test.describe("Punch list / detail", () => {
 
     await page.goto(`/punchlist/${LIST_ID}`);
 
+    // The page renders `Đang tải...` while React Query resolves the
+    // mocked fetch. `allInnerTexts()` is a one-shot read with no
+    // auto-retry — without an explicit wait for the loaded state, it
+    // races the query and gets `[]`. Wait for one of the rendered
+    // descriptions to be visible before snapshotting the item-number
+    // strip. (Locator-based `expect` assertions auto-retry; this is
+    // the conventional fix per Playwright best practices.)
+    await expect(page.getByText("Outlet B-103 dead")).toBeVisible();
+
     // Item numbers in order — #1 before #2 in the visible list (sorted).
     // Scope to the items <list> + use `getByText` with a regex; the
     // deprecated `page.locator("text=/.../")` engine catches zero matches
