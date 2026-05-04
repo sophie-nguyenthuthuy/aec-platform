@@ -562,11 +562,28 @@ def _render_threshold_email(
             f"Hạn mức sẽ reset đầu tháng sau, hoặc bạn có thể tăng cap qua quản trị."
         )
 
-    text_body = f"{headline}\n\n{body_intro}\n\nXem chi tiết: {quota_url}\n"
+    # Weighted-accounting disclosure. Without this footnote, an admin
+    # whose org just got a threshold email files a support ticket
+    # along the lines of "your usage shows 95% but our raw token
+    # count from logs is 19%" — which is exactly correct, because
+    # `/scan` records at 5× to reflect compute cost. Mention the
+    # policy in one sentence so the admin understands the
+    # discrepancy. Same copy in both critical and warn paths — the
+    # policy doesn't depend on the threshold band. Carefully avoid
+    # the string "HTTP 429" here so a warn email doesn't leak the
+    # critical-only token (test_render_threshold_email_critical_uses_
+    # critical_copy pins that).
+    weighted_note = (
+        "Lưu ý: các yêu cầu /scan tính 5× và /permit-checklist tính 2× so với /query "
+        "để phản ánh chi phí compute thực tế."
+    )
+
+    text_body = f"{headline}\n\n{body_intro}\n\n{weighted_note}\n\nXem chi tiết: {quota_url}\n"
     html_body = (
         f'<div style="font-family:system-ui,sans-serif;color:#222;max-width:560px">'
         f'<h2 style="margin:0 0 8px;font-size:16px">{headline}</h2>'
         f'<p style="font-size:13px;line-height:1.5">{body_intro}</p>'
+        f'<p style="font-size:12px;line-height:1.5;color:#555">{weighted_note}</p>'
         f'<p style="margin-top:16px;font-size:13px">'
         f'<a href="{quota_url}">Xem hạn mức chi tiết</a>'
         f"</p>"
@@ -618,6 +635,14 @@ def _render_threshold_slack(
             f"Đã dùng {percent:.1f}% hạn mức token {dimension} ({used_fmt} / {limit_fmt}). Hạn mức reset đầu tháng sau."
         )
 
+    # Same weighted-accounting footnote as the email — kept identical
+    # so an admin who reads both surfaces doesn't see two slightly-
+    # different explanations and wonder which is authoritative.
+    weighted_note = (
+        "Lưu ý: các yêu cầu /scan tính 5× và /permit-checklist tính 2× so với /query "
+        "để phản ánh chi phí compute thực tế."
+    )
+
     blocks: list[dict[str, Any]] = [
         {
             "type": "header",
@@ -626,6 +651,12 @@ def _render_threshold_slack(
         {
             "type": "section",
             "text": {"type": "mrkdwn", "text": intro},
+        },
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": weighted_note},
+            ],
         },
         {
             "type": "context",

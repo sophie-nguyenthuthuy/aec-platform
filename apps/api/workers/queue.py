@@ -451,6 +451,69 @@ async def rfq_deadlines_cron(ctx: dict) -> dict:
     return {"expired_slots": expired_slots, "expired_rfqs": expired_rfqs}
 
 
+async def codeguard_quota_reconcile_cron(ctx: dict) -> dict:
+    """Weekly drift check between codeguard_org_usage and SUM(codeguard_user_usage).
+
+    Sets the `codeguard_quota_drift_rows` gauge to the count of (org,
+    period) rows where the two tables diverge by more than 1000 tokens
+    (combined input + output). The `CodeguardQuotaUsageDrift` alert
+    fires on a sustained nonzero value.
+
+    FULL OUTER JOIN so an (org, period) present in only one side
+    still contributes to the drift count — both asymmetries (org_usage
+    missing user totals, OR user totals missing org row) indicate
+    attribution loss worth alerting on.
+
+    Cross-tenant: AdminSessionFactory (BYPASSRLS) so the SUM() sees
+    every org's rows. Weekly cadence (not daily): drift is an
+    attribution-loss signal, not a hot-path correctness check.
+    """
+    from sqlalchemy import text as sql_text
+
+    from core.metrics import codeguard_quota_drift_rows
+    from db.session import AdminSessionFactory
+
+    threshold_tokens = 1000
+
+    async with AdminSessionFactory() as session:
+        result = await session.execute(
+            sql_text(
+                """
+                WITH user_totals AS (
+                    SELECT organization_id, period_start,
+                           SUM(input_tokens)  AS u_in,
+                           SUM(output_tokens) AS u_out
+                    FROM codeguard_user_usage
+                    GROUP BY organization_id, period_start
+                )
+                SELECT COUNT(*) AS drift_rows
+                FROM codeguard_org_usage o
+                FULL OUTER JOIN user_totals u
+                  ON  o.organization_id = u.organization_id
+                  AND o.period_start    = u.period_start
+                WHERE
+                    ABS(
+                        COALESCE(o.input_tokens, 0)  - COALESCE(u.u_in, 0)
+                      + COALESCE(o.output_tokens, 0) - COALESCE(u.u_out, 0)
+                    ) > :threshold
+                """
+            ),
+            {"threshold": threshold_tokens},
+        )
+        drift_rows = int(result.scalar_one() or 0)
+
+    # Set explicitly on every run (including clean=0) so the gauge
+    # distinguishes "clean" from "metric never published" — the
+    # latter would look like the cron stopped firing.
+    codeguard_quota_drift_rows.set(drift_rows)
+    logger.info(
+        "codeguard_quota_reconcile_cron: drift_rows=%d (threshold=%d tokens)",
+        drift_rows,
+        threshold_tokens,
+    )
+    return {"drift_rows": drift_rows, "threshold_tokens": threshold_tokens}
+
+
 def sql_bindparam(*args, **kwargs):
     """Local re-export so the cron body doesn't import sqlalchemy at module level.
 
@@ -512,6 +575,11 @@ class WorkerSettings:
         # Capped at 10k rows per table per run so a backed-up tenant
         # catches up over multiple days without locking up the table.
         cron(retention_prune_cron, hour=3, minute=0),
+        # Every Monday 04:00 UTC (~11:00 ICT) — reconcile codeguard
+        # org-level vs per-user usage. Sets `codeguard_quota_drift_rows`;
+        # `CodeguardQuotaUsageDrift` alerts on sustained nonzero values.
+        # Weekly: drift is attribution loss, not hot-path correctness.
+        cron(codeguard_quota_reconcile_cron, weekday="mon", hour=4, minute=0),
     ]
     max_jobs = 8
     job_timeout = 900  # 15 min — weekly report with PDF rendering can be slow

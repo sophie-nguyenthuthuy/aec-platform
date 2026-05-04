@@ -188,6 +188,21 @@ codeguard_quota_check_duration_seconds = _register(
         help_text="Pre-flight cap-check (SELECT) duration on every LLM route.",
     )
 )
+# Reconcile cron drift signal. Set per-run by
+# `codeguard_quota_reconcile_cron` to the count of (org, period) rows
+# where `codeguard_org_usage` totals diverge from
+# `SUM(codeguard_user_usage)` by more than 1000 tokens. Why a Gauge
+# not a Counter: we want "how many drift rows RIGHT NOW," not "how
+# many ever detected" — `CodeguardQuotaUsageDrift` alerts on a
+# sustained nonzero value, not a rate. Set to 0 explicitly on a clean
+# run so dashboards distinguish "clean" from "metric never published."
+codeguard_quota_drift_rows = _register(
+    Gauge(
+        "codeguard_quota_drift_rows",
+        [],
+        help_text="(org, period) row count from the most recent reconcile cron run.",
+    )
+)
 
 
 # ---------- Renderer ----------

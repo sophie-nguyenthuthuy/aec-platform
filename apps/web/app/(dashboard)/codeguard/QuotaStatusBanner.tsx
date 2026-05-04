@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Info } from "lucide-react";
 
 import { useCodeguardQuota, type CodeguardQuota } from "@/hooks/codeguard";
 
@@ -64,10 +64,29 @@ export function QuotaStatusBanner() {
                 ? `Sắp đạt hạn mức tháng — ${binding.dimensionLabel} ở ${binding.percent.toFixed(1)}%`
                 : `Đã dùng ${binding.percent.toFixed(1)}% hạn mức ${binding.dimensionLabel} trong tháng`}
             </div>
-            <div className="text-xs">
-              {binding.used.toLocaleString("vi-VN")}{" "}
-              / {binding.limit?.toLocaleString("vi-VN")} token
-              {data.period_start ? ` (kỳ ${data.period_start})` : ""}
+            <div className="flex items-center gap-1.5 text-xs">
+              <span>
+                {binding.used.toLocaleString("vi-VN")}{" "}
+                / {binding.limit?.toLocaleString("vi-VN")} token
+                {data.period_start ? ` (kỳ ${data.period_start})` : ""}
+              </span>
+              {/* Weighted-accounting tooltip. Without this, an admin
+                  comparing the banner percent to their raw-token
+                  logs sees a discrepancy (a heavy /scan day pushes
+                  the percent at 5× the raw-token rate) and files a
+                  "your number is wrong" ticket. The tooltip text
+                  matches the threshold email/Slack copy so an admin
+                  reading either doesn't see two diverging
+                  explanations. Native `title` attribute keeps the
+                  bundle small and is keyboard-accessible. */}
+              <span
+                tabIndex={0}
+                aria-label="Lưu ý về tính trọng số theo route"
+                title="Lưu ý: các yêu cầu /scan tính 5× và /permit-checklist tính 2× so với /query để phản ánh chi phí compute thực tế."
+                className="inline-flex cursor-help items-center"
+              >
+                <Info size={12} aria-hidden="true" className="opacity-60" />
+              </span>
             </div>
             <ProgressBar
               percent={binding.percent}

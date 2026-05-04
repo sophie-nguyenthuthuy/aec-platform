@@ -142,6 +142,23 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
         extra_where=None,
         archive=False,
     ),
+    # Codeguard quota mutation audit. Compliance-relevant: tenant
+    # admins answer "who raised our cap last quarter" and auditors
+    # do year-over-year compares. 730d (2 years) balances "compliance
+    # has the window they need" against "the table can't unbounded-
+    # grow if a misconfigured `quota_reconcile` cron writes thousands
+    # of rows per tick". `archive=True` mirrors `audit_events` so a
+    # deletion is recoverable from S3 if a customer disputes a much
+    # older cap change. `occurred_at` is the audit-row timestamp
+    # (DEFAULT NOW() at insert) — preferred over a generic `created_at`
+    # because semantically the audit row IS the event timestamp.
+    RetentionPolicy(
+        table="codeguard_quota_audit_log",
+        age_column="occurred_at",
+        default_days=730,
+        extra_where=None,
+        archive=True,
+    ),
 )
 
 

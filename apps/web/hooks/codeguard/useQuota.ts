@@ -99,3 +99,117 @@ export function useCodeguardQuotaHistory(months = 3) {
     },
   });
 }
+
+
+// ---------- Audit log (tenant-facing) ---------------------------------
+
+export interface QuotaAuditEntry {
+  id: string;
+  occurred_at: string | null;
+  actor: string | null;
+  action: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  /** Pre-rendered diff summary, vi-VN dot grouping. */
+  summary: string;
+}
+
+export interface CodeguardQuotaAudit {
+  organization_id: string;
+  limit: number;
+  entries: QuotaAuditEntry[];
+  /** Cursor for the next page. Format `<iso_ts>:<uuid>`. Null
+   *  means "you've reached the end" — page should stop fetching.
+   *  Present only when the response returned exactly `limit` rows
+   *  (which signals "there might be more"); a result set smaller
+   *  than `limit` returns `next_cursor=null`. */
+  next_cursor: string | null;
+}
+
+export interface QuotaAuditFilters {
+  limit?: number;
+  since?: string;
+  /** `quota_reconcile` is emitted by the reconcile cron's
+   *  remediation path (`scripts/codeguard_quotas.py reconcile
+   *  --remediate`). Tenant admins investigating a cap-cache
+   *  realignment can filter to just those entries. */
+  action?: "quota_set" | "quota_reset" | "quota_reconcile";
+  /** Cursor from a prior response's `next_cursor`. When set, the
+   *  server returns rows STRICTLY older than this position. */
+  before?: string;
+}
+
+/** Fetch the caller's org's quota-mutation audit log. */
+export function useCodeguardQuotaAudit(filters: QuotaAuditFilters = {}) {
+  const { token, orgId } = useSession();
+  const limit = filters.limit ?? 50;
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  if (filters.since) params.set("since", filters.since);
+  if (filters.action) params.set("action", filters.action);
+  if (filters.before) params.set("before", filters.before);
+
+  return useQuery({
+    queryKey: [
+      "codeguard",
+      "quota",
+      "audit",
+      orgId,
+      limit,
+      filters.since,
+      filters.action,
+      filters.before,
+    ],
+    staleTime: 30_000,
+    queryFn: async () => {
+      const res = await apiFetch<CodeguardQuotaAudit>(
+        `/api/v1/codeguard/quota/audit?${params.toString()}`,
+        { method: "GET", token, orgId },
+      );
+      return res.data as CodeguardQuotaAudit;
+    },
+  });
+}
+
+
+// ---------- Top users (per-user spend ranking) -------------------------
+
+export interface QuotaTopUser {
+  user_id: string;
+  /** May be empty string if the user was deleted between recording the
+   *  spend and rendering the row — the LEFT JOIN preserves the
+   *  attribution but loses the email when CASCADE has wiped the user. */
+  email: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
+export interface CodeguardQuotaTopUsers {
+  organization_id: string;
+  /** Server-clamped (1..50). UI reads this back to render the right
+   *  number of rows even when the request asked for more than the
+   *  server allowed. */
+  limit: number;
+  /** Sorted by total_tokens DESC, ties broken by user_id for stable
+   *  rendering across refetches. */
+  users: QuotaTopUser[];
+}
+
+/** Fetch the caller's org's top token consumers for the CURRENT
+ *  period. Sits next to `useCodeguardQuota` on the quota page. 60s
+ *  staleness — top-users only changes when an LLM call lands. */
+export function useCodeguardQuotaTopUsers(limit = 10) {
+  const { token, orgId } = useSession();
+  return useQuery({
+    queryKey: ["codeguard", "quota", "top-users", orgId, limit],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const res = await apiFetch<CodeguardQuotaTopUsers>(
+        `/api/v1/codeguard/quota/top-users?limit=${limit}`,
+        { method: "GET", token, orgId },
+      );
+      return res.data as CodeguardQuotaTopUsers;
+    },
+  });
+}

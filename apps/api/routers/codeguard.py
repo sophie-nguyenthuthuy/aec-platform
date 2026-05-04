@@ -47,6 +47,16 @@ from schemas.codeguard import (
 
 router = APIRouter(prefix="/api/v1/codeguard", tags=["codeguard"])
 
+# Mount the at-risk quota read endpoints (`/quota/audit`, `/quota/top-users`)
+# from their dedicated module. See `routers/codeguard_quota.py` for the
+# rationale (concentrated surface — small file, easier to defend against
+# the linter pass that has historically dropped routes from this large
+# parent module). The child router shares the `/api/v1/codeguard` prefix
+# so URLs are identical to when those routes lived inline here.
+from routers.codeguard_quota import quota_router as _quota_router  # noqa: E402
+
+router.include_router(_quota_router)
+
 
 # ---------- Health -------------------------------------------------------
 
@@ -340,95 +350,20 @@ async def _check_quota_or_raise(db: AsyncSession, organization_id: UUID) -> None
         )
 
 
-import contextlib as _contextlib  # noqa: E402  — local alias to avoid clobbering
-
-
-@_contextlib.asynccontextmanager
-async def _with_usage_recording(db: AsyncSession, organization_id: UUID):
-    """Bind a per-request `TelemetryAccumulator`, drain it on exit.
-
-    Yields the accumulator so handlers can inspect token counts mid-
-    flight if needed. On exit, persists the accumulated totals to
-    `codeguard_org_usage` via `services.codeguard_quotas.record_org_usage`
-    — the increment that lets the *next* request's `check_org_quota`
-    see real spend.
-
-    Without this drain the cap-enforcement story is purely defensive:
-    `check_org_quota` reads from a usage table that nothing populates,
-    so `over_limit` is never True except for orgs whose admin manually
-    pre-populated rows. The pre-flight check would never trip in real
-    traffic. This helper closes that gap.
-
-    Best-effort write: a transient DB error during `record_org_usage`
-    is logged at WARNING and swallowed. Without the swallow a flaky
-    bookkeeping write would 502 a request whose LLM work already
-    succeeded; the user-visible response was already returned (or
-    streamed), and refusing to commit it because the counter write
-    failed is the wrong tradeoff. Worst case: under-counted spend
-    by at most one request's worth.
-
-    Token-less calls (HyDE cache hits, embedding-only paths) leave
-    the accumulator at (0, 0); `record_org_usage` short-circuits on
-    both-zero, so we don't pay a write for free requests.
-
-    Why not a FastAPI dependency: streaming routes return a
-    StreamingResponse whose generator runs *after* the dependency's
-    `yield` resumes. The drain has to happen after the generator
-    finishes, which means the route owns the wrap. A `dependencies=
-    [Depends(...)]` would drain too early — before any LLM call has
-    happened.
-    """
-    from ml.pipelines.codeguard import (
-        TelemetryAccumulator,
-        clear_telemetry_accumulator,
-        set_telemetry_accumulator,
-    )
-
-    from services import codeguard_quotas as _q
-
-    acc = TelemetryAccumulator()
-    token = set_telemetry_accumulator(acc)
-    try:
-        yield acc
-    finally:
-        clear_telemetry_accumulator(token)
-        if acc.input_tokens or acc.output_tokens:
-            try:
-                await _q.record_org_usage(
-                    db,
-                    organization_id,
-                    input_tokens=acc.input_tokens,
-                    output_tokens=acc.output_tokens,
-                )
-            except Exception:
-                import logging as _logging
-
-                _logging.getLogger(__name__).warning(
-                    "codeguard_quotas.record_org_usage failed for org=%s (in=%d, out=%d) — request already served",
-                    organization_id,
-                    acc.input_tokens,
-                    acc.output_tokens,
-                )
-
-            # Threshold-notification check fires AFTER the usage write
-            # so the percent reads the post-increment value. Wrapped
-            # in its own try/except — the request has already been
-            # served, an SMTP outage or notification-prefs query
-            # failure must NOT propagate to the user. Catching
-            # everything here is the same trade-off as the
-            # `record_org_usage` block above: the audit row + the
-            # cap-check itself are load-bearing; the email is
-            # best-effort.
-            try:
-                await _q.check_and_notify_thresholds(db, organization_id)
-            except Exception:
-                import logging as _logging
-
-                _logging.getLogger(__name__).warning(
-                    "codeguard_quotas.check_and_notify_thresholds failed for org=%s — request already served",
-                    organization_id,
-                )
-
+# `_with_usage_recording` was previously defined inline here as a
+# 90-line context manager. After the linter wiped it (and its 6
+# callsites' route_weight kwargs) on multiple rounds, the body has
+# been moved to a small dedicated module
+# (`services/codeguard_quota_attribution.py`) that's harder for the
+# linter to silently truncate. This module just imports the helper
+# under its original name so the 6 `async with` callsites below
+# work unchanged. The new signature is
+# `with_usage_recording(db, auth, *, route_key="<key>")` — the
+# callsites pass the route key so per-route weighting (`/scan` × 5,
+# `/permit-checklist` × 2) flows through correctly.
+from services.codeguard_quota_attribution import (  # noqa: E402
+    with_usage_recording as _with_usage_recording,
+)
 
 # ---------- Q&A ----------
 
@@ -449,7 +384,7 @@ async def codeguard_query(
     # the correct kwarg names — replacing the previous broken call
     # that always passed `(0, 0)` because `result.input_tokens` doesn't
     # exist on the `QueryResponse` schema.
-    async with _with_usage_recording(db, auth.organization_id):
+    async with _with_usage_recording(db, auth, route_key="query"):
         try:
             result = await answer_regulation_query(
                 db=db,
@@ -537,7 +472,7 @@ async def codeguard_query_stream(
         # `error` event is emitted. Without this wrap, the per-org
         # usage table never gets the streaming-route increment and the
         # cap can never trip for streaming clients.
-        async with _with_usage_recording(db, auth.organization_id):
+        async with _with_usage_recording(db, auth, route_key="query"):
             try:
                 response: QueryResponse | None = None
                 async for event_name, event_payload in answer_regulation_query_stream(
@@ -639,7 +574,7 @@ async def codeguard_scan(
     # Wrap the (potentially many) LLM calls — scan can fire one
     # generation per category — so the accumulator captures the full
     # spend for this request, not just one category.
-    async with _with_usage_recording(db, auth.organization_id):
+    async with _with_usage_recording(db, auth, route_key="scan"):
         try:
             findings, reg_ids = await auto_scan_project(
                 db=db,
@@ -718,7 +653,7 @@ async def codeguard_scan_stream(
         # surface (one LLM call per category), so the per-month usage
         # increment from a streaming scan is the largest single
         # contributor to the cap calculation.
-        async with _with_usage_recording(db, auth.organization_id):
+        async with _with_usage_recording(db, auth, route_key="scan"):
             try:
                 all_findings: list = []
                 all_reg_ids: list = []
@@ -803,7 +738,7 @@ async def create_permit_checklist(
     # but a 429 still beats a 502 from the pipeline failing partway.
     await _check_quota_or_raise(db, auth.organization_id)
 
-    async with _with_usage_recording(db, auth.organization_id):
+    async with _with_usage_recording(db, auth, route_key="permit-checklist"):
         try:
             items = await generate_permit_checklist(
                 db=db,
@@ -868,7 +803,7 @@ async def codeguard_permit_checklist_stream(
 
     async def sse_stream():
         # Same accumulator wrap as the other streaming routes.
-        async with _with_usage_recording(db, auth.organization_id):
+        async with _with_usage_recording(db, auth, route_key="permit-checklist"):
             try:
                 items: list = []
                 async for event_name, event_payload in generate_permit_checklist_stream(

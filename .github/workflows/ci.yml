@@ -31,6 +31,39 @@ jobs:
           cache: pip
       - uses: pre-commit/action@v3.0.1
 
+  # Fast gate against silent revert of the codeguard surface contract.
+  # Pins the exact set of routes/metrics/cron jobs/retention policies
+  # the system depends on (the snapshot test) AND that every `aec_*` /
+  # `codeguard_*` token in the alert YAML resolves to a real registered
+  # metric (the prometheus rules validator). Independent job (not a
+  # step inside `python-api`) so a snapshot failure goes red on its own
+  # line in the PR's checks list rather than buried inside a 5-minute
+  # pytest run.
+  codeguard-surface:
+    name: Codeguard surface contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install minimal deps
+        working-directory: apps/api
+        # The snapshot test imports the router, the metric registry,
+        # and `WorkerSettings.cron_jobs` — which transitively need the
+        # full requirements set. The validator script also imports
+        # `core.metrics` for registry introspection. Same install as
+        # `python-api` for parity; no alembic / Postgres steps.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Snapshot — codeguard router + metrics + crons + retention
+        working-directory: apps/api
+        run: pytest tests/test_codeguard_surface_snapshot.py -q
+      - name: Validate — Prometheus alert rules reference real metrics
+        run: python scripts/validate_prometheus_rules.py infra/prometheus/codeguard.alerts.yml
+
   node:
     name: Node — typecheck + lint + web build
     runs-on: ubuntu-latest

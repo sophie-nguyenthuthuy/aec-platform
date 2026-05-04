@@ -685,9 +685,18 @@ async def test_render_threshold_slack_critical_uses_rotating_light(monkeypatch):
         dimension="output", threshold=95, used=192_000, limit=200_000, percent=96.0
     )
     assert ":rotating_light:" in crit_text
-    # Quota URL absolute, embedded in the context block.
-    ctx = next(b for b in crit_blocks if b["type"] == "context")
-    assert "https://app.example.com/codeguard/quota" in ctx["elements"][0]["text"]
+    # Quota URL absolute, embedded in a context block. Find the block
+    # carrying the URL specifically — the weighted-accounting
+    # footnote is also a context block, so a positional `next(...)`
+    # on `type == "context"` would land on the wrong one. Pin the
+    # URL contract by content, not order.
+    url_ctx = next(
+        b
+        for b in crit_blocks
+        if b["type"] == "context"
+        and any("/codeguard/quota" in (el.get("text", "") or "") for el in b.get("elements", []))
+    )
+    assert "https://app.example.com/codeguard/quota" in url_ctx["elements"][0]["text"]
 
     warn_text, _ = _render_threshold_slack(dimension="input", threshold=80, used=850_000, limit=1_000_000, percent=85.0)
     assert ":warning:" in warn_text
@@ -790,6 +799,76 @@ async def test_render_threshold_email_critical_uses_critical_copy(monkeypatch):
     assert "reset" in warn_text.lower()
     # Critical copy must NOT leak into the warn body.
     assert "HTTP 429" not in warn_text
+
+
+async def test_render_threshold_email_includes_weighted_accounting_note(monkeypatch):
+    """Both critical and warn email bodies must mention the per-route
+    weighting policy (`/scan` × 5, `/permit-checklist` × 2). Without
+    this footnote, an admin reading the email and comparing to their
+    own raw-token logs would file a confused support ticket along
+    the lines of "your usage shows 95% but our raw-token count is
+    19%". Pinning the multipliers explicitly so a future bump (e.g.
+    long-context premium) is a deliberate test edit, not silent
+    drift between policy code and customer-facing copy.
+    """
+    from core.config import get_settings
+    from services.codeguard_quotas import _render_threshold_email
+
+    monkeypatch.setattr(get_settings(), "web_base_url", "https://x.test")
+
+    # Both bands carry the same footnote — the policy doesn't depend
+    # on the threshold tier; a divergent footnote between bands
+    # would be more confusing than no footnote at all.
+    for threshold, percent in [(80, 85.0), (95, 96.0)]:
+        _, text_body, html_body = _render_threshold_email(
+            dimension="input",
+            threshold=threshold,
+            used=850_000,
+            limit=1_000_000,
+            percent=percent,
+        )
+        assert "/scan" in text_body and "5×" in text_body, (
+            f"threshold={threshold}: text body missing /scan × 5 footnote. Got: {text_body!r}"
+        )
+        assert "/permit-checklist" in text_body and "2×" in text_body, (
+            f"threshold={threshold}: text body missing /permit-checklist × 2 footnote."
+        )
+        assert "5×" in html_body and "2×" in html_body, f"threshold={threshold}: HTML body missing × multipliers."
+
+
+async def test_render_threshold_slack_includes_weighted_accounting_note(monkeypatch):
+    """Slack mirror of the email pin: weighted-accounting note must
+    surface in BOTH critical and warn block payloads. Same word-for-
+    word copy as the email so an admin who sees both isn't presented
+    with two slightly-different explanations."""
+    from core.config import get_settings
+    from services.codeguard_quotas import _render_threshold_slack
+
+    monkeypatch.setattr(get_settings(), "web_base_url", "https://x.test")
+
+    for threshold, percent in [(80, 85.0), (95, 96.0)]:
+        _, blocks = _render_threshold_slack(
+            dimension="input",
+            threshold=threshold,
+            used=850_000,
+            limit=1_000_000,
+            percent=percent,
+        )
+        # Walk every text element across all blocks. Avoids coupling
+        # to the exact block ordering, which is presentation, not
+        # contract.
+        all_text = []
+        for block in blocks:
+            if "text" in block and isinstance(block["text"], dict):
+                all_text.append(block["text"].get("text", ""))
+            for el in block.get("elements", []) or []:
+                if isinstance(el, dict):
+                    all_text.append(el.get("text", ""))
+        joined = " ".join(all_text)
+        assert "/scan" in joined and "5×" in joined, (
+            f"threshold={threshold}: Slack blocks missing /scan × 5 footnote. Got: {joined!r}"
+        )
+        assert "/permit-checklist" in joined and "2×" in joined
 
 
 # ---------- vi-VN number formatter -----------------------------------------
