@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -32,7 +32,7 @@ from core.envelope import ok
 from db.session import TenantAwareSession
 from middleware.auth import AuthContext
 from middleware.rbac import Role, require_min_role
-from services.api_keys import SCOPES, mint_key
+from services.api_keys import SCOPES, mint_key, usage_for_key
 
 router = APIRouter(prefix="/api/v1/api-keys", tags=["api-keys"])
 
@@ -185,3 +185,34 @@ async def revoke_api_key(
             "revoked_at": row["revoked_at"].isoformat() if row["revoked_at"] else None,
         }
     )
+
+
+@router.get("/{key_id}/usage")
+async def get_api_key_usage(
+    key_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    hours: int = Query(default=24, ge=1, le=24 * 30),
+):
+    """Per-key usage rollup for the last N hours: total + error counts
+    plus an hour-bucketed series for the dashboard sparkline.
+
+    Tenant-scoped: the key must belong to the calling org. We verify
+    that BEFORE the rollup query (cheap existence check on the
+    `api_keys` table) so a request for someone else's key returns 404
+    rather than leaking that "this key id exists somewhere."
+    """
+    async with TenantAwareSession(auth.organization_id) as session:
+        # Existence check under the tenant session — RLS scopes this
+        # automatically. A cross-tenant probe gets `None`, indistinguishable
+        # from a non-existent key.
+        exists = (
+            await session.execute(
+                text("SELECT 1 FROM api_keys WHERE id = :id"),
+                {"id": str(key_id)},
+            )
+        ).scalar_one_or_none()
+        if exists is None:
+            raise HTTPException(404, "api_key_not_found")
+
+        usage = await usage_for_key(session, api_key_id=key_id, hours=hours)
+    return ok(usage)

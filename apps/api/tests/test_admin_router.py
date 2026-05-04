@@ -878,3 +878,69 @@ async def test_delete_normalizer_rule_removes_row(monkeypatch):
         res = await ac.delete(f"/api/v1/admin/normalizer-rules/{existing.id}")
     assert res.status_code == 204
     assert existing in session.deleted
+
+
+# ---------- /admin/api-usage/top-keys ----------
+#
+# The handler delegates to `services.api_keys.usage_top_keys`. We stub
+# the helper rather than the SQL — the SQL is exercised by
+# test_api_keys.py against `usage_for_key`/`usage_top_keys` directly,
+# and the value of these tests is in the route wiring (auth gate,
+# query params, response envelope).
+
+
+async def test_admin_api_usage_top_keys_returns_rows(monkeypatch, fake_session):
+    """Happy path: admin GETs the rollup, sees the canned rows."""
+    canned = [
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "name": "Partner CRM",
+            "prefix": "aec_a1b2c3",
+            "organization_id": str(ORG_ID),
+            "revoked": False,
+            "total_count": 4200,
+            "error_count": 7,
+        },
+        {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "name": "Internal Ops",
+            "prefix": "aec_d4e5f6",
+            "organization_id": str(ORG_ID),
+            "revoked": True,
+            "total_count": 900,
+            "error_count": 0,
+        },
+    ]
+
+    async def _stub(session, *, hours, limit):
+        return canned
+
+    monkeypatch.setattr("services.api_keys.usage_top_keys", _stub)
+
+    app = _build_app(monkeypatch, fake_session, role="admin")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/api/v1/admin/api-usage/top-keys?hours=48&limit=5")
+    assert res.status_code == 200, res.text
+    body = res.json()["data"]
+    assert len(body) == 2
+    assert body[0]["name"] == "Partner CRM"
+    assert body[1]["revoked"] is True
+
+
+async def test_admin_api_usage_top_keys_403_for_non_admin(monkeypatch, fake_session):
+    """Cross-tenant data — must be admin-gated. A regular member 403s."""
+    app = _build_app(monkeypatch, fake_session, role="member")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/api/v1/admin/api-usage/top-keys")
+    assert res.status_code == 403
+
+
+async def test_admin_api_usage_top_keys_validates_window(admin_client: AsyncClient):
+    """`hours` ∈ [1, 720] (30d). Single requests can't sweep months of
+    telemetry; zero would be a no-op aggregation."""
+    too_short = await admin_client.get("/api/v1/admin/api-usage/top-keys?hours=0")
+    too_long = await admin_client.get("/api/v1/admin/api-usage/top-keys?hours=10000")
+    assert too_short.status_code == 422
+    assert too_long.status_code == 422

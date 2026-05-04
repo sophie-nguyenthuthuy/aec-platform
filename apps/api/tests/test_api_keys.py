@@ -473,6 +473,68 @@ async def test_revoke_404_on_unknown_key(fake_db):
     assert res.status_code == 404
 
 
+# ---------- Router: usage rollup ----------
+
+
+async def test_usage_endpoint_returns_rollup_for_owned_key(fake_db):
+    """GET /api-keys/{id}/usage hits an existence check (RLS-scoped to
+    the caller's org) followed by `usage_for_key`. Pin the response
+    shape: total_count, error_count, error_rate, hour-bucketed series."""
+    # Existence check: cheap SELECT 1 returning a hit.
+    exists_q = MagicMock()
+    exists_q.scalar_one_or_none.return_value = 1
+    # usage_for_key issues the rollup SELECT and the FakeAsyncSession's
+    # .mappings().all() returns whatever we set on its second result.
+    rollup_q = MagicMock()
+    rollup_q.mappings.return_value.all.return_value = [
+        {"hour": datetime(2026, 5, 4, 12, tzinfo=UTC), "success_count": 9, "error_count": 1},
+        {"hour": datetime(2026, 5, 4, 13, tzinfo=UTC), "success_count": 5, "error_count": 0},
+    ]
+    fake_db.push(exists_q)
+    fake_db.push(rollup_q)
+
+    app = _build_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get(f"/api/v1/api-keys/{KEY_ID}/usage")
+    assert res.status_code == 200, res.text
+    body = res.json()["data"]
+    assert body["total_count"] == 15
+    assert body["error_count"] == 1
+    # 1/15 = 0.0667 rounded to 4 dp
+    assert body["error_rate"] == 0.0667
+    assert len(body["series"]) == 2
+    assert body["series"][0]["success_count"] == 9
+
+
+async def test_usage_endpoint_404_when_key_not_in_caller_org(fake_db):
+    """Cross-tenant probe: TenantAwareSession + RLS make the existence
+    check return None even when the UUID is real elsewhere. The handler
+    must 404 — not 403 — so we don't leak that the id exists at all."""
+    miss_q = MagicMock()
+    miss_q.scalar_one_or_none.return_value = None
+    fake_db.push(miss_q)
+
+    app = _build_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get(f"/api/v1/api-keys/{uuid4()}/usage")
+    assert res.status_code == 404
+
+
+async def test_usage_endpoint_validates_hours_window(fake_db):
+    """`hours` is bounded [1, 720] (30d). 0 is rejected so a caller
+    can't issue a no-op aggregation; >720 is rejected so a single
+    request can't sweep months of telemetry."""
+    app = _build_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        too_short = await ac.get(f"/api/v1/api-keys/{KEY_ID}/usage?hours=0")
+        too_long = await ac.get(f"/api/v1/api-keys/{KEY_ID}/usage?hours=1000")
+    assert too_short.status_code == 422
+    assert too_long.status_code == 422
+
+
 # ---------- Dual auth: require_user_or_api_key ----------
 
 
