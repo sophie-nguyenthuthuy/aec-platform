@@ -297,3 +297,238 @@ def test_codeguard_retention_policies_registered():
             "surfaces in production. Re-add the `RetentionPolicy(...)` "
             "entry in `apps/api/services/retention.py`."
         )
+
+
+# ---------- Stub-detection (body-not-just-name) ---------------------------
+#
+# The snapshot tests above pin that NAMES exist. They don't catch a more
+# insidious revert mode: the function/route is still registered, but the
+# body has been silently truncated to a `pass` / `return {}` stub. The
+# snapshot would still pass; the actual behavior would be silently broken
+# (cron sets gauge to nothing, route returns empty results, etc.).
+#
+# These tests instantiate each surface against a tightly-scoped mock and
+# assert the body produces an EXPECTED SIDE EFFECT — for SQL-issuing code,
+# we check the bound SQL string contains a load-bearing keyword. A
+# hollowed-out body wouldn't issue the SQL, the keyword wouldn't appear,
+# and the test fails loudly with a message that names exactly what got
+# stubbed.
+#
+# Kept here (not in a separate file) so the pre-commit + CI gate covers
+# both name AND behavior in one fast run.
+
+
+def test_reconcile_cron_body_issues_drift_query(monkeypatch):
+    """The reconcile cron must execute a FULL OUTER JOIN against
+    `codeguard_org_usage` and `codeguard_user_usage`. A stubbed body
+    that just sets the gauge to 0 would silently never detect drift —
+    the snapshot above would still pass since the name is registered.
+
+    Pin via SQL inspection: stub `AdminSessionFactory` to capture the
+    text of every `execute()` call, then assert one of them is the
+    drift query.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    try:
+        from workers.queue import codeguard_quota_reconcile_cron
+    except ImportError as exc:
+        pytest.skip(f"workers.queue not importable ({exc})")
+
+    captured_sql: list[str] = []
+
+    async def _execute(stmt, *args, **kwargs):
+        # `text(...)` objects expose the SQL string via `.text` or
+        # `str(...)`. Capture both forms so the assertion below works
+        # regardless of which the cron uses.
+        sql_str = getattr(stmt, "text", None) or str(stmt)
+        captured_sql.append(sql_str)
+        result = MagicMock()
+        # Return a plausible drift count so the cron's gauge.set() doesn't
+        # error on a non-numeric value.
+        result.scalar_one.return_value = 0
+        return result
+
+    session = MagicMock()
+    session.execute = AsyncMock(side_effect=_execute)
+
+    class _SessionCM:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, *_a):
+            return False
+
+    factory = MagicMock(return_value=_SessionCM())
+    monkeypatch.setattr("db.session.AdminSessionFactory", factory)
+
+    asyncio.run(codeguard_quota_reconcile_cron({}))
+
+    # The body must issue a query joining the two usage tables.
+    # Looking for the FULL OUTER JOIN keyword catches the most common
+    # body-stub regression (replacing the SQL with a no-op).
+    joined = " ".join(captured_sql).upper()
+    assert "FULL OUTER JOIN" in joined, (
+        "codeguard_quota_reconcile_cron's body did not issue a FULL OUTER "
+        "JOIN query against codeguard_org_usage and codeguard_user_usage. "
+        "The cron is likely stubbed — the snapshot test passes because the "
+        "function is registered, but the body is a no-op. Restore the "
+        "drift detection SQL in `apps/api/workers/queue.py`."
+    )
+    assert "codeguard_user_usage" in " ".join(captured_sql), (
+        "Drift query lost reference to codeguard_user_usage — the cron "
+        "would silently always report 0 drift. Restore the WITH user_totals "
+        "CTE in `codeguard_quota_reconcile_cron`."
+    )
+
+
+def test_quota_audit_route_body_issues_audit_log_query(monkeypatch):
+    """The `/quota/audit` handler must SELECT from
+    `codeguard_quota_audit_log`. A stubbed `return ok({"entries": []})`
+    would pass the snapshot but always return empty results — the
+    tenant audit page would silently look broken in production.
+
+    Pin via SQL inspection: invoke the handler directly with a mocked
+    db session and capture the SQL strings.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from uuid import uuid4
+
+    try:
+        from routers.codeguard_quota import get_codeguard_quota_audit
+    except ImportError as exc:
+        pytest.skip(f"routers.codeguard_quota not importable ({exc})")
+
+    captured_sql: list[str] = []
+
+    async def _execute(stmt, *args, **kwargs):
+        sql_str = getattr(stmt, "text", None) or str(stmt)
+        captured_sql.append(sql_str)
+        result = MagicMock()
+        result.all.return_value = []
+        return result
+
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=_execute)
+
+    auth = MagicMock()
+    auth.organization_id = uuid4()
+    auth.user_id = uuid4()
+
+    asyncio.run(get_codeguard_quota_audit(auth=auth, db=db))
+
+    joined = " ".join(captured_sql)
+    assert "codeguard_quota_audit_log" in joined, (
+        "/quota/audit handler did not query codeguard_quota_audit_log. "
+        "The route is likely stubbed — the snapshot test passes because "
+        "the route is registered, but the body returns canned data. "
+        "Restore the SELECT in `apps/api/routers/codeguard_quota.py`."
+    )
+
+
+def test_quota_top_users_route_body_issues_user_usage_query(monkeypatch):
+    """The `/quota/top-users` handler must SELECT from
+    `codeguard_user_usage`. A stubbed body would return empty
+    results to every caller — the dashboard panel would silently
+    show "no data" for orgs that actually have spend.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from uuid import uuid4
+
+    try:
+        from routers.codeguard_quota import get_codeguard_quota_top_users
+    except ImportError as exc:
+        pytest.skip(f"routers.codeguard_quota not importable ({exc})")
+
+    captured_sql: list[str] = []
+
+    async def _execute(stmt, *args, **kwargs):
+        sql_str = getattr(stmt, "text", None) or str(stmt)
+        captured_sql.append(sql_str)
+        result = MagicMock()
+        result.all.return_value = []
+        return result
+
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=_execute)
+
+    auth = MagicMock()
+    auth.organization_id = uuid4()
+    auth.user_id = uuid4()
+
+    asyncio.run(get_codeguard_quota_top_users(auth=auth, db=db))
+
+    joined = " ".join(captured_sql)
+    assert "codeguard_user_usage" in joined, (
+        "/quota/top-users handler did not query codeguard_user_usage. "
+        "The route body is likely stubbed — the snapshot passes because "
+        "the route is registered, but the body returns canned data. "
+        "Restore the SELECT in `apps/api/routers/codeguard_quota.py`."
+    )
+
+
+def test_retention_policy_for_audit_log_keeps_compliance_window():
+    """`codeguard_quota_audit_log` retention must be ≥ 365 days. A
+    body-stub reverter that changed `default_days` to 7 would pass
+    the registry-presence check above but quietly violate the
+    compliance window the policy exists to satisfy.
+
+    Pinning ≥ 365 (not exactly 730) so a deliberate bump to 1095 days
+    doesn't fail this — the test catches "silently shortened" not
+    "value changed at all". Same posture as the route weight test:
+    pin the contract, not the implementation detail.
+    """
+    try:
+        from services.retention import RETENTION_POLICIES
+    except ImportError as exc:
+        pytest.skip(f"services.retention not importable ({exc})")
+
+    audit_policy = next(
+        (p for p in RETENTION_POLICIES if p.table == "codeguard_quota_audit_log"),
+        None,
+    )
+    if audit_policy is None:
+        pytest.skip("codeguard_quota_audit_log policy missing — caught by sibling test")
+
+    assert audit_policy.default_days >= 365, (
+        f"codeguard_quota_audit_log retention is {audit_policy.default_days} days; "
+        "a value below 365 days would prematurely delete rows compliance needs. "
+        "Restore the 730-day window in `apps/api/services/retention.py`."
+    )
+    # Archive flag is the second half of the recoverability story —
+    # without it, deletions are unrecoverable. Pin that too.
+    assert audit_policy.archive is True, (
+        "codeguard_quota_audit_log policy lost `archive=True`. Without "
+        "S3 archival, a retention deletion is unrecoverable — restore."
+    )
+
+
+def test_route_weight_for_scan_is_at_least_two():
+    """The `/scan` weight must be greater than `/query` (1.0). A body
+    stub that reset all weights to 1.0 would pass the snapshot but
+    silently kill the per-route weighting policy — every route would
+    record at raw token cost.
+
+    Pin ≥ 2.0 (not exactly 5.0) so a deliberate tweak doesn't fail
+    this test for no reason. Catches the "weights flattened" stub.
+    """
+    try:
+        from services.codeguard_quota_attribution import route_weight_for
+    except ImportError as exc:
+        pytest.skip(f"codeguard_quota_attribution not importable ({exc})")
+
+    assert route_weight_for("scan") >= 2.0, (
+        f"/scan route weight is {route_weight_for('scan')}; a value below "
+        "2.0 means the per-route weighting policy has been silently "
+        "flattened. Restore the ROUTE_WEIGHTS table in "
+        "`apps/api/services/codeguard_quota_attribution.py`."
+    )
+    assert route_weight_for("query") == 1.0, (
+        "/query weight should be the 1.0 baseline. If this changed, "
+        "every other weight is implicitly relative to a different "
+        "anchor — a deliberate refactor that should fail this test "
+        "until the contract is reviewed."
+    )
