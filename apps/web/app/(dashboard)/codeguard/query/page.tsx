@@ -143,11 +143,12 @@ export default function RegulationChatPage() {
       >
         <input
           type="text"
+          aria-label="Câu hỏi về quy chuẩn"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Đặt câu hỏi về QCVN, TCVN, luật xây dựng..."
           disabled={pending}
-          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-slate-500"
         />
         <button
           type="submit"
@@ -196,7 +197,11 @@ function AssistantTurn({
   }
 
   return (
-    <div className="inline-block max-w-full rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-900">
+    <div
+      aria-live="polite"
+      aria-busy={streaming}
+      className="inline-block max-w-full rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-900"
+    >
       {/* Empty-text-while-streaming placeholder: gives the user
           immediate visual feedback that something started, before the
           first token arrives. */}

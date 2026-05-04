@@ -45,6 +45,7 @@ export default function RegulationBrowserPage() {
           <RegulationSearch onSearch={setQ} defaultValue={q} loading={isLoading} />
         </div>
         <select
+          aria-label="Lọc theo hạng mục"
           value={category}
           onChange={(e) => setCategory(e.target.value as RegulationCategory | "")}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm"

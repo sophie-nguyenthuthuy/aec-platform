@@ -61,10 +61,14 @@ export function DocumentUploadZone({
         onClick={() => !disabled && inputRef.current?.click()}
         className={cn(
           "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition-colors",
-          isDragging
-            ? "border-blue-500 bg-blue-50"
-            : "border-slate-300 bg-slate-50 hover:border-slate-400 hover:bg-slate-100",
-          disabled && "cursor-not-allowed opacity-60",
+          // Disabled state uses a muted border/bg instead of `opacity-60`
+          // — opacity blends fg + bg and pushes the slate-500 / -700 copy
+          // below WCAG AA contrast (axe reported 2.23 / 3.26 ratios).
+          disabled
+            ? "cursor-not-allowed border-slate-200 bg-slate-100"
+            : isDragging
+              ? "border-blue-500 bg-blue-50"
+              : "border-slate-300 bg-slate-50 hover:border-slate-400 hover:bg-slate-100",
         )}
       >
         <Upload className={cn("mb-2", isDragging ? "text-blue-600" : "text-slate-400")} size={28} />

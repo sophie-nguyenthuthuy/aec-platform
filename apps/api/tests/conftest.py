@@ -40,6 +40,23 @@ for _p in (_ML_ROOT, _API_ROOT, _REPO_ROOT):
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret")
 
+# Force-unset LLM credentials for the whole test session.
+#
+# CI sets `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` to placeholder strings
+# (e.g. `ci-placeholder`) so the install + alembic steps don't fail on
+# pydantic-settings validators that require *some* value. Those
+# placeholders are non-empty truthy strings — assistant.py checks
+# `if not settings.anthropic_api_key:` and would happily go down the
+# real-LLM-call path with a bogus key, hanging on the SDK's retry
+# backoff and timing the whole pytest job out (real failure: 47-min
+# job killed by step timeout). Tests that want to exercise the LLM
+# path mock the call directly, so unsetting here is safe.
+#
+# We force-overwrite (not `setdefault`) precisely because CI sets a
+# truthy placeholder.
+os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["OPENAI_API_KEY"] = ""
+
 
 # ---------- Rate limiter bypass ----------
 #

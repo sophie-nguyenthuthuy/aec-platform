@@ -151,6 +151,7 @@ export default function ComplianceScanWizardPage() {
                   <button
                     key={c.value}
                     type="button"
+                    aria-pressed={selected}
                     onClick={() =>
                       setCategories((s) =>
                         selected ? s.filter((x) => x !== c.value) : [...s, c.value],
@@ -310,7 +311,12 @@ function CategoryProgress({
   if (rows.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
+    <div
+      role="region"
+      aria-label="Tiến độ quét theo hạng mục"
+      aria-live="polite"
+      className="rounded-xl border border-slate-200 bg-white p-4"
+    >
       <ol className="divide-y divide-slate-100">
         {rows.map((c) => {
           const s = status[c.value];
