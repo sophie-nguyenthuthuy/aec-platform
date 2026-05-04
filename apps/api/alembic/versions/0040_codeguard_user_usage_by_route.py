@@ -42,8 +42,16 @@ Schema choices:
     layer scopes reads to `auth.organization_id`.
 
 Revision ID: 0040_codeguard_user_usage_by_route
-Revises: 0039_api_keys_project_ids
+Revises: 0033_audit_actor_api_key
 Create Date: 2026-05-04
+
+The numbering jumps from 0033 to 0040 because revisions 0034–0039 are
+local-only WIP from parallel work streams (api_keys.mode, codeguard
+user usage, idempotency_records, slack_deliveries, …) that haven't
+been pushed to this branch yet. Chaining off `0033_audit_actor_api_key`
+(the actual head on the branch) keeps alembic upgrade clean. If/when
+the intermediate migrations land, that PR needs to either bump this
+file's down_revision to the new chain head or add a merge node.
 """
 
 from __future__ import annotations
@@ -55,7 +63,7 @@ from alembic import op
 
 # 28 chars — under the 32-char `alembic_version.version_num` limit.
 revision = "0040_codeguard_user_usage_by_route"
-down_revision = "0039_api_keys_project_ids"
+down_revision = "0033_audit_actor_api_key"
 branch_labels = None
 depends_on = None
 
