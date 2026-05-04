@@ -200,6 +200,123 @@ async def test_record_usage_calls_db_when_tokens_present():
     assert params["out_tok"] == 100
 
 
+# ---------- record_user_usage + record_user_usage_by_route ----------------
+#
+# Per-user attribution + per-route breakdown writes. Pinned contracts:
+#   1. Both apply `route_weight` (same multiplier as `record_org_usage`)
+#      so the reconcile cron's drift detector doesn't flap.
+#   2. Skip-on-zero (HyDE cache hits don't touch the DB).
+#   3. The per-route table receives the route_key as a bound param so
+#      a refactor of the SQL can't accidentally drop it from the
+#      INSERT (which would land every breakdown row on a single
+#      route_key=NULL bucket).
+
+
+async def test_record_user_usage_applies_route_weight():
+    """`/scan` passes route_weight=5.0 → recorded tokens are 5× raw,
+    matching `record_org_usage`. Mismatched weights would make the
+    reconcile cron flag every weighted route as drift."""
+    from services.codeguard_quota_attribution import record_user_usage
+
+    db = MagicMock()
+    db.execute = AsyncMock()
+
+    await record_user_usage(
+        db,
+        uuid4(),
+        uuid4(),
+        input_tokens=1_000,
+        output_tokens=200,
+        route_weight=5.0,
+    )
+    args, _ = db.execute.call_args
+    params = args[1]
+    assert params["in_tok"] == 5_000
+    assert params["out_tok"] == 1_000
+
+
+async def test_record_user_usage_skips_on_zero():
+    """HyDE cache hit → 0 input + 0 output → no DB write. Same posture
+    as `record_org_usage`."""
+    from services.codeguard_quota_attribution import record_user_usage
+
+    db = MagicMock()
+    db.execute = AsyncMock()
+
+    await record_user_usage(db, uuid4(), uuid4(), input_tokens=0, output_tokens=0)
+    db.execute.assert_not_called()
+
+
+async def test_record_user_usage_by_route_binds_route_key():
+    """The `route_key` MUST be bound as a SQL param — without it the
+    UPSERT would either error (NULL violates NOT NULL on a PK column)
+    or, if the column accepted NULL, every breakdown row would
+    collapse onto a `route_key=NULL` bucket, defeating the table's
+    purpose."""
+    from services.codeguard_quota_attribution import record_user_usage_by_route
+
+    db = MagicMock()
+    db.execute = AsyncMock()
+
+    await record_user_usage_by_route(
+        db,
+        uuid4(),
+        uuid4(),
+        route_key="scan",
+        input_tokens=100,
+        output_tokens=50,
+        route_weight=5.0,
+    )
+    args, _ = db.execute.call_args
+    params = args[1]
+    assert params["route_key"] == "scan"
+    # Same weight applied to the breakdown as to the aggregate.
+    assert params["in_tok"] == 500  # 100 × 5
+    assert params["out_tok"] == 250  # 50 × 5
+
+
+async def test_record_user_usage_by_route_skips_on_zero():
+    """Mirror of the parent skip-on-zero — a HyDE cache hit doesn't
+    touch either write. Pin to defend against a refactor that
+    accidentally drops the guard from the per-route helper."""
+    from services.codeguard_quota_attribution import record_user_usage_by_route
+
+    db = MagicMock()
+    db.execute = AsyncMock()
+
+    await record_user_usage_by_route(
+        db,
+        uuid4(),
+        uuid4(),
+        route_key="scan",
+        input_tokens=0,
+        output_tokens=0,
+    )
+    db.execute.assert_not_called()
+
+
+async def test_route_weight_for_known_routes():
+    """Pin the canonical weight table — these are the values the
+    route handlers consume. A test failure here means either a
+    weight changed (intentional, also update the call site) or the
+    table was reverted."""
+    from services.codeguard_quota_attribution import route_weight_for
+
+    assert route_weight_for("query") == 1.0
+    assert route_weight_for("scan") == 5.0
+    assert route_weight_for("permit-checklist") == 2.0
+
+
+async def test_route_weight_for_unknown_route_defaults_to_one():
+    """Unknown routes get raw token cost (1.0), not infinity. Fail-
+    closed-but-safe: a typo under-charges (visible in
+    `/quota/top-users`) rather than 429-ing every request."""
+    from services.codeguard_quota_attribution import route_weight_for
+
+    assert route_weight_for("future-route-not-yet-added") == 1.0
+    assert route_weight_for("") == 1.0
+
+
 # ---------- Threshold notifications ----------------------------------------
 #
 # `check_and_notify_thresholds` is the post-`record_org_usage` hook

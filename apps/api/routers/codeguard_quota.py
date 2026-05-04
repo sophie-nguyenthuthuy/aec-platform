@@ -185,6 +185,7 @@ async def get_codeguard_quota_top_users(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = 10,
+    breakdown: bool = False,
 ):
     """Top consumers of the org's monthly token cap, sorted by combined
     spend descending.
@@ -208,6 +209,13 @@ async def get_codeguard_quota_top_users(
 
     Tenant-scoped: WHERE clause pins to `auth.organization_id`. Read-
     only — no mutations from this surface.
+
+    `breakdown=true` adds a `routes` array to each user, populated
+    from `codeguard_user_usage_by_route`. Lets the UI show per-user
+    "spent 80k via 3 scans + 200 queries" instead of just totals.
+    Costs one additional SQL round-trip (no JOIN — keeps the top-N
+    query plan simple); skip-by-default since the banner doesn't
+    need it.
     """
     bounded_limit = max(1, min(int(limit), 50))
 
@@ -233,19 +241,61 @@ async def get_codeguard_quota_top_users(
         )
     ).all()
 
+    # Per-route breakdown — only fetched when `breakdown=true`. Single
+    # SQL round-trip for ALL users in the top-N rather than N+1
+    # round-trips: WHERE filters by `user_id IN (...)`. The breakdown
+    # index `(org, period, total_tokens DESC)` doesn't help here
+    # because we're filtering by user_id; the planner falls back to
+    # the PK lookup which is fine for small N.
+    breakdown_by_user: dict[str, list[dict]] = {}
+    if breakdown and rows:
+        user_ids = [str(r.user_id) for r in rows]
+        breakdown_rows = (
+            await db.execute(
+                sa_text(
+                    """
+                    SELECT user_id, route_key, input_tokens, output_tokens
+                    FROM codeguard_user_usage_by_route
+                    WHERE organization_id = :org_id
+                      AND period_start    = date_trunc('month', NOW())::date
+                      AND user_id = ANY(CAST(:user_ids AS UUID[]))
+                    ORDER BY user_id, (input_tokens + output_tokens) DESC
+                    """
+                ),
+                {"org_id": str(auth.organization_id), "user_ids": user_ids},
+            )
+        ).all()
+        for br in breakdown_rows:
+            breakdown_by_user.setdefault(str(br.user_id), []).append(
+                {
+                    "route_key": br.route_key,
+                    "input_tokens": int(br.input_tokens),
+                    "output_tokens": int(br.output_tokens),
+                    "total_tokens": int(br.input_tokens) + int(br.output_tokens),
+                }
+            )
+
+    users_payload = []
+    for r in rows:
+        user_entry: dict = {
+            "user_id": str(r.user_id),
+            "email": r.email or "",
+            "input_tokens": int(r.input_tokens),
+            "output_tokens": int(r.output_tokens),
+            "total_tokens": int(r.total_tokens),
+        }
+        if breakdown:
+            # Always include the key in breakdown mode (even if
+            # empty) so the UI can rely on the field's presence
+            # rather than a "is breakdown mode active" flag.
+            user_entry["routes"] = breakdown_by_user.get(str(r.user_id), [])
+        users_payload.append(user_entry)
+
     return ok(
         {
             "organization_id": str(auth.organization_id),
             "limit": bounded_limit,
-            "users": [
-                {
-                    "user_id": str(r.user_id),
-                    "email": r.email or "",
-                    "input_tokens": int(r.input_tokens),
-                    "output_tokens": int(r.output_tokens),
-                    "total_tokens": int(r.total_tokens),
-                }
-                for r in rows
-            ],
+            "breakdown": breakdown,
+            "users": users_payload,
         }
     )

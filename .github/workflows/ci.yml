@@ -30,6 +30,17 @@ jobs:
           python-version: "3.11"
           cache: pip
       - uses: pre-commit/action@v3.0.1
+        env:
+          # The local `codeguard-surface-snapshot` hook (see
+          # .pre-commit-config.yaml) is `language: system` and shells
+          # out to `pytest`. It assumes the runner has the api venv
+          # active — true for developer machines (after `pip install
+          # -r apps/api/requirements-dev.txt`), false for the
+          # pre-commit job here, which only installs Python + pre-commit
+          # itself. Skipping in CI is safe because the dedicated
+          # `codeguard-surface` job below runs the same snapshot test
+          # against the full api dependency tree.
+          SKIP: codeguard-surface-snapshot
 
   # Fast gate against silent revert of the codeguard surface contract.
   # Pins the exact set of routes/metrics/cron jobs/retention policies

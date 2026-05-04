@@ -270,6 +270,36 @@ async def with_usage_recording(
                     weight,
                 )
 
+            # Per-route breakdown — sidecar to the per-user write.
+            # Separate try/except for the same reason: per-route
+            # attribution is dashboard-fueling, the cap-check cache
+            # is load-bearing. A transient failure here MUST NOT
+            # bubble. The breakdown lets admins answer "did this
+            # month's spike come from heavy /scan or runaway /query?"
+            # — without it, `/quota/top-users` shows totals only.
+            try:
+                await record_user_usage_by_route(
+                    db,
+                    organization_id,
+                    user_id,
+                    route_key=route_key,
+                    input_tokens=acc.input_tokens,
+                    output_tokens=acc.output_tokens,
+                    route_weight=weight,
+                )
+            except Exception:
+                logger.warning(
+                    "codeguard_quota_attribution.record_user_usage_by_route "
+                    "failed for org=%s user=%s route=%s (in=%d, out=%d, "
+                    "weight=%.2f) — request already served",
+                    organization_id,
+                    user_id,
+                    route_key,
+                    acc.input_tokens,
+                    acc.output_tokens,
+                    weight,
+                )
+
             # Threshold-notification check fires AFTER the usage
             # write so the percent reads the post-increment value.
             # Wrapped in its own try/except — the request has
@@ -282,3 +312,69 @@ async def with_usage_recording(
                     "codeguard_quotas.check_and_notify_thresholds failed for org=%s — request already served",
                     organization_id,
                 )
+
+
+# ---------- Per-route attribution write ---------------------------------
+
+
+async def record_user_usage_by_route(
+    db: AsyncSession,
+    org_id: UUID,
+    user_id: UUID,
+    *,
+    route_key: str,
+    input_tokens: int,
+    output_tokens: int,
+    route_weight: float = 1.0,
+) -> None:
+    """Increment the (org, user, period, route) breakdown row.
+
+    Companion write to `record_user_usage` — same totals get written
+    twice: once aggregated at the (org, user, period) level into
+    `codeguard_user_usage` for cap-check fueling, and once broken
+    out per route into `codeguard_user_usage_by_route` for "which
+    routes drove this month's spike?" attribution.
+
+    Why a second table not a single denormalised table: the parent
+    `codeguard_user_usage` is read on every cap check (PK lookup);
+    keeping it small means low-latency reads. A combined table
+    keyed on `(org, user, period, route)` would force every cap
+    check to SUM across route rows for the same (org, user, period),
+    adding load to the hot path. Two tables, one read pattern each.
+
+    Same skip-on-zero + weight semantics as `record_user_usage`. The
+    weight applies to the breakdown total too — both the aggregate
+    AND the breakdown rows reflect compute-cost-weighted spend.
+    """
+    if input_tokens == 0 and output_tokens == 0:
+        return
+    weighted_in = _apply_weight(input_tokens, route_weight)
+    weighted_out = _apply_weight(output_tokens, route_weight)
+
+    sql = text(
+        """
+        INSERT INTO codeguard_user_usage_by_route
+          (organization_id, user_id, period_start, route_key,
+           input_tokens, output_tokens, updated_at)
+        VALUES
+          (:org_id, :user_id, date_trunc('month', NOW())::date, :route_key,
+           :in_tok, :out_tok, NOW())
+        ON CONFLICT (organization_id, user_id, period_start, route_key)
+        DO UPDATE SET
+          input_tokens  = codeguard_user_usage_by_route.input_tokens
+                          + EXCLUDED.input_tokens,
+          output_tokens = codeguard_user_usage_by_route.output_tokens
+                          + EXCLUDED.output_tokens,
+          updated_at    = NOW()
+        """
+    )
+    await db.execute(
+        sql,
+        {
+            "org_id": str(org_id),
+            "user_id": str(user_id),
+            "route_key": route_key,
+            "in_tok": weighted_in,
+            "out_tok": weighted_out,
+        },
+    )

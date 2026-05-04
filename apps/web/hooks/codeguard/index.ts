@@ -41,4 +41,5 @@ export type {
   QuotaAuditFilters,
   CodeguardQuotaTopUsers,
   QuotaTopUser,
+  QuotaTopUserRoute,
 } from "./useQuota";

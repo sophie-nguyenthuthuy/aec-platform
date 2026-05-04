@@ -174,6 +174,16 @@ export function useCodeguardQuotaAudit(filters: QuotaAuditFilters = {}) {
 
 // ---------- Top users (per-user spend ranking) -------------------------
 
+/** One route-level row in a user's breakdown — present only when
+ *  the request was made with `breakdown=true`. Sorted DESC by
+ *  total_tokens within the user's `routes` array. */
+export interface QuotaTopUserRoute {
+  route_key: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
 export interface QuotaTopUser {
   user_id: string;
   /** May be empty string if the user was deleted between recording the
@@ -183,6 +193,11 @@ export interface QuotaTopUser {
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
+  /** Present (possibly empty array) only when the hook was called
+   *  with `{breakdown: true}`. UI relies on this field's presence
+   *  rather than the response's top-level `breakdown` flag — keeps
+   *  the rendering branches narrow. */
+  routes?: QuotaTopUserRoute[];
 }
 
 export interface CodeguardQuotaTopUsers {
@@ -191,6 +206,10 @@ export interface CodeguardQuotaTopUsers {
    *  number of rows even when the request asked for more than the
    *  server allowed. */
   limit: number;
+  /** Echoes the `breakdown` query param so the UI can confirm the
+   *  server interpreted the flag (vs. silently ignoring an unknown
+   *  param on a stale deploy). */
+  breakdown: boolean;
   /** Sorted by total_tokens DESC, ties broken by user_id for stable
    *  rendering across refetches. */
   users: QuotaTopUser[];
@@ -198,15 +217,27 @@ export interface CodeguardQuotaTopUsers {
 
 /** Fetch the caller's org's top token consumers for the CURRENT
  *  period. Sits next to `useCodeguardQuota` on the quota page. 60s
- *  staleness — top-users only changes when an LLM call lands. */
-export function useCodeguardQuotaTopUsers(limit = 10) {
+ *  staleness — top-users only changes when an LLM call lands.
+ *
+ *  `breakdown=true` adds a `routes` array per user (route_key → spend),
+ *  letting the UI answer "did this user's 80k tokens come from heavy
+ *  /scan or runaway /query?". One extra SQL round-trip on the server
+ *  side; off by default since the banner only needs totals. */
+export function useCodeguardQuotaTopUsers(
+  limit = 10,
+  options: { breakdown?: boolean } = {},
+) {
   const { token, orgId } = useSession();
+  const breakdown = options.breakdown ?? false;
   return useQuery({
-    queryKey: ["codeguard", "quota", "top-users", orgId, limit],
+    queryKey: ["codeguard", "quota", "top-users", orgId, limit, breakdown],
     staleTime: 60_000,
     queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("limit", String(limit));
+      if (breakdown) params.set("breakdown", "true");
       const res = await apiFetch<CodeguardQuotaTopUsers>(
-        `/api/v1/codeguard/quota/top-users?limit=${limit}`,
+        `/api/v1/codeguard/quota/top-users?${params.toString()}`,
         { method: "GET", token, orgId },
       );
       return res.data as CodeguardQuotaTopUsers;
