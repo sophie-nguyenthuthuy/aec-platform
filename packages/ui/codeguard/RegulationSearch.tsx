@@ -32,10 +32,11 @@ export function RegulationSearch({
       />
       <input
         type="search"
+        aria-label="Tìm kiếm quy chuẩn"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-24 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-24 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-slate-500"
       />
       <button
         type="submit"

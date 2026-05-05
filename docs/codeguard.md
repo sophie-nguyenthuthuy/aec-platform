@@ -38,6 +38,21 @@ identically.
 The frontend exposes five pages — query, scan, checklist, regulations,
 history — all under `/codeguard/*`. See `apps/web/app/(dashboard)/codeguard/`.
 
+Every LLM-invoking route gates on per-org token quotas (see §13). Over-
+limit orgs get a structured 429 before any LLM work starts; both
+`/query` and the streaming `/query/stream` (and same for scan +
+permit-checklist) share the gate via `_check_quota_or_raise`. After
+the LLM call succeeds, accumulated token counts are drained into the
+`codeguard_org_usage` row so the next request's pre-flight check sees
+real spend.
+
+`QueryRequest` and `ScanRequest` accept an optional `as_of_date` field
+(ISO date string). When supplied, retrieval is restricted to
+regulations whose `effective_date <= as_of_date` and whose
+`expiry_date IS NULL OR expiry_date > as_of_date` — the binding
+correctness contract for compliance audits ("this 2022 project must
+not be evaluated against a 2024 revision"). Default is today.
+
 ---
 
 ## 2. Data model
@@ -116,6 +131,9 @@ question  ─────▶│ _hyde_expand   (Anthropic, ~200-800ms)      │
                 ┌─────────────────────────────────────────────┐
                 │ _hybrid_search                              │
                 │   ├── _dense_search (pgvector HNSW halfvec) │ ─┐
+                │   │     filter: r.effective_date <= as_of   │  │
+                │   │     AND (r.expiry_date IS NULL          │  │
+                │   │          OR r.expiry_date > as_of)      │  │
                 │   └── _sparse_search (Elasticsearch BM25)   │ ─┤ asyncio.gather
                 │   → _reciprocal_rank_fusion (k=60)          │ ─┘
                 └─────────────────────────────────────────────┘
@@ -164,6 +182,32 @@ log fires but the pipeline degrades gracefully to dense-only (RRF of
 `(dense, [])` is `dense` order). For the Q&A path, dense gets the
 HyDE-expanded prose for semantic surface area, but sparse gets the raw
 question only — HyDE prose dilutes BM25 term signal.
+
+### Effective-date filter
+
+`QueryRequest.as_of_date` and `ScanRequest.as_of_date` flow through to
+`_dense_search`'s WHERE clause:
+
+```sql
+AND (r.effective_date IS NULL OR r.effective_date <= :as_of)
+AND (r.expiry_date IS NULL OR r.expiry_date > :as_of)
+```
+
+Default when the client omits the field: `date.today()`. NULL effective
+or expiry dates are treated as "always in effect" — legacy rows without
+known issue dates aren't excluded just because they pre-date the
+metadata.
+
+The sparse path doesn't currently filter by date — ES doesn't carry the
+same column structure, and a stale BM25 hit on an out-of-date regulation
+is naturally outranked by the dense path's fresh hits via RRF. Tightening
+the sparse filter is a follow-up once the ES index mapping carries
+`effective_date`.
+
+Test coverage: `apps/ml/tests/test_codeguard_as_of_date.py` (3 Tier 1
+tests pinning the SQL clause shape, default behaviour, and `_hybrid_search`
+forwarding; 1 Tier 3 integration test against real Postgres seeding two
+regs at different effective dates).
 
 ---
 
@@ -611,6 +655,11 @@ nothing extra to run these.
 | HyDE cache | Same file: `_hyde_cache`, `_hyde_clear_cache` |
 | Citation grounding guard | Same file: `_ground_citations`, `_abstain_response` |
 | Cost telemetry helper | Same file: `_record_llm_call`, `_UsageCaptureHandler`, `telemetry_logger` |
+| Per-request accumulator | Same file: `TelemetryAccumulator`, `set_telemetry_accumulator`, `clear_telemetry_accumulator`, `get_telemetry_accumulator` |
+| Quota service | `apps/api/services/codeguard_quotas.py` (`check_org_quota`, `record_org_usage`, `QuotaCheckResult`) |
+| Quota wiring | `apps/api/routers/codeguard.py` (`_check_quota_or_raise`, `_with_usage_recording`) |
+| Quota migration | `apps/api/alembic/versions/0023_codeguard_quotas.py` (`codeguard_org_quotas`, `codeguard_org_usage`) |
+| PDF Unicode shim | `apps/api/services/_pdf_fonts.py` (`ensure_unicode_fonts`) |
 | Health probe | `apps/api/routers/codeguard.py` (`_check_postgres`, `_check_api_key_env`, `_check_elasticsearch`, `_aggregate_status`) |
 | Ingest CLI | `apps/ml/pipelines/codeguard_ingest.py` |
 | Migrations | `apps/api/alembic/versions/0005_codeguard.py`, `0008_codeguard_rls.py`, `0009_codeguard_hnsw.py` |
@@ -624,3 +673,302 @@ nothing extra to run these.
 | Make targets | `Makefile` (`seed-codeguard`, `eval-codeguard`) |
 | Spend rollup script | `scripts/codeguard_spend_report.py` |
 | Telemetry operating guide | `docs/codeguard-telemetry.md` |
+
+---
+
+## 13. Per-org token quotas
+
+Every LLM-invoking codeguard route (`/query`, `/query/stream`, `/scan`,
+`/scan/stream`, `/permit-checklist`, `/permit-checklist/stream`) gates
+on a per-org monthly cap. The story has three pieces — pre-flight
+check, post-call drain, and the schema both read from.
+
+### Schema (migration `0023_codeguard_quotas.py`)
+
+- `codeguard_org_quotas(organization_id, monthly_input_token_limit,
+  monthly_output_token_limit)` — opt-in. Missing row → unlimited.
+  NULL on either dimension → unlimited on that dimension only (org pins
+  on the dimension that has a number).
+- `codeguard_org_usage(organization_id, period_start, input_tokens,
+  output_tokens)` — running per-month counters. PK
+  `(organization_id, period_start)` for clean UPSERT. `period_start` is
+  the first day of the calendar month (computed server-side via
+  `date_trunc('month', NOW())::date` to avoid clock-skew row splits).
+
+### Pre-flight check — `_check_quota_or_raise`
+
+Single LEFT JOIN against the two tables (`services.codeguard_quotas.
+check_org_quota`). Each LLM-invoking route calls
+`_check_quota_or_raise(db, auth.organization_id)` at entry; over-limit
+orgs get a structured 429 with the binding-dimension message ("Monthly
+output-token quota exceeded (210,000 / 200,000). Contact admin to
+raise the cap.") before any LLM work starts. Streaming routes call it
+*before* constructing the StreamingResponse so the 429 is a clean
+HTTP response, not an SSE error frame.
+
+### Post-call drain — `_with_usage_recording`
+
+The pre-flight check is only useful if the usage table actually fills.
+Every LLM-invoking route wraps its pipeline call (or its SSE generator
+body) in `_with_usage_recording(db, organization_id)` — an async
+context manager that:
+
+1. Allocates a `TelemetryAccumulator` and binds it via the pipeline's
+   `set_telemetry_accumulator` contextvar. The accumulator propagates
+   through all `await` boundaries the pipeline uses, including async
+   generators for SSE.
+2. Lets the pipeline run. Every successful `_record_llm_call` site
+   (HyDE, generation, scan-per-category, checklist generation) feeds
+   `handler.input_tokens` / `handler.output_tokens` into the bound
+   accumulator.
+3. On exit, persists the accumulated totals via
+   `services.codeguard_quotas.record_org_usage` — a single UPSERT
+   against `(org_id, period_start)`. The next request's pre-flight
+   check sees the increment.
+
+Best-effort write: a transient DB hiccup during `record_org_usage` is
+logged at WARNING and swallowed. Failing the user's already-served
+response because bookkeeping failed would be the wrong tradeoff —
+worst case is one request's worth of under-counted spend.
+
+### Why not a FastAPI dependency
+
+Streaming routes return a `StreamingResponse` whose generator runs
+*after* a `dependencies=[Depends(...)]` would yield. The accumulator
+drain has to happen after the generator finishes (the LLM calls happen
+inside the generator), which means the route owns the `async with`.
+Putting it in a dep would drain too early — every streaming request's
+counter would be 0.
+
+### Test coverage
+
+`apps/api/tests/test_codeguard_quotas.py`:
+
+- Tier 1: 8 tests for `check_org_quota` (NULL semantics, both-dimension
+  binding, no-row → unlimited, no-usage-row → 0 used) + 2 for
+  `record_org_usage` (zero-token short-circuit, UPSERT param shape).
+- Tier 2 route: 1 dedicated `/query` 429 test, 1 parametrised
+  cross-route test that asserts every other LLM-invoking surface also
+  gates on the same 429 — pin the cross-route contract so a regression
+  dropping `_check_quota_or_raise` from one route is caught by name.
+- Tier 2 drain: 1 test that proves
+  `_with_usage_recording` actually fires `record_org_usage` with
+  non-zero tokens (the contract that was silently broken before this
+  round — the previous wiring called `record_org_usage(in_tok=...,
+  out_tok=...)` with kwarg names that didn't match the function's
+  signature, so every call raised `TypeError` and got swallowed).
+
+## 14. Quotas — Operations runbook
+
+This section is the operator's surface for the quota story. Sections
+1–13 above describe what's there and why; this one is "you got paged
+at 2am, what do you do."
+
+### 14.1 The CLI: `scripts/codeguard_quotas.py`
+
+Five subcommands. All read `DATABASE_URL` (asyncpg form) — the same
+env var the API server uses, so running locally hits the same DB the
+API pod will read.
+
+```bash
+# Set or update an org's monthly cap. Either limit can be omitted
+# (NULL = unlimited on that dimension); both omitted = unlimited.
+python scripts/codeguard_quotas.py set <org-uuid> \
+  --input-limit 5000000 --output-limit 1000000 \
+  --actor "$USER"
+
+# Show one org's quota row + current-month usage with %-of-cap.
+python scripts/codeguard_quotas.py get <org-uuid>
+
+# List all orgs with quotas, sorted by binding %. `--over-pct 80`
+# filters to the at-risk cohort (the ops dashboard view).
+python scripts/codeguard_quotas.py list --over-pct 80
+
+# Zero an org's current-month usage row. Use for billing disputes
+# or cleanup after a load test. The QUOTA itself is untouched —
+# only the running totals are reset. Requires `--confirm` so a
+# fat-fingered command in shell history can't zero a customer's
+# spend by accident.
+python scripts/codeguard_quotas.py reset <org-uuid> --confirm \
+  --actor "$USER"
+
+# Read the audit log for one org, most-recent first. `--since`
+# filters to a date range, `--action` to one mutation type.
+python scripts/codeguard_quotas.py audit <org-uuid> \
+  --since 2026-04-01 --action quota_set --limit 50
+```
+
+Mutating subcommands (`set`, `reset`) write to
+`codeguard_quota_audit_log` in the same transaction as the
+operation. The `actor` field defaults to `$USER`; override with
+`--actor` for service-account runs (CI bots, shared ops boxes).
+`--json` (top-level flag, before the subcommand) flips every
+subcommand to machine-readable output for piping into `jq`.
+
+`set` ALSO fires `check_and_notify_thresholds` after commit — covers
+the "ops lowers a cap below current usage and nobody hits an LLM
+route to trigger the usage-side check" edge case. The dedupe table
+prevents a double-fire if the org happens to also cross via usage in
+the same period.
+
+### 14.2 Threshold notifications (80% / 95%)
+
+When an org's monthly usage crosses 80% (warn) or 95% (critical) on
+either dimension, every user opted into `notification_preferences.
+key='quota_warn'` for that org gets pinged — once per `(org,
+dimension, threshold, period)` thanks to the dedupe table at
+`codeguard_quota_threshold_notifications` (added in migration
+`0030_codeguard_quota_thresholds`).
+
+Per-channel intent:
+
+- `email_enabled=TRUE` → email via `services.mailer.send_mail`
+  (vi-VN copy, absolute URL pointing at `<WEB_BASE_URL>/codeguard/quota`).
+- `slack_enabled=TRUE` → POST to `OPS_SLACK_WEBHOOK_URL` via
+  `services.slack.send_slack`. Currently fires AT MOST ONCE per
+  event regardless of how many users opted in (single global
+  webhook). Per-user Slack DMs are a future feature.
+- both flags TRUE → both channels fire.
+- both flags FALSE → user filtered out at the SQL level.
+
+Opt a user in:
+
+```sql
+INSERT INTO notification_preferences
+  (user_id, organization_id, key, email_enabled, slack_enabled)
+VALUES
+  ('<user-uuid>', '<org-uuid>', 'quota_warn', TRUE, TRUE);
+```
+
+Or via the UI: `/settings/notifications` → CODEGUARD section
+(once that page surfaces the `quota_warn` row).
+
+If finance complains "I'm not getting the alerts": (1) confirm a
+row exists with `key='quota_warn'` and at least one channel
+enabled, (2) confirm `OPS_SLACK_WEBHOOK_URL` is set if they
+expected Slack, (3) check the dedupe table — they may have
+already received the alert this period:
+
+```sql
+SELECT * FROM codeguard_quota_threshold_notifications
+WHERE organization_id = '<org-uuid>'
+  AND period_start = date_trunc('month', NOW())::date;
+```
+
+### 14.3 The `/metrics` series
+
+Two cap-check metrics flow through the existing `/metrics` scrape
+(stdlib renderer in `core.metrics`, not the `prometheus_client`
+SDK). Both have bounded label cardinality — safe to leave on
+every LLM route.
+
+- **`codeguard_quota_429_total{limit_kind}`** — counter, ticks once
+  per cap-check refusal labelled by binding dimension (`input` |
+  `output`). Use this to answer "how often are we capping out
+  tenants today" without grepping logs.
+
+  ```promql
+  # Refusals per minute, broken out by dimension:
+  sum by (limit_kind) (rate(codeguard_quota_429_total[1m]))
+  ```
+
+- **`codeguard_quota_check_duration_seconds`** — histogram, observes
+  the pre-flight SELECT on every cap-check (allow OR refuse). Use
+  this to answer "is the cap-check inflating p95 on LLM routes?"
+
+  ```promql
+  # p99 cap-check latency:
+  histogram_quantile(0.99,
+    rate(codeguard_quota_check_duration_seconds_bucket[5m]))
+  ```
+
+Neither metric carries an `org_id` label — per-org cardinality
+would explode the series count once the platform scales. For "which
+orgs cap most," query the audit log (`scripts/codeguard_quotas.py
+audit ...`), not Prometheus.
+
+### 14.4 The 429 client contract
+
+Every LLM-invoking route returns this error envelope on cap-out:
+
+```json
+{
+  "data": null,
+  "meta": null,
+  "errors": [{
+    "code": "429",
+    "message": "Đã vượt hạn mức token output tháng này (210.000 / 200.000). Liên hệ quản trị để tăng hạn mức.",
+    "field": null,
+    "details_url": "/codeguard/quota"
+  }]
+}
+```
+
+Notes:
+
+- Copy is Vietnamese, numbers use vi-VN dot grouping. Matches
+  what the `<QuotaStatusBanner>` and `/codeguard/quota` page
+  surface in the surrounding UI.
+- `details_url` is what the frontend reads to render a "Xem hạn
+  mức" CTA on the toast / inline error. The CTA is a relative
+  link inside the app — do NOT hardcode the host on the client
+  side; the field is structured precisely so the API owns this.
+- The dimension label (`input` / `output`) is rendered as-is, not
+  translated, so it matches the banner copy elsewhere ("hạn mức
+  input").
+
+### 14.5 Billing-dispute runbook (3 steps)
+
+Customer claims they were charged for traffic that never reached
+their endpoint. Walk through the audit + reset path:
+
+1. **Audit-log lookup** — confirm what happened on their org:
+
+   ```bash
+   python scripts/codeguard_quotas.py audit <org-uuid> \
+     --since 2026-05-01 --json | jq .
+   ```
+
+   Look for unexpected `quota_set` events (someone raised the cap
+   without notice?) or anomalous `quota_reset` events.
+
+2. **Reset usage** — zero the running counters for the current
+   period. The QUOTA stays put; only `codeguard_org_usage` for the
+   current month is affected:
+
+   ```bash
+   python scripts/codeguard_quotas.py reset <org-uuid> --confirm \
+     --actor "ops-billing-dispute-${TICKET_ID}"
+   ```
+
+   The `--actor` field is free-text — use it to pin the audit-log
+   trail to a specific support ticket so compliance can answer "why
+   did we zero this org" later.
+
+3. **Verify in the audit log** — confirm the reset row appears:
+
+   ```bash
+   python scripts/codeguard_quotas.py audit <org-uuid> \
+     --action quota_reset --limit 5
+   ```
+
+   Should show your reset event at the top, with `before` capturing
+   the pre-zero totals (the evidence the customer was charged for)
+   and `after` showing zeros.
+
+If the customer also wants the cap raised: chain `set` after the
+reset, with a separate `--actor` so the two events are attributable
+independently.
+
+### 14.6 Migration index
+
+| Migration | Adds |
+| --- | --- |
+| `0023_codeguard_quotas` | `codeguard_org_quotas` + `codeguard_org_usage` |
+| `0026_codeguard_quota_audit_log` | `codeguard_quota_audit_log` (JSONB before/after, FK SET NULL) |
+| `0030_codeguard_quota_thresholds` | `codeguard_quota_threshold_notifications` (dedupe, FK CASCADE) |
+
+All three use FK relationships with `organizations.id` but with
+intentionally different deletion behaviour: usage CASCADE (clean up
+running counters), audit log SET NULL (preserve paper trail),
+notification dedupe CASCADE (operational state only).

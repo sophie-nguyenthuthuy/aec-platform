@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import json
 import logging
 import os
@@ -90,6 +91,68 @@ class _UsageCaptureHandler(BaseCallbackHandler):
         except (AttributeError, IndexError, TypeError):
             # Unknown shape — record nothing, don't crash the pipeline.
             pass
+
+
+class TelemetryAccumulator:
+    """Per-request running totals of token spend.
+
+    The pipeline stays tenant-agnostic — no `org_id` parameter on any
+    public function. The route layer creates an accumulator at the
+    start of each LLM-invoking request, binds it via
+    `set_telemetry_accumulator` (a `contextvars`-based handoff that
+    propagates across all the `await` boundaries the pipeline uses,
+    including async generators for SSE), and drains the totals after
+    the handler returns. The accumulator's `input_tokens` /
+    `output_tokens` are then passed to `services.codeguard_quotas.
+    record_org_usage` to persist the per-month tenant usage row that
+    the next request's `check_org_quota` reads.
+
+    Without this plumbing the quota cap can't actually fire — the
+    usage table stays empty, `check_org_quota` always returns
+    `over_limit=False`, and the pre-flight check is purely defensive
+    code that never trips. The `calls` counter is for sanity dashboards
+    ("did this request hit the LLM at all, or was it pure cache hits");
+    the `input_tokens` / `output_tokens` fields are the load-bearing
+    spend dimension.
+    """
+
+    __slots__ = ("calls", "input_tokens", "output_tokens")
+
+    def __init__(self) -> None:
+        self.input_tokens: int = 0
+        self.output_tokens: int = 0
+        # Bumped on every successful telemetry emission, regardless of
+        # whether tokens were captured (e.g. embedding calls have no
+        # `usage_metadata` so tokens stay 0 but `calls` increments).
+        self.calls: int = 0
+
+
+_telemetry_accumulator: contextvars.ContextVar[TelemetryAccumulator | None] = (
+    contextvars.ContextVar("codeguard_telemetry_accumulator", default=None)
+)
+
+
+def set_telemetry_accumulator(
+    acc: TelemetryAccumulator | None,
+) -> contextvars.Token:
+    """Bind a per-request accumulator. Returns the Token for reset."""
+    return _telemetry_accumulator.set(acc)
+
+
+def clear_telemetry_accumulator(token: contextvars.Token) -> None:
+    """Restore the accumulator contextvar. Always pair with the matching
+    `set_telemetry_accumulator` Token in a finally block — leaving a
+    request's accumulator bound across the request boundary would
+    silently attribute the *next* request's tokens to the previous
+    org's usage row."""
+    _telemetry_accumulator.reset(token)
+
+
+def get_telemetry_accumulator() -> TelemetryAccumulator | None:
+    """Read the current accumulator. None outside a tracked request
+    (CLI scripts, tests that don't bind one) — token capture happens
+    but doesn't accumulate anywhere."""
+    return _telemetry_accumulator.get()
 
 
 @contextlib.asynccontextmanager
@@ -175,6 +238,19 @@ async def _record_llm_call(
                 "error": None,
             },
         )
+        # Feed the per-request accumulator if the route bound one.
+        # Token-less calls (embeddings, fakes without `usage_metadata`)
+        # still bump `calls` so the route can distinguish "this request
+        # had work" from "this request was a pure HyDE cache hit." The
+        # error branch above intentionally doesn't accumulate — failed
+        # LLM calls don't bill, so they don't count against the cap.
+        acc = _telemetry_accumulator.get()
+        if acc is not None:
+            acc.calls += 1
+            if isinstance(handler.input_tokens, int):
+                acc.input_tokens += handler.input_tokens
+            if isinstance(handler.output_tokens, int):
+                acc.output_tokens += handler.output_tokens
 
 
 # ---------- Model / index clients ----------

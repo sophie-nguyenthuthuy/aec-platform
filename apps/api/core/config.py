@@ -50,17 +50,55 @@ class Settings(BaseSettings):
     aws_region: str = "ap-southeast-1"
     s3_bucket: str = "aec-platform-files"
 
+    # Per-table retention overrides for the nightly prune cron
+    # (`services.retention.run_retention_cron`). When unset, each
+    # table falls back to `RetentionPolicy.default_days`. Set in env as
+    # `AEC_RETENTION_AUDIT_EVENTS_DAYS=730` to extend audit retention
+    # for a compliance-conscious tenant. The cron is platform-global,
+    # so per-org overrides aren't a thing — those would need a real
+    # `retention_policies` table.
+    retention_audit_events_days: int | None = Field(default=None, validation_alias="AEC_RETENTION_AUDIT_EVENTS_DAYS")
+    retention_webhook_deliveries_days: int | None = Field(
+        default=None, validation_alias="AEC_RETENTION_WEBHOOK_DELIVERIES_DAYS"
+    )
+    retention_search_queries_days: int | None = Field(
+        default=None, validation_alias="AEC_RETENTION_SEARCH_QUERIES_DAYS"
+    )
+    retention_import_jobs_days: int | None = Field(default=None, validation_alias="AEC_RETENTION_IMPORT_JOBS_DAYS")
+
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_user: str | None = None
     smtp_password: str | None = None
     email_from: str = "no-reply@aec-platform.vn"
 
+    # Public-facing web app origin used when building absolute URLs for
+    # email bodies, Slack messages, etc. The codeguard threshold-warning
+    # emails use this to render `<base>/codeguard/quota` — relative paths
+    # render as non-clickable text in most email clients (Gmail, Outlook
+    # web). No trailing slash convention: callers append `/codeguard/...`
+    # so the helper enforces it via `.rstrip('/')`.
+    #
+    # Default `https://app.aec-platform.vn` is the production hostname;
+    # local dev overrides via `WEB_BASE_URL=http://localhost:3000`.
+    web_base_url: str = Field(
+        default="https://app.aec-platform.vn",
+        validation_alias="WEB_BASE_URL",
+    )
+
     # Recipients for ops drift alerts (codeguard quota drift, queue-depth
     # alarms, etc.). Empty list disables alerting entirely — services check
     # this list and short-circuit before rendering bodies. Comma-separated
     # in env: `OPS_ALERT_EMAILS=ops@x.com,ops2@x.com`.
     ops_alert_emails: list[str] = Field(default_factory=list, validation_alias="OPS_ALERT_EMAILS")
+
+    # Slack incoming-webhook URL for ops alerts. Single global webhook
+    # rather than per-org because drift is platform-ops data, not
+    # tenant-scoped. When this is empty, Slack delivery silently
+    # short-circuits — same posture as `OPS_ALERT_EMAILS`. To
+    # configure: create an Incoming Webhook in your Slack workspace
+    # (https://api.slack.com/messaging/webhooks) and set the URL here.
+    ops_slack_webhook_url: str | None = Field(default=None, validation_alias="OPS_SLACK_WEBHOOK_URL")
 
     cors_origins: list[str] = ["http://localhost:3000"]
 

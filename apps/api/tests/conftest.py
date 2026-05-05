@@ -40,6 +40,53 @@ for _p in (_ML_ROOT, _API_ROOT, _REPO_ROOT):
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret")
 
+# Force-unset LLM credentials for the whole test session.
+#
+# CI sets `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` to placeholder strings
+# (e.g. `ci-placeholder`) so the install + alembic steps don't fail on
+# pydantic-settings validators that require *some* value. Those
+# placeholders are non-empty truthy strings — assistant.py checks
+# `if not settings.anthropic_api_key:` and would happily go down the
+# real-LLM-call path with a bogus key, hanging on the SDK's retry
+# backoff and timing the whole pytest job out (real failure: 47-min
+# job killed by step timeout). Tests that want to exercise the LLM
+# path mock the call directly, so unsetting here is safe.
+#
+# We force-overwrite (not `setdefault`) precisely because CI sets a
+# truthy placeholder.
+os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["OPENAI_API_KEY"] = ""
+
+
+# ---------- Rate limiter bypass ----------
+#
+# `core.rate_limit` is wired into the invitation + /me/orgs endpoints
+# with sub-minute windows (e.g. 10 accepts / 60s). Every test that
+# hits one of those routes shares the same Redis bucket, so the third
+# or fourth test in a module trips the limit and gets 429 instead of
+# the response shape it's pinning. Patch `_acquire` to always-allow at
+# autouse scope.
+#
+# Tests that *want* to exercise the real limiter logic (the unit tests
+# in `test_core_rate_limit.py`) opt out by marking themselves with
+# `@pytest.mark.real_rate_limit`. The marker is registered in
+# `pyproject.toml::tool.pytest.ini_options.markers` to silence the
+# pytest "unknown marker" warning.
+@pytest.fixture(autouse=True)
+def _bypass_rate_limit(request, monkeypatch):
+    if request.node.get_closest_marker("real_rate_limit") is not None:
+        return
+
+    async def _always_allow(*_args, **_kwargs):
+        return True
+
+    try:
+        from core import rate_limit as _rl
+
+        monkeypatch.setattr(_rl, "_acquire", _always_allow)
+    except ImportError:  # pragma: no cover — module always present in our tree
+        pass
+
 
 # ---------- Integration lane ----------
 #

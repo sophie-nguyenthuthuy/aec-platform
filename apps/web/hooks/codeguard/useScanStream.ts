@@ -40,8 +40,13 @@ export interface ScanStreamHandlers {
   onDone?: (payload: ScanDonePayload) => void;
   /** Terminal: hard pipeline failure. Per-category LLM hiccups never
    *  produce this — they emit `category_done` with empty findings
-   *  instead. */
-  onError?: (message: string) => void;
+   *  instead.
+   *
+   *  `detailsUrl` is set when the server returns an error envelope with
+   *  `details_url` populated — currently only the codeguard cap-check
+   *  429 (→ "/codeguard/quota"). UIs should render a CTA pointing at
+   *  it. Falls back to undefined for stream-internal errors. */
+  onError?: (err: { message: string; detailsUrl?: string }) => void;
 }
 
 /**
@@ -79,21 +84,25 @@ export function useCodeguardScanStream() {
           body: JSON.stringify(payload),
         });
       } catch (err) {
-        handlers.onError?.(err instanceof Error ? err.message : "Network error");
+        handlers.onError?.({
+          message: err instanceof Error ? err.message : "Network error",
+        });
         return;
       }
 
       if (!res.ok || !res.body) {
         let message = `HTTP ${res.status}`;
+        let detailsUrl: string | undefined;
         try {
           const envelope = (await res.json()) as {
-            errors?: Array<{ message?: string }>;
+            errors?: Array<{ message?: string; details_url?: string | null }>;
           };
           message = envelope.errors?.[0]?.message ?? message;
+          detailsUrl = envelope.errors?.[0]?.details_url ?? undefined;
         } catch {
           // Body wasn't JSON — keep the HTTP-status fallback.
         }
-        handlers.onError?.(message);
+        handlers.onError?.({ message, detailsUrl });
         return;
       }
 
@@ -137,18 +146,18 @@ export function useCodeguardScanStream() {
               try {
                 handlers.onDone?.(JSON.parse(data) as ScanDonePayload);
               } catch (err) {
-                handlers.onError?.(
-                  err instanceof Error ? err.message : "Bad done frame",
-                );
+                handlers.onError?.({
+                  message: err instanceof Error ? err.message : "Bad done frame",
+                });
               }
               terminated = true;
               break;
             } else if (event === "error") {
               try {
                 const { message } = JSON.parse(data) as { message?: string };
-                handlers.onError?.(message ?? "Unknown server error");
+                handlers.onError?.({ message: message ?? "Unknown server error" });
               } catch {
-                handlers.onError?.("Unknown server error");
+                handlers.onError?.({ message: "Unknown server error" });
               }
               terminated = true;
               break;
@@ -157,7 +166,9 @@ export function useCodeguardScanStream() {
           }
         }
       } catch (err) {
-        handlers.onError?.(err instanceof Error ? err.message : "Stream read error");
+        handlers.onError?.({
+          message: err instanceof Error ? err.message : "Stream read error",
+        });
       } finally {
         reader.cancel().catch(() => undefined);
       }

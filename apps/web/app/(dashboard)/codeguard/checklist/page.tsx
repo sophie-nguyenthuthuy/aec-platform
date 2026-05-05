@@ -24,12 +24,18 @@ export default function PermitChecklistPage() {
   const [streamingItems, setStreamingItems] = useState<ChecklistItemType[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Optional deep-link surfaced from the error envelope's `details_url`.
+  // Currently only the cap-check 429 sets this (→ /codeguard/quota);
+  // for stream-internal errors it stays null and the error banner
+  // omits the CTA.
+  const [errorDetailsUrl, setErrorDetailsUrl] = useState<string | null>(null);
 
   const startStream = useCodeguardChecklistStream();
 
   const onGenerate = async () => {
     if (!projectId || streaming) return;
     setError(null);
+    setErrorDetailsUrl(null);
     setStreamingItems([]);
     setChecklist(null);
     setStreaming(true);
@@ -62,8 +68,9 @@ export default function PermitChecklistPage() {
             return items;
           });
         },
-        onError: (message) => {
+        onError: ({ message, detailsUrl }) => {
           setError(message);
+          setErrorDetailsUrl(detailsUrl ?? null);
         },
       },
     );
@@ -74,6 +81,7 @@ export default function PermitChecklistPage() {
     setChecklist(null);
     setStreamingItems([]);
     setError(null);
+    setErrorDetailsUrl(null);
   };
 
   return (
@@ -91,6 +99,16 @@ export default function PermitChecklistPage() {
             <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
               <div className="mb-1 font-medium">Lỗi khi tạo checklist</div>
               <p>{error}</p>
+              {errorDetailsUrl && (
+                <div className="mt-3">
+                  <a
+                    href={errorDetailsUrl}
+                    className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-900 hover:bg-red-50"
+                  >
+                    Xem hạn mức
+                  </a>
+                </div>
+              )}
             </div>
           )}
           <div className="grid gap-4 rounded-xl border border-slate-200 bg-white p-6 md:grid-cols-3">

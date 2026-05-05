@@ -34,3 +34,4 @@ playwright-report/
 
 # Local persistence probes (created by ad-hoc db debug scripts)
 _persist_probe*
+apps/api/.coverage

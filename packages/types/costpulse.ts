@@ -179,6 +179,13 @@ export interface Rfq {
   sent_to: UUID[];
   responses: RfqResponseEntry[];
   deadline: ISODate | null;
+  /**
+   * Buyer's accepted-quote columns from migration 0024_rfq_acceptance.
+   * Set when the buyer picks a winner; null until then. Drives the
+   * "✓ Accepted" badge in `QuoteComparisonTable`.
+   */
+  accepted_supplier_id: UUID | null;
+  accepted_at: string | null;
   created_at: string;
 }
 

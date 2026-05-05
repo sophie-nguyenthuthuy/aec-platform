@@ -61,15 +61,22 @@ export function DocumentUploadZone({
         onClick={() => !disabled && inputRef.current?.click()}
         className={cn(
           "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition-colors",
-          isDragging
-            ? "border-blue-500 bg-blue-50"
-            : "border-slate-300 bg-slate-50 hover:border-slate-400 hover:bg-slate-100",
-          disabled && "cursor-not-allowed opacity-60",
+          // Disabled state uses a muted border/bg instead of `opacity-60`
+          // — opacity blends fg + bg and pushes the slate-500 / -700 copy
+          // below WCAG AA contrast (axe reported 2.23 / 3.26 ratios).
+          disabled
+            ? "cursor-not-allowed border-slate-200 bg-slate-100"
+            : isDragging
+              ? "border-blue-500 bg-blue-50"
+              : "border-slate-300 bg-slate-50 hover:border-slate-400 hover:bg-slate-100",
         )}
       >
         <Upload className={cn("mb-2", isDragging ? "text-blue-600" : "text-slate-400")} size={28} />
         <p className="text-sm font-medium text-slate-700">Kéo thả bản vẽ / tài liệu vào đây</p>
-        <p className="mt-1 text-xs text-slate-500">hoặc bấm để chọn tệp — PDF, DOCX, DWG (tối đa 100MB)</p>
+        {/* slate-600 (not -500) so the subtitle still passes WCAG AA when
+            the disabled-state bg is `bg-slate-100`: -500 lands at ~4.34:1
+            on slate-100, just below the 4.5:1 floor for body text. */}
+        <p className="mt-1 text-xs text-slate-600">hoặc bấm để chọn tệp — PDF, DOCX, DWG (tối đa 100MB)</p>
         <input
           ref={inputRef}
           type="file"

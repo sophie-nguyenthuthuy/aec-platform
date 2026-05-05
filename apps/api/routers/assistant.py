@@ -16,6 +16,27 @@ Endpoints:
 
   * DELETE /api/v1/assistant/threads/{thread_id}
       Delete the thread (cascade to messages). Idempotent.
+
+RBAC posture (the branch's named feature):
+
+  * `/ask` and `/ask/stream` are gated at `Role.MEMBER` and above.
+    Each call invokes the LLM, which costs the org real money — we
+    don't want viewers (the role given to clients, auditors, and
+    contractor liaisons) burning compute against the org's cap. A
+    viewer hitting either endpoint gets a structured 403 with a
+    plain-language explanation.
+
+  * The READ endpoints (list threads, get transcript, delete thread)
+    keep `require_auth` only. They're scoped to `auth.user_id` so a
+    viewer who once had member access and got demoted can still see
+    their own conversation history (low-stakes read of their own
+    data). DELETE on a viewer's own thread is also permitted —
+    cleaning up your own past conversations is not a cost-bearing
+    operation.
+
+  * Cross-tenant / cross-user threads return 404, NOT 403. Hiding
+    existence across orgs is the load-bearing privacy contract; a
+    403 would leak that the thread exists somewhere.
 """
 
 from __future__ import annotations
@@ -30,6 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.envelope import ok
 from db.deps import get_db
 from middleware.auth import AuthContext, require_auth
+from middleware.rbac import Role, require_min_role
 from models.assistant import AssistantMessage, AssistantThread
 from schemas.assistant import (
     AskRequest,
@@ -51,7 +73,7 @@ router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
 async def ask_about_project(
     project_id: UUID,
     payload: AskRequest,
-    auth: Annotated[AuthContext, Depends(require_auth)],
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.MEMBER))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Answer a natural-language question about one of the caller's projects.
@@ -62,6 +84,11 @@ async def ask_about_project(
 
     A 404 is returned for cross-tenant project IDs so the caller doesn't
     leak whether a project exists in another org.
+
+    Role gate: `Role.MEMBER` and above. Viewers (clients, auditors,
+    contractor liaisons) can't invoke this — each call hits the LLM
+    and costs the org real money, and viewer-tier accounts shouldn't
+    have spend authority.
     """
     response: AssistantResponse = await assistant_ask(
         db,
@@ -84,7 +111,7 @@ async def ask_about_project(
 async def ask_about_project_stream(
     project_id: UUID,
     payload: AskRequest,
-    auth: Annotated[AuthContext, Depends(require_auth)],
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.MEMBER))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """SSE streaming version of `/ask`. Frame format:
@@ -100,6 +127,11 @@ async def ask_about_project_stream(
     than via a 4xx status — by the time the stream is open, the response
     headers are already 200, so HTTP-level errors aren't visible client-
     side.
+
+    Role gate: same as `/ask` — `Role.MEMBER` and above. The 403 fires
+    BEFORE the StreamingResponse is constructed, so a viewer hits a
+    standard 4xx; the in-band error frame mechanism is only for
+    post-stream-open errors (cross-tenant project, DB blip mid-LLM).
     """
     from fastapi.responses import StreamingResponse
 

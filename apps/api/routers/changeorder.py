@@ -14,7 +14,7 @@ import json
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import text
 
 from core.envelope import ok, paginated
@@ -348,6 +348,7 @@ async def record_approval(
     co_id: UUID,
     payload: ApprovalCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
+    request: Request,
 ):
     """Move a CO to a new state and append to the approval audit log."""
     async with TenantAwareSession(auth.organization_id) as session:
@@ -419,6 +420,31 @@ async def record_approval(
                     co_id,
                     exc,
                 )
+
+        # Audit: governance-bearing approval transitions get an audit row
+        # in the SAME transaction as the status update. The CO router's
+        # state machine treats `approved` and `rejected` as terminal
+        # owner verdicts; other statuses (submitted, executed, etc.) are
+        # process steps and don't need governance audit. The
+        # change_order_approvals row above is the operational log; the
+        # audit_events row is the cross-module governance log keyed by
+        # (organization, resource_type, resource_id) for the
+        # /settings/audit + per-resource panels.
+        if new_status in ("approved", "rejected"):
+            from services import audit as _audit
+
+            await _audit.record(
+                session,
+                organization_id=auth.organization_id,
+                auth=auth,
+                action=("pulse.change_order.approve" if new_status == "approved" else "pulse.change_order.reject"),
+                resource_type="change_orders",
+                resource_id=co_id,
+                before={"status": from_status},
+                after={"status": new_status, "notes": payload.notes},
+                request=request,
+            )
+
         await session.commit()
     return ok(Approval.model_validate(_row_to_dict(approval)).model_dump(mode="json"))
 

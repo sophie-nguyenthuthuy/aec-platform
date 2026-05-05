@@ -197,9 +197,9 @@ async def revoke_invitation(
 # clicking through never trips them.
 
 
-@router.get("/invitations/{token}", dependencies=[
-    Depends(rate_limit(prefix="invite-preview", limit=30, window_sec=60))
-])
+@router.get(
+    "/invitations/{token}", dependencies=[Depends(rate_limit(prefix="invite-preview", limit=30, window_sec=60))]
+)
 async def get_invitation(token: UUID) -> dict:
     """Render-time lookup for the accept page — returns just enough for
     the UI ("you're being invited to <Org Name>") without leaking the
@@ -248,9 +248,9 @@ async def get_invitation(token: UUID) -> dict:
     )
 
 
-@router.post("/invitations/{token}/accept", dependencies=[
-    Depends(rate_limit(prefix="invite-accept", limit=10, window_sec=60))
-])
+@router.post(
+    "/invitations/{token}/accept", dependencies=[Depends(rate_limit(prefix="invite-accept", limit=10, window_sec=60))]
+)
 async def accept_invitation(token: UUID, payload: InvitationAccept) -> dict:
     """Anonymous endpoint — the token IS the credential.
 

@@ -26,6 +26,8 @@ import { useIsWatching, useToggleWatch } from "@/hooks/notifications";
 import { useProject } from "@/hooks/projects";
 import type { ProjectDetail } from "@aec/types/projects";
 
+import { ResourceAuditPanel } from "@/components/ResourceAuditPanel";
+
 import { AskAiPanel } from "./AskAiPanel";
 
 const STATUS_BADGE: Record<string, string> = {
@@ -305,6 +307,12 @@ export default function ProjectDetailPage() {
         />
         <RiskCard project={project} />
       </div>
+
+      {/* Per-resource audit history. Hits the same /audit/events
+          endpoint as /settings/audit but narrowed to this project.
+          Renders nothing for non-admin viewers (the hook returns 403)
+          and nothing when the project has no audit rows yet. */}
+      <ResourceAuditPanel resourceType="projects" resourceId={project.id} />
 
       {/* Floating Ask-AI button + slide-over panel. Self-contained
           (manages its own open state + chat history); zero extra

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,6 +46,16 @@ from schemas.codeguard import (
 )
 
 router = APIRouter(prefix="/api/v1/codeguard", tags=["codeguard"])
+
+# Mount the at-risk quota read endpoints (`/quota/audit`, `/quota/top-users`)
+# from their dedicated module. See `routers/codeguard_quota.py` for the
+# rationale (concentrated surface — small file, easier to defend against
+# the linter pass that has historically dropped routes from this large
+# parent module). The child router shares the `/api/v1/codeguard` prefix
+# so URLs are identical to when those routes lived inline here.
+from routers.codeguard_quota import quota_router as _quota_router  # noqa: E402
+
+router.include_router(_quota_router)
 
 
 # ---------- Health -------------------------------------------------------
@@ -245,6 +255,116 @@ async def codeguard_health(
     }
 
 
+# ---------- Quota helper ----------
+
+
+def _format_vi_int(n: int | None) -> str:
+    """Format an integer with Vietnamese number grouping (dots, not commas).
+
+    `1500000` → `"1.500.000"`. The whole codeguard surface (banner copy,
+    quota page, toast errors) renders numbers vi-VN style; the 429
+    message used to drift to comma-grouped because Python's `:,` format
+    spec produces `1,500,000`. Pin the helper so the message format
+    matches what users see everywhere else without depending on locale
+    state on the server.
+
+    Returns "?" for None — keeps the message readable when the limit
+    column is NULL (an unlimited dimension that somehow tripped the
+    over_limit branch shouldn't crash the format).
+    """
+    if n is None:
+        return "?"
+    # `:,d` produces "1,500,000"; replace the separator. Faster and
+    # locale-independent compared to `locale.format_string`.
+    return f"{n:,d}".replace(",", ".")
+
+
+async def _check_quota_or_raise(db: AsyncSession, organization_id: UUID) -> None:
+    """Pre-flight quota check shared by every LLM-invoking route.
+
+    Raises a structured 429 if the org is over their monthly cap. The
+    message names the binding dimension (input vs output) so debugging a
+    block doesn't require cross-referencing two dashboards. Numbers use
+    vi-VN dot grouping ("1.500.000") so the toast copy matches the
+    `<QuotaStatusBanner>` and `/codeguard/quota` page that surface the
+    same numbers in the surrounding UI.
+
+    Putting this in a single helper rather than copying the inline check
+    into six routes means a future tweak (caching, soft-warn band, etc.)
+    lands in one place. Tests can monkeypatch
+    `services.codeguard_quotas.check_org_quota` to control behaviour
+    without having to know which routes wire the gate.
+
+    Observability: every call observes `codeguard_quota_check_duration_seconds`
+    (so ops can spot the cap-check inflating p95 on LLM routes) and
+    over_limit calls also tick `codeguard_quota_429_total{limit_kind}`
+    (so dashboards can show "tenants getting capped today" without
+    grepping logs). Both flow through the existing /metrics scrape.
+    """
+    import time as _time
+
+    from core.metrics import (
+        codeguard_quota_429_total,
+        codeguard_quota_check_duration_seconds,
+    )
+    from services import codeguard_quotas as _q
+
+    # Observe the SELECT latency even on the over_limit path — that's
+    # the one that adds the most variance (tripping the if-branch is
+    # negligible vs the round-trip to Postgres). Using `try/finally`
+    # so a check_org_quota that raises (e.g. DB connection drop) still
+    # contributes its tail latency to the histogram, which is what ops
+    # needs to see when investigating "the cap-check started timing
+    # out around 14:30."
+    start = _time.perf_counter()
+    try:
+        quota = await _q.check_org_quota(db, organization_id)
+    finally:
+        codeguard_quota_check_duration_seconds.observe(_time.perf_counter() - start)
+
+    if quota.over_limit:
+        # Tick the counter BEFORE constructing the exception so a
+        # downstream raise from the format helpers (shouldn't happen
+        # but defensively) still shows up in the metric. The dashboard
+        # cares about "we tried to refuse" more than "we successfully
+        # built the response body."
+        codeguard_quota_429_total.inc({"limit_kind": quota.limit_kind})
+
+        used_fmt = _format_vi_int(quota.used)
+        limit_fmt = _format_vi_int(quota.limit)
+        # Dimension label is rendered as-is ("input" / "output") rather
+        # than translated — the banner uses the same English keywords
+        # in its copy ("Đã dùng X% hạn mức input"), so consistency
+        # across the user-facing surfaces beats a more polished
+        # translation that drifts from what the rest of the UI says.
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            {
+                "message": (
+                    f"Đã vượt hạn mức token {quota.limit_kind} tháng này "
+                    f"({used_fmt} / {limit_fmt}). "
+                    f"Liên hệ quản trị để tăng hạn mức."
+                ),
+                "details_url": "/codeguard/quota",
+            },
+        )
+
+
+# `_with_usage_recording` was previously defined inline here as a
+# 90-line context manager. After the linter wiped it (and its 6
+# callsites' route_weight kwargs) on multiple rounds, the body has
+# been moved to a small dedicated module
+# (`services/codeguard_quota_attribution.py`) that's harder for the
+# linter to silently truncate. This module just imports the helper
+# under its original name so the 6 `async with` callsites below
+# work unchanged. The new signature is
+# `with_usage_recording(db, auth, *, route_key="<key>")` — the
+# callsites pass the route key so per-route weighting (`/scan` × 5,
+# `/permit-checklist` × 2) flows through correctly.
+from services.codeguard_quota_attribution import (  # noqa: E402
+    with_usage_recording as _with_usage_recording,
+)
+
 # ---------- Q&A ----------
 
 
@@ -256,56 +376,31 @@ async def codeguard_query(
 ) -> dict:
     from ml.pipelines.codeguard import answer_regulation_query
 
-    # Pre-flight quota check — over-limit orgs get a structured 429 BEFORE
-    # we touch the LLM. The message names the binding dimension (input vs
-    # output) so a debugger can see *why* they're blocked even when the
-    # other dimension is well under cap. Numbers are comma-formatted so
-    # they're readable in dashboard error logs.
-    from services import codeguard_quotas as _q
+    await _check_quota_or_raise(db, auth.organization_id)
 
-    quota = await _q.check_org_quota(db, auth.organization_id)
-    if quota.over_limit:
-        used_fmt = f"{quota.used:,}"
-        limit_fmt = f"{quota.limit:,}" if quota.limit is not None else "?"
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            f"Monthly {quota.limit_kind}-token quota exceeded "
-            f"({used_fmt} / {limit_fmt}). Contact admin to raise the cap.",
-        )
-
-    try:
-        result = await answer_regulation_query(
-            db=db,
-            question=payload.question,
-            language=payload.language,
-            jurisdiction=payload.jurisdiction,
-            categories=payload.categories,
-            top_k=payload.top_k,
-            as_of_date=payload.as_of_date,
-        )
-    except HTTPException:
-        # Don't wrap our own quota 429 (or any other deliberate raise) into
-        # a 502 — those are intentional, not pipeline failures.
-        raise
-    except Exception as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Q&A pipeline failed: {exc}") from exc
-
-    # Best-effort usage recording. If the row write fails (e.g. transient
-    # DB hiccup), don't fail the user's already-served query — just log.
-    try:
-        await _q.record_org_usage(
-            db,
-            auth.organization_id,
-            in_tok=getattr(result, "input_tokens", 0) or 0,
-            out_tok=getattr(result, "output_tokens", 0) or 0,
-        )
-    except Exception:  # noqa: BLE001
-        import logging as _logging
-
-        _logging.getLogger(__name__).warning(
-            "codeguard_quotas.record_org_usage failed for org=%s — query already served",
-            auth.organization_id,
-        )
+    # Bind the accumulator BEFORE invoking the pipeline so token counts
+    # captured at every `_record_llm_call` site (HyDE, generate, etc.)
+    # land on `acc`. The helper's exit calls `record_org_usage` with
+    # the correct kwarg names — replacing the previous broken call
+    # that always passed `(0, 0)` because `result.input_tokens` doesn't
+    # exist on the `QueryResponse` schema.
+    async with _with_usage_recording(db, auth, route_key="query"):
+        try:
+            result = await answer_regulation_query(
+                db=db,
+                question=payload.question,
+                language=payload.language,
+                jurisdiction=payload.jurisdiction,
+                categories=payload.categories,
+                top_k=payload.top_k,
+                as_of_date=payload.as_of_date,
+            )
+        except HTTPException:
+            # Don't wrap our own quota 429 (or any other deliberate raise) into
+            # a 502 — those are intentional, not pipeline failures.
+            raise
+        except Exception as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Q&A pipeline failed: {exc}") from exc
 
     check = ComplianceCheckModel(
         id=uuid4(),
@@ -361,60 +456,76 @@ async def codeguard_query_stream(
     """
     from ml.pipelines.codeguard import answer_regulation_query_stream
 
+    # Pre-flight quota check before constructing the StreamingResponse.
+    # Putting it here means an over-quota org gets a clean HTTP 429
+    # rather than an SSE `error` event mid-stream — the former is what
+    # ops dashboards filter on, and the latter would hand the client a
+    # 200-with-trailing-error-frame that's awkward to handle.
+    await _check_quota_or_raise(db, auth.organization_id)
+
     async def sse_stream():
-        try:
-            response: QueryResponse | None = None
-            async for event_name, event_payload in answer_regulation_query_stream(
-                db=db,
-                question=payload.question,
-                language=payload.language,
-                jurisdiction=payload.jurisdiction,
-                categories=payload.categories,
-                top_k=payload.top_k,
-                as_of_date=payload.as_of_date,
-            ):
-                if event_name == "token":
-                    # `delta` is plain text; json.dumps escapes any
-                    # newlines or quotes that would otherwise break the
-                    # SSE framing (which is line-delimited).
-                    yield f"event: token\ndata: {json.dumps({'delta': event_payload})}\n\n"
-                elif event_name == "done":
-                    response = event_payload
-                elif event_name == "error":
-                    yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
+        # `_with_usage_recording` binds an accumulator that captures token
+        # counts at every `_record_llm_call` site reached during the
+        # generator's execution (HyDE expansion + token-streaming
+        # generation). The drain in its finally fires when the
+        # generator exits — including on the early `return` when an
+        # `error` event is emitted. Without this wrap, the per-org
+        # usage table never gets the streaming-route increment and the
+        # cap can never trip for streaming clients.
+        async with _with_usage_recording(db, auth, route_key="query"):
+            try:
+                response: QueryResponse | None = None
+                async for event_name, event_payload in answer_regulation_query_stream(
+                    db=db,
+                    question=payload.question,
+                    language=payload.language,
+                    jurisdiction=payload.jurisdiction,
+                    categories=payload.categories,
+                    top_k=payload.top_k,
+                    as_of_date=payload.as_of_date,
+                ):
+                    if event_name == "token":
+                        # `delta` is plain text; json.dumps escapes any
+                        # newlines or quotes that would otherwise break the
+                        # SSE framing (which is line-delimited).
+                        yield f"event: token\ndata: {json.dumps({'delta': event_payload})}\n\n"
+                    elif event_name == "done":
+                        response = event_payload
+                    elif event_name == "error":
+                        yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
+                        return
+
+                if response is None:
+                    # Helper exited without emitting `done` or `error` —
+                    # shouldn't happen, but defend rather than leaving the
+                    # client hanging waiting for a terminal event.
+                    yield ('event: error\ndata: {"message": "pipeline produced no terminal event"}\n\n')
                     return
 
-            if response is None:
-                # Helper exited without emitting `done` or `error` —
-                # shouldn't happen, but defend rather than leaving the
-                # client hanging waiting for a terminal event.
-                yield ('event: error\ndata: {"message": "pipeline produced no terminal event"}\n\n')
-                return
+                # Persist the ComplianceCheck row before the terminal `done`
+                # event so the check_id we surface is committed audit state,
+                # not a hypothetical UUID. Same shape as the non-streaming
+                # /query endpoint — the audit trail is identical.
+                check = ComplianceCheckModel(
+                    id=uuid4(),
+                    organization_id=auth.organization_id,
+                    project_id=payload.project_id,
+                    check_type=CheckType.manual_query.value,
+                    status=CheckStatus.completed.value,
+                    input=payload.model_dump(mode="json"),
+                    findings=response.model_dump(mode="json"),
+                    regulations_referenced=[c.regulation_id for c in response.citations],
+                    created_by=auth.user_id,
+                    created_at=datetime.now(UTC),
+                )
+                db.add(check)
+                await db.flush()
+                await db.refresh(check)
+                response.check_id = check.id
 
-            # Persist the ComplianceCheck row before the terminal `done`
-            # event so the check_id we surface is committed audit state,
-            # not a hypothetical UUID. Same shape as the non-streaming
-            # /query endpoint — the audit trail is identical.
-            check = ComplianceCheckModel(
-                id=uuid4(),
-                organization_id=auth.organization_id,
-                project_id=payload.project_id,
-                check_type=CheckType.manual_query.value,
-                status=CheckStatus.completed.value,
-                input=payload.model_dump(mode="json"),
-                findings=response.model_dump(mode="json"),
-                regulations_referenced=[c.regulation_id for c in response.citations],
-                created_by=auth.user_id,
-                created_at=datetime.now(UTC),
-            )
-            db.add(check)
-            await db.flush()
-            await db.refresh(check)
-            response.check_id = check.id
-
-            yield f"event: done\ndata: {response.model_dump_json()}\n\n"
-        except Exception as exc:  # pragma: no cover — defensive catch
-            yield (f"event: error\ndata: {json.dumps({'message': f'Q&A pipeline failed: {exc}'})}\n\n")
+                yield f"event: done\ndata: {response.model_dump_json()}\n\n"
+            except Exception as exc:  # pragma: no cover — defensive catch
+                yield (f"event: error\ndata: {json.dumps({'message': f'Q&A pipeline failed: {exc}'})}\n\n")
 
     return StreamingResponse(
         sse_stream(),
@@ -441,6 +552,12 @@ async def codeguard_scan(
 ) -> dict:
     from ml.pipelines.codeguard import auto_scan_project
 
+    # Pre-flight quota check — scan is the costliest LLM surface (one
+    # generate call per category, up to 5), so 429ing before we start
+    # spares an org from blasting through their cap on a single call
+    # they wouldn't have been allowed to make anyway.
+    await _check_quota_or_raise(db, auth.organization_id)
+
     check = ComplianceCheckModel(
         id=uuid4(),
         organization_id=auth.organization_id,
@@ -454,17 +571,21 @@ async def codeguard_scan(
     db.add(check)
     await db.flush()
 
-    try:
-        findings, reg_ids = await auto_scan_project(
-            db=db,
-            parameters=payload.parameters,
-            categories=payload.categories,
-            as_of_date=payload.as_of_date,
-        )
-    except Exception as exc:
-        check.status = CheckStatus.failed.value
-        await db.flush()
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Auto-scan failed: {exc}") from exc
+    # Wrap the (potentially many) LLM calls — scan can fire one
+    # generation per category — so the accumulator captures the full
+    # spend for this request, not just one category.
+    async with _with_usage_recording(db, auth, route_key="scan"):
+        try:
+            findings, reg_ids = await auto_scan_project(
+                db=db,
+                parameters=payload.parameters,
+                categories=payload.categories,
+                as_of_date=payload.as_of_date,
+            )
+        except Exception as exc:
+            check.status = CheckStatus.failed.value
+            await db.flush()
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Auto-scan failed: {exc}") from exc
 
     pass_count = sum(1 for f in findings if f.status == "PASS")
     warn_count = sum(1 for f in findings if f.status == "WARN")
@@ -523,68 +644,77 @@ async def codeguard_scan_stream(
     """
     from ml.pipelines.codeguard import auto_scan_project_stream
 
+    # Pre-flight quota check — same shape as /query/stream. Lands as a
+    # 429 before any SSE framing, not as a mid-stream error event.
+    await _check_quota_or_raise(db, auth.organization_id)
+
     async def sse_stream():
-        try:
-            all_findings: list = []
-            all_reg_ids: list = []
+        # Same accumulator wrap as /query/stream. Scan is the costliest
+        # surface (one LLM call per category), so the per-month usage
+        # increment from a streaming scan is the largest single
+        # contributor to the cap calculation.
+        async with _with_usage_recording(db, auth, route_key="scan"):
+            try:
+                all_findings: list = []
+                all_reg_ids: list = []
 
-            async for event_name, event_payload in auto_scan_project_stream(
-                db=db,
-                parameters=payload.parameters,
-                categories=payload.categories,
-                as_of_date=payload.as_of_date,
-            ):
-                if event_name == "category_start":
-                    yield (f"event: category_start\ndata: {json.dumps({'category': event_payload.value})}\n\n")
-                elif event_name == "category_done":
-                    cat = event_payload["category"]
-                    findings = event_payload["findings"]
-                    all_findings.extend(findings)
-                    all_reg_ids.extend(event_payload["reg_ids"])
-                    body = {
-                        "category": cat.value,
-                        "findings": [f.model_dump(mode="json") for f in findings],
-                    }
-                    yield f"event: category_done\ndata: {json.dumps(body)}\n\n"
-                elif event_name == "error":
-                    yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
-                    return
+                async for event_name, event_payload in auto_scan_project_stream(
+                    db=db,
+                    parameters=payload.parameters,
+                    categories=payload.categories,
+                    as_of_date=payload.as_of_date,
+                ):
+                    if event_name == "category_start":
+                        yield (f"event: category_start\ndata: {json.dumps({'category': event_payload.value})}\n\n")
+                    elif event_name == "category_done":
+                        cat = event_payload["category"]
+                        findings = event_payload["findings"]
+                        all_findings.extend(findings)
+                        all_reg_ids.extend(event_payload["reg_ids"])
+                        body = {
+                            "category": cat.value,
+                            "findings": [f.model_dump(mode="json") for f in findings],
+                        }
+                        yield f"event: category_done\ndata: {json.dumps(body)}\n\n"
+                    elif event_name == "error":
+                        yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
+                        return
 
-            # All categories done — persist the ComplianceCheck row
-            # before emitting the terminal `done`. Mirrors the
-            # non-streaming /scan persistence shape exactly so audit
-            # consumers (history page, /checks endpoint) treat both
-            # paths identically.
-            pass_count = sum(1 for f in all_findings if f.status == "PASS")
-            warn_count = sum(1 for f in all_findings if f.status == "WARN")
-            fail_count = sum(1 for f in all_findings if f.status == "FAIL")
+                # All categories done — persist the ComplianceCheck row
+                # before emitting the terminal `done`. Mirrors the
+                # non-streaming /scan persistence shape exactly so audit
+                # consumers (history page, /checks endpoint) treat both
+                # paths identically.
+                pass_count = sum(1 for f in all_findings if f.status == "PASS")
+                warn_count = sum(1 for f in all_findings if f.status == "WARN")
+                fail_count = sum(1 for f in all_findings if f.status == "FAIL")
 
-            check = ComplianceCheckModel(
-                id=uuid4(),
-                organization_id=auth.organization_id,
-                project_id=payload.project_id,
-                check_type=CheckType.auto_scan.value,
-                status=CheckStatus.completed.value,
-                input=payload.model_dump(mode="json"),
-                findings=[f.model_dump(mode="json") for f in all_findings],
-                regulations_referenced=list({rid for rid in all_reg_ids}),
-                created_by=auth.user_id,
-                created_at=datetime.now(UTC),
-            )
-            db.add(check)
-            await db.flush()
-            await db.refresh(check)
+                check = ComplianceCheckModel(
+                    id=uuid4(),
+                    organization_id=auth.organization_id,
+                    project_id=payload.project_id,
+                    check_type=CheckType.auto_scan.value,
+                    status=CheckStatus.completed.value,
+                    input=payload.model_dump(mode="json"),
+                    findings=[f.model_dump(mode="json") for f in all_findings],
+                    regulations_referenced=list({rid for rid in all_reg_ids}),
+                    created_by=auth.user_id,
+                    created_at=datetime.now(UTC),
+                )
+                db.add(check)
+                await db.flush()
+                await db.refresh(check)
 
-            done_body = {
-                "check_id": str(check.id),
-                "total": len(all_findings),
-                "pass_count": pass_count,
-                "warn_count": warn_count,
-                "fail_count": fail_count,
-            }
-            yield f"event: done\ndata: {json.dumps(done_body)}\n\n"
-        except Exception as exc:  # pragma: no cover — defensive
-            yield (f"event: error\ndata: {json.dumps({'message': f'Auto-scan failed: {exc}'})}\n\n")
+                done_body = {
+                    "check_id": str(check.id),
+                    "total": len(all_findings),
+                    "pass_count": pass_count,
+                    "warn_count": warn_count,
+                    "fail_count": fail_count,
+                }
+                yield f"event: done\ndata: {json.dumps(done_body)}\n\n"
+            except Exception as exc:  # pragma: no cover — defensive
+                yield (f"event: error\ndata: {json.dumps({'message': f'Auto-scan failed: {exc}'})}\n\n")
 
     return StreamingResponse(
         sse_stream(),
@@ -604,15 +734,20 @@ async def create_permit_checklist(
 ) -> dict:
     from ml.pipelines.codeguard import generate_permit_checklist
 
-    try:
-        items = await generate_permit_checklist(
-            db=db,
-            jurisdiction=payload.jurisdiction,
-            project_type=payload.project_type,
-            parameters=payload.parameters,
-        )
-    except Exception as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Checklist generation failed: {exc}") from exc
+    # Pre-flight quota check — checklist generation is a single LLM call,
+    # but a 429 still beats a 502 from the pipeline failing partway.
+    await _check_quota_or_raise(db, auth.organization_id)
+
+    async with _with_usage_recording(db, auth, route_key="permit-checklist"):
+        try:
+            items = await generate_permit_checklist(
+                db=db,
+                jurisdiction=payload.jurisdiction,
+                project_type=payload.project_type,
+                parameters=payload.parameters,
+            )
+        except Exception as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Checklist generation failed: {exc}") from exc
 
     record = PermitChecklistModel(
         id=uuid4(),
@@ -662,49 +797,55 @@ async def codeguard_permit_checklist_stream(
     """
     from ml.pipelines.codeguard import generate_permit_checklist_stream
 
+    # Pre-flight quota check — same shape as the other /stream routes:
+    # land a clean 429 before any SSE framing.
+    await _check_quota_or_raise(db, auth.organization_id)
+
     async def sse_stream():
-        try:
-            items: list = []
-            async for event_name, event_payload in generate_permit_checklist_stream(
-                db=db,
-                jurisdiction=payload.jurisdiction,
-                project_type=payload.project_type,
-                parameters=payload.parameters,
-            ):
-                if event_name == "item_done":
-                    body = event_payload.model_dump(mode="json")
-                    yield f"event: item\ndata: {json.dumps(body)}\n\n"
-                elif event_name == "done":
-                    items = event_payload
-                elif event_name == "error":
-                    yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
-                    return
+        # Same accumulator wrap as the other streaming routes.
+        async with _with_usage_recording(db, auth, route_key="permit-checklist"):
+            try:
+                items: list = []
+                async for event_name, event_payload in generate_permit_checklist_stream(
+                    db=db,
+                    jurisdiction=payload.jurisdiction,
+                    project_type=payload.project_type,
+                    parameters=payload.parameters,
+                ):
+                    if event_name == "item_done":
+                        body = event_payload.model_dump(mode="json")
+                        yield f"event: item\ndata: {json.dumps(body)}\n\n"
+                    elif event_name == "done":
+                        items = event_payload
+                    elif event_name == "error":
+                        yield (f"event: error\ndata: {json.dumps({'message': str(event_payload)})}\n\n")
+                        return
 
-            # Persist the PermitChecklistModel after all items are in,
-            # so the `done` event can carry a stable checklist_id that
-            # the frontend's mark-item flow targets.
-            now = datetime.now(UTC)
-            record = PermitChecklistModel(
-                id=uuid4(),
-                organization_id=auth.organization_id,
-                project_id=payload.project_id,
-                jurisdiction=payload.jurisdiction,
-                project_type=payload.project_type,
-                items=[i.model_dump(mode="json") for i in items],
-                generated_at=now,
-            )
-            db.add(record)
-            await db.flush()
-            await db.refresh(record)
+                # Persist the PermitChecklistModel after all items are in,
+                # so the `done` event can carry a stable checklist_id that
+                # the frontend's mark-item flow targets.
+                now = datetime.now(UTC)
+                record = PermitChecklistModel(
+                    id=uuid4(),
+                    organization_id=auth.organization_id,
+                    project_id=payload.project_id,
+                    jurisdiction=payload.jurisdiction,
+                    project_type=payload.project_type,
+                    items=[i.model_dump(mode="json") for i in items],
+                    generated_at=now,
+                )
+                db.add(record)
+                await db.flush()
+                await db.refresh(record)
 
-            done_body = {
-                "checklist_id": str(record.id),
-                "total": len(items),
-                "generated_at": record.generated_at.isoformat(),
-            }
-            yield f"event: done\ndata: {json.dumps(done_body)}\n\n"
-        except Exception as exc:  # pragma: no cover — defensive
-            yield (f"event: error\ndata: {json.dumps({'message': f'Checklist generation failed: {exc}'})}\n\n")
+                done_body = {
+                    "checklist_id": str(record.id),
+                    "total": len(items),
+                    "generated_at": record.generated_at.isoformat(),
+                }
+                yield f"event: done\ndata: {json.dumps(done_body)}\n\n"
+            except Exception as exc:  # pragma: no cover — defensive
+                yield (f"event: error\ndata: {json.dumps({'message': f'Checklist generation failed: {exc}'})}\n\n")
 
     return StreamingResponse(
         sse_stream(),
@@ -747,9 +888,7 @@ async def export_permit_checklist_pdf(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": (
-                f'attachment; filename="permit-checklist-{checklist.id}.pdf"'
-            ),
+            "Content-Disposition": (f'attachment; filename="permit-checklist-{checklist.id}.pdf"'),
         },
     )
 
@@ -791,50 +930,6 @@ async def mark_checklist_item(
     await db.flush()
     await db.refresh(checklist)
     return ok(PermitChecklist.model_validate(checklist))
-
-
-@router.get("/permit-checklist/{check_id}/pdf")
-async def download_permit_checklist_pdf(
-    check_id: UUID,
-    auth: Annotated[AuthContext, Depends(require_auth)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> Response:
-    """Render the checklist as a PDF and return it as a download.
-
-    Tenant isolation: a 404 (not 403) for cross-org rows so the route
-    doesn't leak the existence of other-org checklists. Same shape as
-    `mark_checklist_item` above.
-
-    Body is generated lazily per request — checklists are small, the
-    cost of regeneration is negligible, and freshness > caching for
-    permit-application artifacts.
-    """
-    checklist = await db.get(PermitChecklistModel, check_id)
-    if checklist is None or checklist.organization_id != auth.organization_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Checklist not found")
-
-    # Lazy import — keeps `reportlab` off the cold-start path for the
-    # 95% of requests that don't export PDFs.
-    from services.codeguard_pdf import render_permit_checklist_pdf
-
-    pdf_bytes = render_permit_checklist_pdf(
-        checklist_id=str(checklist.id),
-        project_id=str(checklist.project_id) if checklist.project_id else None,
-        jurisdiction=checklist.jurisdiction,
-        project_type=checklist.project_type,
-        items=list(checklist.items or []),
-        generated_at=checklist.generated_at,
-        completed_at=checklist.completed_at,
-    )
-
-    # Filename includes the checklist id so multiple exports don't
-    # collide in a downloads folder.
-    filename = f"permit-checklist-{checklist.id}.pdf"
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
 
 
 # ---------- Regulations ----------
@@ -936,3 +1031,172 @@ async def list_project_checks(
         stmt = stmt.where(ComplianceCheckModel.check_type == check_type.value)
     rows = (await db.execute(stmt)).scalars().all()
     return ok([ComplianceCheck.model_validate(r) for r in rows])
+
+
+@router.get("/quota")
+async def get_codeguard_quota(
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Return the caller's org's quota + current-month usage with
+    per-dimension percent-of-cap.
+
+    The frontend's `<QuotaStatusBanner>` consumes this to render an
+    in-line warning at 80%+ (yellow) and 95%+ (red), letting users see
+    their cap approaching instead of finding out via a 429 in the
+    middle of an answer. Unlimited orgs (no quota row, or NULL on a
+    dimension) get `quota.percent_of_cap.<dim> = null` and the banner
+    stays hidden.
+
+    Read-only — no LLM calls, no DB writes. Reuses the same SQL shape
+    as `services.codeguard_quotas.check_org_quota` but returns both
+    dimensions' state rather than just the binding one (the banner
+    needs both to render the per-dimension progress bar).
+    """
+    from sqlalchemy import text as sa_text
+
+    row = (
+        await db.execute(
+            sa_text(
+                """
+                SELECT
+                  q.monthly_input_token_limit  AS in_lim,
+                  q.monthly_output_token_limit AS out_lim,
+                  COALESCE(u.input_tokens, 0)  AS in_used,
+                  COALESCE(u.output_tokens, 0) AS out_used,
+                  u.period_start
+                FROM codeguard_org_quotas q
+                LEFT JOIN codeguard_org_usage u
+                  ON u.organization_id = q.organization_id
+                  AND u.period_start = date_trunc('month', NOW())::date
+                WHERE q.organization_id = :org
+                """
+            ),
+            {"org": str(auth.organization_id)},
+        )
+    ).first()
+
+    if row is None:
+        # No quota row → unlimited. Banner consumes this and renders
+        # nothing; we still surface the org_id + the "unlimited"
+        # marker so client-side analytics / debugging tools can tell
+        # the difference between "haven't loaded yet" and "no cap
+        # configured for this org."
+        return ok(
+            {
+                "organization_id": str(auth.organization_id),
+                "unlimited": True,
+                "input": None,
+                "output": None,
+                "period_start": None,
+            }
+        )
+
+    def _dim(used: int, lim: int | None) -> dict:
+        if lim is None or lim <= 0:
+            # Unlimited on this dimension → percent is null. Component
+            # treats null-percent as "don't render this dimension's bar."
+            return {"used": used, "limit": lim, "percent": None}
+        return {
+            "used": used,
+            "limit": lim,
+            "percent": round(100.0 * used / lim, 1),
+        }
+
+    return ok(
+        {
+            "organization_id": str(auth.organization_id),
+            "unlimited": False,
+            "input": _dim(row.in_used, row.in_lim),
+            "output": _dim(row.out_used, row.out_lim),
+            "period_start": row.period_start.isoformat() if row.period_start else None,
+        }
+    )
+
+
+@router.get("/quota/history")
+async def get_codeguard_quota_history(
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    months: int = 3,
+) -> dict:
+    """Return the caller's org's usage for the last N months (default 3),
+    most-recent first.
+
+    Powers the `/codeguard/quota` page's recent-usage trend strip — a
+    tenant admin planning spend wants to see "we used 800k last month
+    and 600k the month before; this month we're at 200k of a 1M cap"
+    rather than a single bar that resets on the 1st. Without a history
+    surface, the only data the UI has is the *current* row; you can't
+    answer "is our usage trending up?" from that alone.
+
+    The query is bounded to a small N (clamp to [1, 12]) so a typo'd
+    `months=10000` can't accidentally be a tenant-bounded scan of the
+    whole table. 12 is a generous ceiling — anything beyond a year is
+    a separate "billing report" surface, not the dashboard widget this
+    backs.
+
+    Read-only; reuses `codeguard_org_usage` as-is. Months with no row
+    (the org made zero requests that month) are omitted from the
+    response — a missing month renders as a zero-width bar in the UI,
+    which is the right semantic ("nothing happened" not "no data").
+    """
+    # Clamp months to a sane range. Anything outside this is either a
+    # mistake or a different feature (annual billing export). Pinning
+    # the bound here keeps the endpoint dashboard-shaped.
+    bounded_months = max(1, min(int(months), 12))
+
+    from sqlalchemy import text as sa_text
+
+    rows = (
+        await db.execute(
+            sa_text(
+                """
+                SELECT
+                  period_start,
+                  input_tokens,
+                  output_tokens
+                FROM codeguard_org_usage
+                WHERE organization_id = :org
+                  AND period_start >= date_trunc('month', NOW() - (:months || ' months')::INTERVAL)::date
+                ORDER BY period_start DESC
+                """
+            ),
+            {"org": str(auth.organization_id), "months": bounded_months - 1},
+        )
+    ).all()
+
+    # Read the quota row once so the history page can render the cap
+    # alongside each bar (a 800k-month means very different things at a
+    # 1M cap vs a 10M cap). Mirrors the shape of the `/quota` route.
+    quota_row = (
+        await db.execute(
+            sa_text(
+                """
+                SELECT
+                  monthly_input_token_limit  AS in_lim,
+                  monthly_output_token_limit AS out_lim
+                FROM codeguard_org_quotas
+                WHERE organization_id = :org
+                """
+            ),
+            {"org": str(auth.organization_id)},
+        )
+    ).first()
+
+    return ok(
+        {
+            "organization_id": str(auth.organization_id),
+            "months": bounded_months,
+            "input_limit": quota_row.in_lim if quota_row else None,
+            "output_limit": quota_row.out_lim if quota_row else None,
+            "history": [
+                {
+                    "period_start": r.period_start.isoformat(),
+                    "input_tokens": r.input_tokens,
+                    "output_tokens": r.output_tokens,
+                }
+                for r in rows
+            ],
+        }
+    )

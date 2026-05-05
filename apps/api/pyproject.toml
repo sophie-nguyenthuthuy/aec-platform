@@ -53,6 +53,7 @@ asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 markers = [
     "integration: requires live infra (Postgres / Redis / OpenAI). Skipped by default; pass --integration to opt in.",
+    "real_rate_limit: opt out of the autouse rate-limiter bypass in conftest.py. Use for tests that exercise `core.rate_limit._acquire` directly.",
 ]
 filterwarnings = [
     # langsmith (transitive langchain dep) calls `pydantic.v1` ForwardRef
@@ -63,3 +64,53 @@ filterwarnings = [
     # visible.
     "ignore::DeprecationWarning:pydantic.v1.typing",
 ]
+
+# ---------- Coverage ----------
+#
+# `pytest --cov` opts coverage on; this section pins HOW it measures.
+# Default plain `pytest -q` doesn't run with coverage (would inflate the
+# unit-test loop). Run via `make test-api-cov` or pass `--cov` explicitly.
+#
+# Branch coverage is on because line-only misses important things like
+# "this `if status == 'won'` branch is never taken in tests."
+
+[tool.coverage.run]
+branch = true
+source = [
+    "core",
+    "db",
+    "middleware",
+    "models",
+    "routers",
+    "schemas",
+    "services",
+    "workers",
+]
+# Excluded: code that's exercised by the integration lane only (we don't
+# want the unit-lane coverage report to mark these as 0%) and bootstrap
+# code that isn't meaningfully testable.
+omit = [
+    "*/__init__.py",
+    "*/conftest.py",
+    "tests/*",
+    "main.py",
+    "alembic/*",
+]
+
+[tool.coverage.report]
+# Drop trivially-empty lines from the missing-coverage report — these are
+# already-tested by the runtime (Python won't let you have a half-defined
+# class) and would just clutter the output.
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+show_missing = true
+skip_covered = true
+# Coverage floor — a PR that drops the global average below 80% red-gates
+# in CI. Baseline as of 2026-05-01: 80% (over 662 tests). When you raise
+# this, raise it by what you actually achieve, not what you aspire to —
+# an aspirational floor that's never met just trains people to ignore it.
+fail_under = 80

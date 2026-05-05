@@ -1,9 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Building2, Search } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { apiFetch } from "@/lib/api";
+import { useSession } from "@/lib/auth-context";
 import { useProjects } from "@/hooks/projects";
 import type { ProjectListFilters } from "@/hooks/projects";
 
@@ -110,18 +114,7 @@ export default function ProjectsPage() {
           Không thể tải danh sách dự án. Vui lòng thử lại.
         </p>
       ) : !data?.data.length ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-12 text-center">
-          <Building2
-            size={32}
-            className="mx-auto mb-3 text-slate-400"
-            aria-hidden
-          />
-          <p className="text-sm text-slate-500">Chưa có dự án nào.</p>
-          <p className="mt-1 text-xs text-slate-400">
-            Dự án được tạo từ một đề xuất đã trúng (WinWork) hoặc nhập trực
-            tiếp qua API.
-          </p>
-        </div>
+        <EmptyProjectsState />
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -258,6 +251,84 @@ function Pagination({
           Sau
         </button>
       </div>
+    </div>
+  );
+}
+
+
+// ---------- Empty-state with seed-demo CTA ----------
+
+
+/**
+ * First-run nudge: when the org has zero projects, instead of a dead
+ * "no data" panel, offer a single-click button that loads a sample
+ * project across every module. Hits `POST /api/v1/onboarding/seed-demo`
+ * which is admin-gated; we render the CTA for everyone but the
+ * server returns 403 for non-admin clicks (caught + shown inline).
+ */
+function EmptyProjectsState() {
+  const { token, orgId } = useSession();
+  const router = useRouter();
+  const qc = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const seed = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch<{ project_id: string; status: string }>(
+        "/api/v1/onboarding/seed-demo",
+        { method: "POST", token, orgId },
+      );
+      return res.data as { project_id: string; status: string };
+    },
+    onSuccess: (data) => {
+      // Refetch the project list so the user sees the new row even if
+      // they navigate "back" to /projects later.
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      router.push(`/projects/${data.project_id}`);
+    },
+    onError: (err) => {
+      // Most likely cause: caller is `member`/`viewer`. Surface a
+      // friendly hint instead of the raw "Forbidden" error.
+      const msg =
+        err instanceof Error
+          ? err.message.includes("403")
+            ? "Bạn cần quyền admin để load demo data. Liên hệ owner."
+            : err.message
+          : "Không thể load demo data.";
+      setError(msg);
+    },
+  });
+
+  return (
+    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-12 text-center">
+      <Building2
+        size={32}
+        className="mx-auto mb-3 text-slate-400"
+        aria-hidden
+      />
+      <p className="text-sm font-medium text-slate-700">Chưa có dự án nào.</p>
+      <p className="mt-1 text-xs text-slate-500">
+        Dự án thường được tạo từ một đề xuất đã trúng (WinWork) hoặc nhập trực
+        tiếp qua API. Nếu bạn đang đánh giá nền tảng, có thể nạp dữ liệu mẫu:
+      </p>
+      <button
+        type="button"
+        onClick={() => {
+          setError(null);
+          seed.mutate();
+        }}
+        disabled={seed.isPending}
+        className="mx-auto mt-4 inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+      >
+        {seed.isPending ? "Đang nạp..." : "Nạp dữ liệu demo"}
+      </button>
+      <p className="mt-2 text-[11px] text-slate-400">
+        Tạo 1 dự án mẫu với đề xuất, dự toán, change orders, RFI, defects,
+        và 5 visit + ảnh SiteEye. An toàn để chạy lại — idempotent.
+      </p>
+      {error && (
+        <p className="mx-auto mt-3 max-w-md text-xs text-red-700">{error}</p>
+      )}
     </div>
   );
 }

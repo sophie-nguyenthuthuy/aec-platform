@@ -47,6 +47,13 @@ async def main() -> None:
         photo_ids = await _seed_photos(session, org_id=org_id, project_id=project_id, visit_ids=visit_ids)
         await _seed_progress(session, org_id=org_id, project_id=project_id, photo_ids=photo_ids)
         await _seed_incidents(session, org_id=org_id, project_id=project_id, photo_ids=photo_ids)
+        # Cross-module fixtures so a sales demo lands on populated
+        # screens for every major workflow, not just SiteEye.
+        await _seed_proposal(session, org_id=org_id, project_id=project_id, user_id=user_id)
+        await _seed_estimate(session, org_id=org_id, project_id=project_id, user_id=user_id)
+        await _seed_change_orders(session, org_id=org_id, project_id=project_id, user_id=user_id)
+        await _seed_rfis(session, org_id=org_id, project_id=project_id, user_id=user_id)
+        await _seed_defects(session, org_id=org_id, project_id=project_id, user_id=user_id)
 
     token = _mint_dev_jwt(user_id)
     print("\n--- Demo credentials ---")
@@ -281,6 +288,266 @@ async def _seed_incidents(session: AsyncSession, *, org_id: UUID, project_id: UU
                 "severity": severity,
                 "photo": str(photo_ids[i]) if i < len(photo_ids) else None,
                 "desc": description,
+            },
+        )
+
+
+# ---------- Cross-module fixtures ----------
+#
+# Each seeder upserts on a stable natural key so re-running the script
+# refreshes content without duplicating rows. Naming convention: the
+# seeded title carries `Demo —` so a real org's data never collides
+# with an upsert here.
+
+
+async def _seed_proposal(session: AsyncSession, *, org_id: UUID, project_id: UUID, user_id: UUID) -> None:
+    """One won proposal — surfaces WinWork as populated.
+
+    `proposals` has no `(org, project, title)` unique constraint, so we
+    can't rely on `ON CONFLICT DO NOTHING`. Lookup-or-insert via an
+    explicit SELECT keeps the seeder idempotent.
+    """
+    title = "Demo — Tower A engineering proposal"
+    existing = (
+        await session.execute(
+            text(
+                "SELECT id FROM proposals WHERE organization_id = :org AND project_id = :project_id AND title = :title"
+            ),
+            {"org": str(org_id), "project_id": str(project_id), "title": title},
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return
+    await session.execute(
+        text(
+            """
+            INSERT INTO proposals
+              (organization_id, project_id, title, status, client_name,
+               total_fee_vnd, total_fee_currency, ai_generated,
+               sent_at, responded_at, created_by)
+            VALUES
+              (:org, :project_id, :title, 'won', 'Demo Client Ltd.',
+               1500000000, 'VND', false, NOW() - INTERVAL '30 days',
+               NOW() - INTERVAL '14 days', :user)
+            """
+        ),
+        {
+            "org": str(org_id),
+            "project_id": str(project_id),
+            "title": title,
+            "user": str(user_id),
+        },
+    )
+
+
+async def _seed_estimate(session: AsyncSession, *, org_id: UUID, project_id: UUID, user_id: UUID) -> None:
+    """One approved estimate with two BOQ items — populates CostPulse."""
+    name = "Demo — Tower A baseline estimate"
+    existing = (
+        await session.execute(
+            text("SELECT id FROM estimates WHERE organization_id = :org AND project_id = :project_id AND name = :name"),
+            {"org": str(org_id), "project_id": str(project_id), "name": name},
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return  # idempotent — estimate already present
+
+    estimate_id = uuid4()
+    await session.execute(
+        text(
+            """
+            INSERT INTO estimates
+              (id, organization_id, project_id, name, version, status,
+               total_vnd, confidence, method, created_by, approved_by, created_at)
+            VALUES
+              (:id, :org, :project_id, :name, 1, 'approved',
+               118000000000, 'detailed', 'manual', :user, :user, NOW())
+            """
+        ),
+        {
+            "id": str(estimate_id),
+            "org": str(org_id),
+            "project_id": str(project_id),
+            "name": name,
+            "user": str(user_id),
+        },
+    )
+    # Two top-level BOQ lines so the costpulse detail page isn't empty.
+    for code, desc, unit, qty, price in [
+        ("01.01", "Concrete C30, foundation slab", "m3", 240, 1_580_000),
+        ("02.01", "Rebar CB500, foundation", "kg", 18_000, 21_500),
+    ]:
+        await session.execute(
+            text(
+                """
+                INSERT INTO boq_items
+                  (estimate_id, code, description, unit, quantity,
+                   unit_price_vnd, total_price_vnd, source)
+                VALUES
+                  (:eid, :code, :desc, :unit,
+                   CAST(:qty AS numeric), CAST(:price AS numeric),
+                   CAST(:total AS numeric), 'manual')
+                """
+            ),
+            {
+                "eid": str(estimate_id),
+                "code": code,
+                "desc": desc,
+                "unit": unit,
+                "qty": qty,
+                "price": price,
+                # Compute the line total in Python so the SQL doesn't have
+                # to type-hint a multiplication of two unknown-typed
+                # parameters (which Postgres rejects as ambiguous).
+                "total": qty * price,
+            },
+        )
+
+
+async def _seed_change_orders(session: AsyncSession, *, org_id: UUID, project_id: UUID, user_id: UUID) -> None:
+    """One approved + one open CO — populates ProjectPulse with the
+    "draft" + "approved" badges side-by-side."""
+    for number, title, status_, cost_impact in [
+        ("CO-001", "Foundation rework — soft soil", "approved", 320_000_000),
+        ("CO-002", "MEP routing change for chiller", "draft", 85_000_000),
+    ]:
+        existing = (
+            await session.execute(
+                text(
+                    "SELECT id FROM change_orders WHERE organization_id = :org "
+                    "AND project_id = :project_id AND number = :number"
+                ),
+                {
+                    "org": str(org_id),
+                    "project_id": str(project_id),
+                    "number": number,
+                },
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            continue
+        await session.execute(
+            text(
+                """
+                INSERT INTO change_orders
+                  (organization_id, project_id, number, title, description,
+                   status, initiator, cost_impact_vnd, schedule_impact_days,
+                   submitted_at, approved_at, approved_by, created_at)
+                VALUES
+                  (:org, :project_id, :number, :title,
+                   'Demo change order seeded by scripts/seed_demo.py.',
+                   :status, 'designer', :cost, 7,
+                   NOW() - INTERVAL '5 days',
+                   CASE WHEN :status = 'approved' THEN NOW() - INTERVAL '2 days' END,
+                   CASE WHEN :status = 'approved' THEN CAST(:user AS uuid) END,
+                   NOW() - INTERVAL '5 days')
+                """
+            ),
+            {
+                "org": str(org_id),
+                "project_id": str(project_id),
+                "number": number,
+                "title": title,
+                "status": status_,
+                "cost": cost_impact,
+                "user": str(user_id),
+            },
+        )
+
+
+async def _seed_rfis(session: AsyncSession, *, org_id: UUID, project_id: UUID, user_id: UUID) -> None:
+    """Two RFIs (one open, one answered) — populates Drawbridge."""
+    for number, subject, status_, days_ago in [
+        ("RFI-0001", "Demo — Confirm slab thickness at gridline B-3", "open", 3),
+        ("RFI-0002", "Demo — MEP shaft vertical clearance", "answered", 10),
+    ]:
+        existing = (
+            await session.execute(
+                text(
+                    "SELECT id FROM rfis WHERE organization_id = :org AND project_id = :project_id AND number = :number"
+                ),
+                {
+                    "org": str(org_id),
+                    "project_id": str(project_id),
+                    "number": number,
+                },
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            continue
+        await session.execute(
+            text(
+                """
+                INSERT INTO rfis
+                  (organization_id, project_id, number, subject, description,
+                   status, priority, raised_by, created_at)
+                VALUES
+                  (:org, :project_id, :number, :subject,
+                   'Demo RFI seeded by scripts/seed_demo.py — clarification needed.',
+                   :status, 'medium', :user,
+                   NOW() - make_interval(days => :days_ago))
+                """
+            ),
+            {
+                "org": str(org_id),
+                "project_id": str(project_id),
+                "number": number,
+                "subject": subject,
+                "status": status_,
+                "user": str(user_id),
+                "days_ago": days_ago,
+            },
+        )
+
+
+async def _seed_defects(session: AsyncSession, *, org_id: UUID, project_id: UUID, user_id: UUID) -> None:
+    """Two defects (one open, one resolved) — populates Handover.
+
+    No handover_packages dependency: defects can sit on the project
+    without a parent package, which is the realistic field-walk pattern.
+    """
+    for title, status_, priority, days_ago in [
+        ("Demo — Cracked tile in lobby corner", "open", "medium", 2),
+        ("Demo — Door frame misalignment, room 3F-12", "resolved", "low", 14),
+    ]:
+        existing = (
+            await session.execute(
+                text(
+                    "SELECT id FROM defects WHERE organization_id = :org "
+                    "AND project_id = :project_id AND title = :title"
+                ),
+                {
+                    "org": str(org_id),
+                    "project_id": str(project_id),
+                    "title": title,
+                },
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            continue
+        await session.execute(
+            text(
+                """
+                INSERT INTO defects
+                  (organization_id, project_id, title, description,
+                   priority, status, reported_by, reported_at,
+                   resolved_at)
+                VALUES
+                  (:org, :project_id, :title,
+                   'Demo defect seeded by scripts/seed_demo.py.',
+                   :priority, :status, :user,
+                   NOW() - make_interval(days => :days_ago),
+                   CASE WHEN :status = 'resolved' THEN NOW() - INTERVAL '1 day' END)
+                """
+            ),
+            {
+                "org": str(org_id),
+                "project_id": str(project_id),
+                "title": title,
+                "priority": priority,
+                "status": status_,
+                "user": str(user_id),
+                "days_ago": days_ago,
             },
         )
 

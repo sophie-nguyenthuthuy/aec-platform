@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
-import { ArrowLeft, FileSignature, Plus } from "lucide-react";
+import { useRef, useState } from "react";
+import { ArrowLeft, Camera, FileSignature, Plus, X } from "lucide-react";
 
 import {
   useAddPunchItem,
@@ -13,6 +13,7 @@ import {
   useUpdatePunchItem,
 } from "@/hooks/punchlist";
 import type { PunchItem } from "@/hooks/punchlist";
+import { useUploadFieldPhoto } from "@/hooks/useUploadFieldPhoto";
 
 const STATUS_BADGE: Record<string, string> = {
   open: "bg-amber-100 text-amber-700",
@@ -80,7 +81,11 @@ export default function PunchListDetailPage() {
         >
           <ArrowLeft size={12} /> Tất cả punch list
         </Link>
-        <div className="mt-2 flex items-start justify-between gap-3">
+        {/* Header stacks on mobile so the title gets full width and the
+            sign-off button can take the full screen width below — easier to
+            tap with a thumb than a 1.5-line button squeezed next to a long
+            walkthrough name. */}
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-2xl font-bold text-slate-900">{list.name}</h2>
             <p className="mt-1 text-sm text-slate-600">
@@ -89,7 +94,7 @@ export default function PunchListDetailPage() {
               {list.signed_off_at && ` · Ký: ${formatDate(list.signed_off_at)}`}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
             {list.status !== "signed_off" && list.status !== "cancelled" && (
               <button
                 type="button"
@@ -100,14 +105,14 @@ export default function PunchListDetailPage() {
                     ? "Cần xác minh hoặc miễn trừ tất cả mục trước khi ký"
                     : ""
                 }
-                className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
               >
-                <FileSignature size={14} />
+                <FileSignature size={16} />
                 {signOff.isPending ? "Đang ký..." : "Ký bàn giao"}
               </button>
             )}
             <span
-              className={`rounded-full px-3 py-1 text-xs font-medium ${
+              className={`inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs font-medium ${
                 {
                   open: "bg-amber-100 text-amber-700",
                   in_review: "bg-blue-100 text-blue-700",
@@ -137,9 +142,9 @@ export default function PunchListDetailPage() {
             <button
               type="button"
               onClick={() => setAdding(true)}
-              className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
             >
-              <Plus size={12} /> Thêm item
+              <Plus size={14} /> Thêm item
             </button>
           )}
         </div>
@@ -165,23 +170,26 @@ function ItemRow({ item, listId }: { item: PunchItem; listId: string }) {
   const update = useUpdatePunchItem(listId);
   return (
     <li className="px-4 py-3 text-sm">
-      <div className="flex items-baseline justify-between gap-3">
+      {/* Title row stacks badges below the description on narrow screens
+          so a long Vietnamese description doesn't wrap behind the
+          severity/status pills. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
         <div className="flex items-baseline gap-2">
           <span className="font-mono text-xs text-slate-500">
             #{item.item_number}
           </span>
           <span className="font-medium text-slate-900">{item.description}</span>
         </div>
-        <div className="flex items-center gap-1.5 text-[10px]">
+        <div className="flex shrink-0 items-center gap-1.5 text-xs">
           <span
-            className={`rounded-full px-2 py-0.5 font-medium ${
+            className={`rounded-full px-2 py-1 font-medium ${
               SEVERITY_BADGE[item.severity] ?? "bg-slate-100 text-slate-700"
             }`}
           >
             {item.severity}
           </span>
           <span
-            className={`rounded-full px-2 py-0.5 font-medium ${
+            className={`rounded-full px-2 py-1 font-medium ${
               STATUS_BADGE[item.status] ?? "bg-slate-100 text-slate-700"
             }`}
           >
@@ -194,7 +202,10 @@ function ItemRow({ item, listId }: { item: PunchItem; listId: string }) {
         {item.due_date && ` · Hạn ${item.due_date}`}
       </p>
       {item.status !== "verified" && item.status !== "waived" && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        // Status transitions are the most-tapped control on this page —
+        // bump every button to >=44px tall (Apple's HIG floor) so a
+        // gloved finger on site doesn't miss-fire the wrong status.
+        <div className="mt-3 flex flex-wrap gap-2">
           {[
             { value: "in_progress", label: "Đang xử lý" },
             { value: "fixed", label: "Đã sửa" },
@@ -215,7 +226,7 @@ function ItemRow({ item, listId }: { item: PunchItem; listId: string }) {
                   },
                 })
               }
-              className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
               → {opt.label}
             </button>
@@ -239,11 +250,33 @@ function AddItemDialog({
   const [severity, setSeverity] = useState("medium");
   const [dueDate, setDueDate] = useState("");
   const [photoId, setPhotoId] = useState<string | undefined>(undefined);
+  // Local preview URL for a photo just captured this session — saves a
+  // round-trip back to S3 for the thumbnail by reading the File directly
+  // via createObjectURL. Cleaned up on unmount via the URL.revokeObjectURL
+  // in the input handler.
+  const [capturedPreview, setCapturedPreview] = useState<string | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const add = useAddPunchItem(listId);
+  const upload = useUploadFieldPhoto();
   // SiteEye photos taken near the walkthrough — surface as one-click attach
   // chips so the supervisor doesn't have to re-upload an image they already
   // captured during the walkthrough.
   const hints = usePhotoHints(listId);
+
+  const onCapture = async (file: File) => {
+    if (capturedPreview) URL.revokeObjectURL(capturedPreview);
+    setCapturedPreview(URL.createObjectURL(file));
+    // Upload immediately so the user can keep filling in the form while
+    // the photo travels — by the time they hit "Thêm" the photo_id is
+    // ready. If the upload fails we surface it via the mutation's
+    // `isError` state and the form Save button stays usable (the user
+    // can retry the photo or save without it).
+    const uploaded = await upload.mutateAsync({
+      file,
+      source_module: "punchlist",
+    });
+    setPhotoId(uploaded.file_id);
+  };
 
   const onSubmit = async () => {
     if (!description.trim()) return;
@@ -259,9 +292,24 @@ function AddItemDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
-        <h3 className="text-lg font-semibold text-slate-900">Thêm item</h3>
+    // Full-screen on mobile, centered card on tablet+. The mobile version
+    // gives the soft keyboard the whole viewport to push against without
+    // squashing the form fields out of view. `safe-area-inset-bottom`
+    // padding so the bottom button row clears the iOS home indicator.
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-slate-900/40 p-0 sm:items-center sm:p-4">
+      <div className="flex w-full flex-col bg-white shadow-xl sm:max-w-lg sm:max-h-[90vh] sm:rounded-xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 sm:border-0 sm:p-6 sm:pb-2">
+          <h3 className="text-lg font-semibold text-slate-900">Thêm item</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Đóng"
+            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 sm:hidden"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 pb-4 sm:px-6">
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="block sm:col-span-2">
             <span className="mb-1 block text-sm font-medium text-slate-700">
@@ -324,6 +372,55 @@ function AddItemDialog({
           </label>
         </div>
 
+        {/* Native camera capture — the `capture="environment"` hint
+            makes mobile browsers open the rear camera directly instead
+            of the gallery picker. On desktop it falls back to the file
+            chooser, so this works everywhere without UA sniffing. */}
+        <div className="mt-4">
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="sr-only"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void onCapture(file);
+              // Reset the input so the same file picked twice triggers
+              // a fresh `change` event (browsers debounce identical
+              // selections otherwise).
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={upload.isPending}
+            className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-md border-2 border-dashed border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-50 sm:w-auto"
+          >
+            <Camera size={18} />
+            {upload.isPending ? "Đang tải lên..." : capturedPreview ? "Chụp lại" : "Chụp ảnh"}
+          </button>
+          {capturedPreview && (
+            <div className="mt-3 flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={capturedPreview}
+                alt="Vừa chụp"
+                className="h-20 w-20 rounded-md border border-slate-200 object-cover"
+              />
+              <div className="text-xs text-slate-600">
+                Đã đính kèm ảnh vừa chụp.
+                {upload.isError && (
+                  <span className="block text-red-600">
+                    Tải lên thất bại — chụp lại để thử lần nữa.
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {hints.data && hints.data.results.length > 0 && (
           <div className="mt-4 rounded-md border border-blue-200 bg-blue-50/50 p-3">
             <p className="mb-2 text-xs font-medium text-blue-900">
@@ -374,11 +471,15 @@ function AddItemDialog({
           </div>
         )}
 
-        <div className="mt-6 flex justify-end gap-2">
+        </div>
+        {/* Sticky bottom action bar — stays visible above the soft keyboard
+            on mobile so the user never loses sight of "Thêm". `pb` value
+            includes safe-area inset for iOS home-indicator clearance. */}
+        <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:rounded-b-xl sm:px-6">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+            className="inline-flex min-h-[44px] items-center rounded-md px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
           >
             Huỷ
           </button>
@@ -386,7 +487,7 @@ function AddItemDialog({
             type="button"
             onClick={onSubmit}
             disabled={!description.trim() || add.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex min-h-[44px] items-center rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {add.isPending ? "Đang thêm..." : "Thêm"}
           </button>

@@ -219,6 +219,18 @@ test.describe("Projects / hub", () => {
         total_cost_impact_vnd: 120_000_000,
         total_schedule_impact_days: 5,
       },
+      // Module 14 (punchlist) was added after this fixture was first
+      // authored. The detail page renders `project.punchlist.<key>`
+      // eagerly — a missing key crashes the render with `Cannot read
+      // properties of undefined`. Same hazard the schedulepilot block
+      // above warns about.
+      punchlist: {
+        open_list_count: 1,
+        signed_off_list_count: 0,
+        open_items: 4,
+        verified_items: 7,
+        high_severity_open_items: 1,
+      },
     };
 
     await page.route(`**/api/v1/projects/${projectId}`, async (route: Route) => {
