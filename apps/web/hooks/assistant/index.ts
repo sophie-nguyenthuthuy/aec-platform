@@ -1,4 +1,5 @@
 export {
+  getAssistantErrorMessage,
   streamAssistantAsk,
   useAskAssistant,
   useAssistantThread,
