@@ -41,7 +41,7 @@ Schema choices:
   * No RLS — same posture as `codeguard_user_usage`. The route
     layer scopes reads to `auth.organization_id`.
 
-Revision ID: 0040_codeguard_user_usage_by_route
+Revision ID: 0040_codeguard_user_usage_route
 Revises: 0033_audit_actor_api_key
 Create Date: 2026-05-04
 
@@ -61,8 +61,11 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-# 28 chars — under the 32-char `alembic_version.version_num` limit.
-revision = "0040_codeguard_user_usage_by_route"
+# 31 chars — under the 32-char `alembic_version.version_num` limit.
+# The original `0040_codeguard_user_usage_by_route` was 34 chars (the
+# in-comment "28 chars" claim miscounted) and CI bailed with
+# `StringDataRightTruncation` on the alembic UPDATE.
+revision = "0040_codeguard_user_usage_route"
 down_revision = "0033_audit_actor_api_key"
 branch_labels = None
 depends_on = None
