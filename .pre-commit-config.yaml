@@ -93,3 +93,25 @@ repos:
         entry: bash -c 'cd apps/api && pytest tests/test_codeguard_surface_snapshot.py -q'
         pass_filenames: false
         files: ^apps/api/(routers/codeguard(_quota)?\.py|core/metrics\.py|workers/queue\.py|services/(retention|codeguard_quotas|codeguard_quota_attribution)\.py|tests/test_codeguard_surface_snapshot\.py)$
+
+      # ---------- Integrator-platform surface contract ----------
+      # Sister hook to codeguard-surface-snapshot above, applied to a
+      # different cluster of code: API-keys (mode + scopes), AuthContext,
+      # ops router (/healthz, /readyz, /metrics), webhook dead-letter,
+      # admin API-keys usage telemetry, Settings.metrics_token.
+      #
+      # Every one of those surfaces has been silently rolled back during
+      # ongoing development by an aggressive external linter pass. The
+      # snapshot test below pins the exact field/parameter/route set,
+      # and this hook runs it at commit time so a rollback can't slip
+      # past staging into a push.
+      #
+      # Same `language: system` rationale as the codeguard hook — the
+      # snapshot test imports the FastAPI app, schemas, and middleware,
+      # which need the full apps/api dependency tree.
+      - id: integrator-surface-snapshot
+        name: Integrator surface contract (api-keys + ops + webhooks + admin)
+        language: system
+        entry: bash -c 'cd apps/api && pytest tests/test_integrator_surface_snapshot.py -q'
+        pass_filenames: false
+        files: ^apps/api/(routers/(api_keys|ops|webhooks|admin)\.py|services/api_keys\.py|middleware/(auth|api_key_auth)\.py|core/config\.py|schemas/webhooks\.py|main\.py|tests/test_integrator_surface_snapshot\.py)$

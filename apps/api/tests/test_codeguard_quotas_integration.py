@@ -1221,3 +1221,173 @@ async def test_retention_prune_idempotent_when_no_old_rows(session: AsyncSession
         "short or the age_column comparison is wrong-direction."
     )
     assert result_2["deleted_count"] == 0
+
+
+# ---------- cmd_usage_by_route (CLI integration) -----------------------
+#
+# `scripts/codeguard_quotas.py usage-by-route <org>` is unit-tested
+# (Tier 1) against a stubbed engine. THIS test exercises the CLI's
+# actual SQL against real Postgres — pins that the two queries
+# (top-users SELECT + breakdown SELECT) work end-to-end against the
+# live schema, including the `LEFT JOIN users` for deleted-user
+# attribution and the `user_id = ANY(CAST(:user_ids AS UUID[]))`
+# array binding that the unit test can't validate.
+
+
+async def test_cmd_usage_by_route_returns_aggregated_breakdown(session: AsyncSession, by_route_test_org):
+    """End-to-end: seed both `codeguard_user_usage` (aggregate) AND
+    `codeguard_user_usage_by_route` (breakdown) for one (org, user,
+    period); call `cmd_usage_by_route`; assert the response shape
+    matches what `/quota/top-users?breakdown=true` returns.
+
+    The CLI doesn't go through `_engine_factory` here (which would
+    create a separate engine + session) — instead we point its
+    `_engine_factory` at the test session via monkeypatch so the
+    seeded rows are visible. Same pattern the unit tests use.
+    """
+    import importlib.util
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    # Load the CLI script as a module — same pattern as the Tier 1
+    # CLI tests in apps/ml/tests/test_codeguard_quotas_cli.py.
+    cli_path = Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "codeguard_quotas.py"
+    spec = importlib.util.spec_from_file_location("_cg_cli_t3", cli_path)
+    assert spec is not None and spec.loader is not None
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+
+    org_id, user_id = by_route_test_org
+
+    # Seed the aggregate row (the top-users SELECT reads this).
+    await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_user_usage
+              (organization_id, user_id, period_start,
+               input_tokens, output_tokens, updated_at)
+            VALUES (:org, :user, date_trunc('month', NOW())::date,
+                    1000, 200, NOW())
+            """
+        ),
+        {"org": str(org_id), "user": str(user_id)},
+    )
+    # Seed two breakdown rows (the breakdown SELECT reads these).
+    # `/scan` is the heavier route in this test — total > /query's.
+    await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_user_usage_by_route
+              (organization_id, user_id, period_start, route_key,
+               input_tokens, output_tokens, updated_at)
+            VALUES
+              (:org, :user, date_trunc('month', NOW())::date, 'scan',
+               800, 160, NOW()),
+              (:org, :user, date_trunc('month', NOW())::date, 'query',
+               200, 40, NOW())
+            """
+        ),
+        {"org": str(org_id), "user": str(user_id)},
+    )
+    await session.commit()
+
+    # Repoint the CLI's engine factory at the test session. The CLI
+    # disposes the engine after the call, so we wrap the test's engine
+    # in a no-op dispose. Without this, the test session's engine
+    # would get closed mid-test.
+    real_session = session
+
+    class _NoopDisposeEngine:
+        async def dispose(self):
+            pass
+
+    class _SessionCM:
+        async def __aenter__(self):
+            return real_session
+
+        async def __aexit__(self, *_a):
+            return False
+
+    factory = MagicMock(return_value=_SessionCM())
+
+    async def _stub_engine_factory():
+        return _NoopDisposeEngine(), factory
+
+    cli._engine_factory = _stub_engine_factory
+
+    result = await cli.cmd_usage_by_route(org_id, limit=10)
+
+    assert result["org_id"] == str(org_id)
+    assert len(result["users"]) == 1
+    user = result["users"][0]
+    assert user["input_tokens"] == 1000
+    assert user["output_tokens"] == 200
+    assert user["total_tokens"] == 1200
+    # Breakdown rows sorted DESC by total — `/scan` first (heavier).
+    assert len(user["routes"]) == 2
+    assert user["routes"][0]["route_key"] == "scan"
+    assert user["routes"][0]["total_tokens"] == 960
+    assert user["routes"][1]["route_key"] == "query"
+    assert user["routes"][1]["total_tokens"] == 240
+
+
+async def test_cmd_usage_by_route_handles_org_with_no_breakdown_rows(session: AsyncSession, by_route_test_org):
+    """An org that has aggregate usage but predates migration 0040
+    (or whose breakdown writes have been silently failing) returns
+    a user with `routes=[]` rather than crashing on the empty
+    breakdown SELECT. Pin the graceful-degradation contract.
+    """
+    import importlib.util
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    cli_path = Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "codeguard_quotas.py"
+    spec = importlib.util.spec_from_file_location("_cg_cli_t3_b", cli_path)
+    assert spec is not None and spec.loader is not None
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+
+    org_id, user_id = by_route_test_org
+
+    # Aggregate row only — NO breakdown rows.
+    await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_user_usage
+              (organization_id, user_id, period_start,
+               input_tokens, output_tokens, updated_at)
+            VALUES (:org, :user, date_trunc('month', NOW())::date,
+                    500, 100, NOW())
+            """
+        ),
+        {"org": str(org_id), "user": str(user_id)},
+    )
+    await session.commit()
+
+    real_session = session
+
+    class _NoopDisposeEngine:
+        async def dispose(self):
+            pass
+
+    class _SessionCM:
+        async def __aenter__(self):
+            return real_session
+
+        async def __aexit__(self, *_a):
+            return False
+
+    factory = MagicMock(return_value=_SessionCM())
+
+    async def _stub_engine_factory():
+        return _NoopDisposeEngine(), factory
+
+    cli._engine_factory = _stub_engine_factory
+
+    result = await cli.cmd_usage_by_route(org_id, limit=10)
+    user = result["users"][0]
+    assert user["total_tokens"] == 600
+    # Empty routes — the breakdown SELECT returned no rows. Pin so
+    # the dict shape stays predictable for the formatter (which
+    # expects a list, not absence-of-key).
+    assert user["routes"] == []

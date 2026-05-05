@@ -532,3 +532,79 @@ def test_route_weight_for_scan_is_at_least_two():
         "anchor — a deliberate refactor that should fail this test "
         "until the contract is reviewed."
     )
+
+
+def test_quota_top_users_breakdown_branch_issues_per_route_query(monkeypatch):
+    """`/quota/top-users?breakdown=true` is a SEPARATE branch from the
+    default — it issues a SECOND SQL query against
+    `codeguard_user_usage_by_route` after the top-users SELECT. The
+    sibling stub-detection above (`...issues_user_usage_query`) only
+    exercises the breakdown=False default branch.
+
+    Pin the breakdown branch independently: a regression that
+    silently returned `routes=[]` for every user (instead of
+    actually querying the breakdown table) would pass that test
+    but silently break the dashboard's expand-row UI.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from uuid import uuid4
+
+    try:
+        from routers.codeguard_quota import get_codeguard_quota_top_users
+    except ImportError as exc:
+        pytest.skip(f"routers.codeguard_quota not importable ({exc})")
+
+    captured_sql: list[str] = []
+
+    # Return a user row on the first call so the breakdown branch
+    # actually fires (it short-circuits on empty top-users).
+    user_row = MagicMock()
+    user_row.user_id = uuid4()
+    user_row.email = "alice@example.com"
+    user_row.input_tokens = 1000
+    user_row.output_tokens = 200
+    user_row.total_tokens = 1200
+
+    async def _execute(stmt, *args, **kwargs):
+        sql_str = getattr(stmt, "text", None) or str(stmt)
+        captured_sql.append(sql_str)
+        result = MagicMock()
+        # First call: top-users → return one user. Second call:
+        # breakdown SELECT → return empty (we just need the query
+        # to fire; its result shape isn't what we're asserting).
+        if len(captured_sql) == 1:
+            result.all.return_value = [user_row]
+        else:
+            result.all.return_value = []
+        return result
+
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=_execute)
+
+    auth = MagicMock()
+    auth.organization_id = uuid4()
+    auth.user_id = uuid4()
+
+    asyncio.run(get_codeguard_quota_top_users(auth=auth, db=db, breakdown=True))
+
+    # Two SQL calls fired: top-users + breakdown. A stubbed body
+    # that ignored the breakdown flag would only fire one.
+    assert len(captured_sql) == 2, (
+        f"breakdown=true must issue 2 queries (top-users + breakdown); "
+        f"got {len(captured_sql)}. The breakdown branch is likely "
+        "stubbed — the route returns canned data without querying the "
+        "per-route table. Restore the breakdown SELECT in "
+        "`apps/api/routers/codeguard_quota.py`."
+    )
+    # Second query must hit the per-route table — otherwise the
+    # branch is wrong (e.g. querying `codeguard_user_usage` twice
+    # would land on the wrong table and return aggregate rows where
+    # the UI expects per-route rows).
+    second_query = captured_sql[1]
+    assert "codeguard_user_usage_by_route" in second_query, (
+        "Second query in breakdown branch did not hit "
+        "`codeguard_user_usage_by_route`. The route is querying the "
+        "wrong table — the dashboard would render aggregate totals "
+        "as if they were per-route rows."
+    )
