@@ -40,7 +40,7 @@ jobs:
           # itself. Skipping in CI is safe because the dedicated
           # `codeguard-surface` job below runs the same snapshot test
           # against the full api dependency tree.
-          SKIP: codeguard-surface-snapshot
+          SKIP: codeguard-surface-snapshot,integrator-surface-snapshot
 
   # Fast gate against silent revert of the codeguard surface contract.
   # Pins the exact set of routes/metrics/cron jobs/retention policies
@@ -74,6 +74,31 @@ jobs:
         run: pytest tests/test_codeguard_surface_snapshot.py -q
       - name: Validate — Prometheus alert rules reference real metrics
         run: python scripts/validate_prometheus_rules.py infra/prometheus/codeguard.alerts.yml
+
+  # Sister gate to `codeguard-surface`, applied to the integrator
+  # surface (api-keys mode + scopes, AuthContext, ops router, webhook
+  # dead-letter, admin api-keys usage). Same failure-recovery story:
+  # an aggressive linter pass rolls these back from the working tree
+  # mid-session; pinning the surface in a dedicated PR check makes the
+  # rollback visible as its own red line, not buried in the 5-minute
+  # `python-api` pytest run.
+  integrator-surface:
+    name: Integrator surface contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install minimal deps
+        working-directory: apps/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Snapshot — integrator routes + AuthContext + Settings
+        working-directory: apps/api
+        run: pytest tests/test_integrator_surface_snapshot.py -q
 
   node:
     name: Node — typecheck + lint + web build
@@ -284,6 +309,15 @@ jobs:
         # containers above plus the alembic step (which provisions aec_app)
         # satisfy every requirement.
         #
+        # `-p no:randomly` pins file/test order so a CI red is reproducible.
+        # pytest-randomly is loaded by default (informally useful — it surfaces
+        # order-dependent flakes during local dev); but on the gate we want
+        # determinism so a flake that fails for run #57 fails for everyone
+        # who reproduces locally with the same command. Order-dependent
+        # flakes get caught by the separate `python-api-shakeout` job
+        # below, which runs the same suite WITH randomization and is
+        # informational (continue-on-error).
+        #
         # `--junitxml` writes a structured report into test-results/ so the
         # upload-artifact step below has something to publish on failure.
         # Mirrors the Playwright trace upload in the Node job.
@@ -295,7 +329,7 @@ jobs:
         # threshold once the 0%-covered services (invitation_email,
         # price_alerts, webhooks) get test coverage.
         run: |
-          pytest --integration -q \
+          pytest --integration -q -p no:randomly \
             --junitxml=test-results/junit.xml \
             --cov \
             --cov-report=term-missing:skip-covered \
@@ -311,6 +345,75 @@ jobs:
           name: pytest-results
           path: apps/api/test-results/
           retention-days: 7
+
+  # ----------------------------------------------------------------------
+  # Order-dependence shakeout — same suite, randomized order. Catches
+  # the "test A leaves a global in a state that test B doesn't expect"
+  # class of bug that the deterministic gate above intentionally hides.
+  #
+  # Non-blocking (continue-on-error): a randomized red is informational,
+  # not a merge-blocker. The expectation is "look at the failure, decide
+  # whether the order-dependence is the test's fault (fix it) or a real
+  # cross-test leak (fix the production code)". Treating these as P0
+  # would spike the merge-block rate and discourage running the suite at
+  # all — exactly the wrong tradeoff.
+  # ----------------------------------------------------------------------
+  python-api-shakeout:
+    name: Python — order-dependence shakeout (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: aec
+          POSTGRES_PASSWORD: aec
+          POSTGRES_DB: aec_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U aec"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-retries 10
+    env:
+      # Same env as `python-api`; copied verbatim so a config drift
+      # between the two jobs is caught at review time, not by a green
+      # gate masking a red shakeout.
+      DATABASE_URL: postgresql+asyncpg://aec:aec@localhost:5432/aec_test
+      DATABASE_URL_SYNC: postgresql://aec:aec@localhost:5432/aec_test
+      DATABASE_URL_ADMIN: postgresql+asyncpg://aec:aec@localhost:5432/aec_test
+      REDIS_URL: redis://localhost:6379/0
+      SUPABASE_JWT_SECRET: ci-test-secret
+      ANTHROPIC_API_KEY: ci-placeholder
+      OPENAI_API_KEY: ci-placeholder
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install deps
+        working-directory: apps/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Alembic upgrade
+        working-directory: apps/api
+        run: alembic upgrade head
+      - name: Pytest (random order — flake hunter)
+        working-directory: apps/api
+        # No `-p no:randomly` here — pytest-randomly's default `--randomly-seed`
+        # rolls a fresh seed per run, so each CI invocation tries a different
+        # order. A failure in this job + a green main gate = order-dependent
+        # test, fix the leak.
+        run: pytest -q --tb=line
 
   terraform:
     name: Terraform — fmt + validate
