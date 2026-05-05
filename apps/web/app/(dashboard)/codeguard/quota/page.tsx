@@ -33,14 +33,20 @@
  *   - Per-user breakdown — usage is org-scoped only.
  */
 
-import { Loader2, AlertTriangle } from "lucide-react";
+import { useState } from "react";
+
+import { Loader2, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 
 import {
   useCodeguardQuota,
   useCodeguardQuotaHistory,
+  useCodeguardQuotaTopUsers,
   type CodeguardQuota,
   type CodeguardQuotaHistory,
+  type CodeguardQuotaTopUsers,
   type QuotaHistoryEntry,
+  type QuotaTopUser,
+  type QuotaTopUserRoute,
 } from "@/hooks/codeguard";
 
 const MONTHS_OF_HISTORY = 3;
@@ -84,9 +90,206 @@ export default function CodeguardQuotaPage() {
         <>
           <CurrentMonthCard quota={quota.data} />
           {history.data ? <HistoryStrip history={history.data} /> : null}
+          {/* Top consumers panel — only renders for capped orgs (the
+              question "who pushed us toward the cap?" is meaningless
+              for unlimited orgs). Lazy on its own hook so a slow DB
+              read doesn't delay the banner above it. Errors degrade
+              silently — top-users is decoration, not load-bearing. */}
+          <TopConsumersPanel />
         </>
       )}
     </div>
+  );
+}
+
+// ---------- Top consumers (per-user spend ranking) ---------------------
+
+/**
+ * Per-user spend ranking for the org's CURRENT period. Mounts beneath
+ * the trend strip with `breakdown=true` so each row can expand to
+ * show per-route attribution (which routes drove this user's spend).
+ *
+ * Why request breakdown by default: this page is the "planning
+ * surface" — admins land here when they want to drill into spend.
+ * The breakdown query is one extra round-trip; well worth the
+ * latency for the question it answers ("did this user's 80k tokens
+ * come from heavy /scan or runaway /query?").
+ *
+ * Errors return null — top-users is a decoration panel; a transient
+ * DB blip on this read shouldn't make the whole page look broken
+ * when the actual cap data above it is fine.
+ */
+function TopConsumersPanel() {
+  const top = useCodeguardQuotaTopUsers(10, { breakdown: true });
+  if (top.isLoading) {
+    return (
+      <div className="text-xs text-slate-500">
+        <Loader2 size={12} className="mr-1 inline-block animate-spin" />
+        Đang tải danh sách người dùng…
+      </div>
+    );
+  }
+  if (top.isError || !top.data) return null;
+  return <TopConsumersTable data={top.data} />;
+}
+
+function TopConsumersTable({ data }: { data: CodeguardQuotaTopUsers }) {
+  if (data.users.length === 0) {
+    return (
+      <section
+        className="rounded-xl border border-slate-200 bg-white p-6"
+        aria-labelledby="quota-top-users-heading"
+      >
+        <h3 id="quota-top-users-heading" className="text-lg font-semibold text-slate-900">
+          Người dùng tiêu nhiều token nhất
+        </h3>
+        <p className="mt-2 text-sm text-slate-600">
+          Chưa có dữ liệu sử dụng trong kỳ này.
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section
+      className="rounded-xl border border-slate-200 bg-white p-6"
+      aria-labelledby="quota-top-users-heading"
+    >
+      <div className="flex items-baseline justify-between">
+        <h3
+          id="quota-top-users-heading"
+          className="text-lg font-semibold text-slate-900"
+        >
+          Người dùng tiêu nhiều token nhất
+        </h3>
+        <span className="text-xs text-slate-500">
+          Top {data.users.length} trong kỳ hiện tại
+        </span>
+      </div>
+      <table className="mt-4 w-full text-left text-sm">
+        <thead className="text-xs uppercase tracking-wide text-slate-500">
+          <tr>
+            <th scope="col" className="py-2 font-medium" />
+            <th scope="col" className="py-2 font-medium">
+              Người dùng
+            </th>
+            <th scope="col" className="py-2 text-right font-medium">
+              Input
+            </th>
+            <th scope="col" className="py-2 text-right font-medium">
+              Output
+            </th>
+            <th scope="col" className="py-2 text-right font-medium">
+              Tổng
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {data.users.map((u) => (
+            <TopConsumerRow key={u.user_id} user={u} />
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function TopConsumerRow({ user }: { user: QuotaTopUser }) {
+  const [expanded, setExpanded] = useState(false);
+  // Empty email = user was deleted between the spend and the read
+  // (CASCADE wiped them; LEFT JOIN preserves the spend attribution
+  // but the user row is gone). Render a placeholder so the row is
+  // still legible.
+  const display = user.email || `(người dùng đã xóa: ${user.user_id.slice(0, 8)}…)`;
+  // The breakdown is present (possibly empty array) when the hook
+  // requested it. Empty array = the user has aggregate spend but
+  // no per-route breakdown rows yet — happens for usage recorded
+  // before migration 0040 added the by-route table. Hide the
+  // expander rather than showing an "empty breakdown" UI surface.
+  const hasBreakdown = Array.isArray(user.routes) && user.routes.length > 0;
+
+  return (
+    <>
+      <tr className={hasBreakdown ? "cursor-pointer hover:bg-slate-50" : undefined}>
+        <td className="py-2 pr-2 align-top">
+          {hasBreakdown ? (
+            <button
+              type="button"
+              onClick={() => setExpanded((prev) => !prev)}
+              aria-label={expanded ? "Thu gọn" : "Mở rộng"}
+              aria-expanded={expanded}
+              className="text-slate-500 hover:text-slate-800"
+            >
+              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </button>
+          ) : null}
+        </td>
+        <td className="py-2 text-slate-800">{display}</td>
+        <td className="py-2 text-right tabular-nums text-slate-700">
+          {user.input_tokens.toLocaleString("vi-VN")}
+        </td>
+        <td className="py-2 text-right tabular-nums text-slate-700">
+          {user.output_tokens.toLocaleString("vi-VN")}
+        </td>
+        <td className="py-2 text-right font-medium tabular-nums text-slate-900">
+          {user.total_tokens.toLocaleString("vi-VN")}
+        </td>
+      </tr>
+      {expanded && hasBreakdown ? (
+        <tr>
+          <td className="py-2" />
+          <td colSpan={4} className="pb-3">
+            <RouteBreakdownTable routes={user.routes ?? []} />
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
+function RouteBreakdownTable({ routes }: { routes: QuotaTopUserRoute[] }) {
+  // Pre-rendered as a nested table rather than a plain list so the
+  // alignment matches the parent — operators scanning the column
+  // can quickly compare scan-vs-query spend across users without
+  // re-parsing the layout per row.
+  return (
+    <table className="w-full text-left text-xs">
+      <thead className="text-slate-500">
+        <tr>
+          <th scope="col" className="py-1 font-medium">
+            Route
+          </th>
+          <th scope="col" className="py-1 text-right font-medium">
+            Input
+          </th>
+          <th scope="col" className="py-1 text-right font-medium">
+            Output
+          </th>
+          <th scope="col" className="py-1 text-right font-medium">
+            Tổng
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {routes.map((r) => (
+          <tr key={r.route_key} className="text-slate-600">
+            <td className="py-1">
+              <code className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-700">
+                /{r.route_key}
+              </code>
+            </td>
+            <td className="py-1 text-right tabular-nums">
+              {r.input_tokens.toLocaleString("vi-VN")}
+            </td>
+            <td className="py-1 text-right tabular-nums">
+              {r.output_tokens.toLocaleString("vi-VN")}
+            </td>
+            <td className="py-1 text-right tabular-nums font-medium text-slate-800">
+              {r.total_tokens.toLocaleString("vi-VN")}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 

@@ -894,3 +894,81 @@ def test_short_num_formats_compactly():
     assert cli._short_num(1_500) == "2k"  # rounds
     assert cli._short_num(1_000_000) == "1M"  # 1.0M → 1M (suffix collapse)
     assert cli._short_num(5_500_000) == "5.5M"
+
+
+# ---------- routes (operator visibility into ROUTE_WEIGHTS) -----------
+
+
+def test_cmd_routes_returns_sorted_by_weight_descending():
+    """Operators want to see "what's the heaviest route" at a glance,
+    so the dict gets emitted sorted by weight DESC. Pin the order so
+    a refactor that lazily returns dict items doesn't surface as a
+    confusing test that intermittently passes."""
+    rows = cli.cmd_routes()
+    weights = [r["weight"] for r in rows]
+    assert weights == sorted(weights, reverse=True), (
+        f"Routes not sorted by weight DESC: {weights!r}. "
+        "format_routes renders top-down; out-of-order rows look like "
+        "a bug to operators."
+    )
+
+
+def test_cmd_routes_includes_canonical_routes():
+    """Pin the canonical routes — these match the snapshot test's
+    pinned weights. A regression that drops `/scan` from the dict
+    would surface here too."""
+    rows = cli.cmd_routes()
+    by_key = {r["route_key"]: r["weight"] for r in rows}
+    assert by_key["scan"] == 5.0
+    assert by_key["query"] == 1.0
+    assert by_key["permit-checklist"] == 2.0
+
+
+def test_format_routes_renders_table_with_two_decimal_weights():
+    """`weight=5.0` renders as `5.00`. Operators grep against the
+    output (e.g. `quotas routes | grep scan`) so the format must be
+    stable. Two decimals distinguishes the default 1.0 from a
+    deliberate fractional weight like 1.5."""
+    out = cli.format_routes(
+        [
+            {"route_key": "scan", "weight": 5.0},
+            {"route_key": "query", "weight": 1.0},
+        ]
+    )
+    assert "5.00" in out
+    assert "1.00" in out
+    assert "scan" in out
+    assert "query" in out
+
+
+def test_format_routes_handles_empty_input():
+    """`ROUTE_WEIGHTS = {}` (hypothetical full-revert) → friendly
+    sentinel rather than a header-only table that looks like a
+    parsing failure to operators."""
+    assert "No routes registered" in cli.format_routes([])
+
+
+def test_main_routes_subcommand_exits_zero(capsys):
+    """End-to-end: `main(["routes"])` exits 0 and prints the table.
+    Mirrors what an operator sees when they run the command."""
+    rc = cli.main(["routes"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Every canonical route appears.
+    assert "scan" in out
+    assert "query" in out
+    assert "permit-checklist" in out
+
+
+def test_main_routes_subcommand_with_json_flag_emits_valid_json(capsys):
+    """`--json routes` (note: --json must come BEFORE the subcommand
+    per argparse's parent-flag semantics) emits machine-readable
+    JSON — pipe to jq for dashboards."""
+    import json as _json
+
+    rc = cli.main(["--json", "routes"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    parsed = _json.loads(out)
+    assert isinstance(parsed, list)
+    assert any(r["route_key"] == "scan" for r in parsed)

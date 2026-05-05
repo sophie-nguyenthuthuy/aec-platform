@@ -771,6 +771,57 @@ def format_list(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+# ---------- `routes` (operator visibility into ROUTE_WEIGHTS) -----------
+
+
+def cmd_routes() -> list[dict[str, Any]]:
+    """Return the current per-route weight policy as a list of dicts.
+
+    Read-only, doesn't touch the DB — `ROUTE_WEIGHTS` is a Python
+    constant in `services/codeguard_quota_attribution.py`. The CLI
+    reads it through the import boundary so a future refactor that
+    relocates the dict (e.g. into a config file) doesn't require
+    re-syncing this script — the import name is the contract.
+
+    Why a CLI subcommand for a constant: ops engineers regularly
+    need to answer "what's the /scan multiplier in production?" or
+    "did we ship the long-context premium yet?" without reading
+    Python. A `quotas routes` invocation gives them the same answer
+    `grep ROUTE_WEIGHTS` would, but as part of the same tool they're
+    already using for `quotas set` / `quotas list` — one less context
+    switch.
+    """
+    # Lazy import — the script doesn't otherwise need the apps/api
+    # path at import time. The sys.path setup at module top makes
+    # the apps/api package importable.
+    from services.codeguard_quota_attribution import ROUTE_WEIGHTS
+
+    # Sort by weight DESC, ties broken by route_key for stability.
+    # The "heaviest first" order matches the operator question
+    # ("which route is most expensive?") and the format_routes table
+    # below renders top-down.
+    items = [{"route_key": k, "weight": float(v)} for k, v in ROUTE_WEIGHTS.items()]
+    items.sort(key=lambda r: (-r["weight"], r["route_key"]))
+    return items
+
+
+def format_routes(rows: list[dict[str, Any]]) -> str:
+    """Pretty-print the route weights table. Two columns: route_key
+    and the multiplier. Pinned formatting so an ops grep against
+    output ("scan.*5") stays stable across refactors.
+    """
+    if not rows:
+        return "No routes registered.\n"
+    header = f"{'route_key':<24}  {'weight':>7}"
+    lines = [header, "-" * len(header)]
+    for r in rows:
+        # `:.2f` so weight=1.0 reads as "1.00" — distinguishes the
+        # default from a deliberate 1.0 (some future fractional weight
+        # like 1.5 would render unambiguously).
+        lines.append(f"{r['route_key']:<24}  {r['weight']:>7.2f}")
+    return "\n".join(lines) + "\n"
+
+
 # ---------- main --------------------------------------------------------
 
 
@@ -871,6 +922,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         "specific category of change (e.g. only the `reset` events).",
     )
 
+    # `routes` — read-only operator inspection of ROUTE_WEIGHTS. No
+    # args; just `python scripts/codeguard_quotas.py routes` to dump
+    # the table. JSON via the global `--json` flag.
+    sub.add_parser(
+        "routes",
+        help="Print the per-route weight policy (ROUTE_WEIGHTS) as a "
+        "table. Read-only — doesn't touch the DB.",
+    )
+
     args = parser.parse_args(argv)
 
     if args.cmd == "set":
@@ -932,6 +992,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.stdout.write("\n")
         else:
             sys.stdout.write(format_reset(result))
+    elif args.cmd == "routes":
+        # No async — just reads the in-process Python constant.
+        rows = cmd_routes()
+        if args.json:
+            json.dump(rows, sys.stdout, indent=2)
+            sys.stdout.write("\n")
+        else:
+            sys.stdout.write(format_routes(rows))
     return 0
 
 

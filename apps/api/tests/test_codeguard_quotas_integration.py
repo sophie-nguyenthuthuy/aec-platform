@@ -767,3 +767,320 @@ async def test_quota_warn_recipients_filters_on_at_least_one_channel(session, tw
         },
     )
     await session.commit()
+
+
+# ---------- record_user_usage_by_route SQL semantics --------------------
+#
+# `codeguard_user_usage_by_route` (migration 0040) is the per-route
+# breakdown table. Tier 2 covers the helper-call shape; Tier 3 here pins
+# the SQL semantics:
+#
+#   * Composite PK on `(org, user, period, route_key)` — TWO different
+#     route_keys for the same (org, user, period) produce TWO rows, NOT
+#     one collapsed row.
+#   * `+ EXCLUDED.input_tokens` accumulator per (org, user, period,
+#     route_key) — sequential calls against the same key sum, not
+#     clobber.
+#   * `route_weight` flows through (5× scan, 1× query) — the per-route
+#     totals reflect compute-weighted spend, NOT raw provider tokens.
+#   * The covering index `ix_codeguard_user_usage_by_route_org_period_total_desc`
+#     gets used for the dominant top-N breakdown query plan.
+
+
+@pytest.fixture
+async def by_route_test_org(session: AsyncSession):
+    """One ephemeral org + one user for the per-route tests. CASCADE
+    cleanup wipes both `codeguard_user_usage` and
+    `codeguard_user_usage_by_route` rows via the FK chain when the
+    org row is dropped.
+    """
+    org_id = uuid4()
+    user_id = uuid4()
+    await session.execute(
+        text("INSERT INTO organizations (id, name, slug) VALUES (:org, 'By-Route Test Org', :slug)"),
+        {"org": str(org_id), "slug": f"by-route-test-{org_id}"},
+    )
+    await session.execute(
+        text("INSERT INTO users (id, email, organization_id) VALUES (:uid, :email, :org)"),
+        {
+            "uid": str(user_id),
+            "email": f"by-route-test-{user_id}@example.com",
+            "org": str(org_id),
+        },
+    )
+    await session.commit()
+    yield org_id, user_id
+    await session.execute(
+        text("DELETE FROM organizations WHERE id = :org"),
+        {"org": str(org_id)},
+    )
+    await session.commit()
+
+
+async def test_record_user_usage_by_route_accumulates_per_route_key(session: AsyncSession, by_route_test_org):
+    """Two sequential calls with route_key='scan' against the same
+    (org, user, period) must produce ONE row whose tokens equal the
+    running sum. Pin the `+ EXCLUDED` accumulator semantics — same
+    contract as the parent table, different PK shape.
+    """
+    from services.codeguard_quota_attribution import record_user_usage_by_route
+
+    org_id, user_id = by_route_test_org
+
+    await record_user_usage_by_route(
+        session,
+        org_id,
+        user_id,
+        route_key="scan",
+        input_tokens=100,
+        output_tokens=20,
+        route_weight=1.0,
+    )
+    await record_user_usage_by_route(
+        session,
+        org_id,
+        user_id,
+        route_key="scan",
+        input_tokens=300,
+        output_tokens=80,
+        route_weight=1.0,
+    )
+    await session.commit()
+
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT input_tokens, output_tokens, route_key
+                FROM codeguard_user_usage_by_route
+                WHERE organization_id = :org
+                """
+            ),
+            {"org": str(org_id)},
+        )
+    ).all()
+
+    # ONE row — accumulator merged the two calls.
+    assert len(rows) == 1, (
+        f"Expected one row (accumulator should merge same-key calls); "
+        f"got {len(rows)}. The PK probably regressed from "
+        "(org, user, period, route_key) to one missing route_key — "
+        "every call now creates a fresh row instead of accumulating."
+    )
+    row = rows[0]
+    assert row.input_tokens == 400, (
+        f"input_tokens={row.input_tokens}, expected 400. "
+        "Accumulation clause likely regressed from `+ EXCLUDED.input_tokens` "
+        "to plain `EXCLUDED.input_tokens` (silent clobber)."
+    )
+    assert row.output_tokens == 100, f"output_tokens={row.output_tokens}, expected 100"
+    assert row.route_key == "scan"
+
+
+async def test_record_user_usage_by_route_separates_distinct_route_keys(session: AsyncSession, by_route_test_org):
+    """`route_key='scan'` and `route_key='query'` for the same (org,
+    user, period) must produce TWO rows, NOT one collapsed row. Pin
+    that the route_key is part of the conflict target.
+
+    Without route_key in the PK, a /scan call followed by a /query
+    call would either error (PK violation) or, worse, accumulate
+    both into the wrong route's bucket — defeating the whole
+    purpose of the breakdown table.
+    """
+    from services.codeguard_quota_attribution import record_user_usage_by_route
+
+    org_id, user_id = by_route_test_org
+
+    await record_user_usage_by_route(
+        session,
+        org_id,
+        user_id,
+        route_key="scan",
+        input_tokens=100,
+        output_tokens=20,
+        route_weight=1.0,
+    )
+    await record_user_usage_by_route(
+        session,
+        org_id,
+        user_id,
+        route_key="query",
+        input_tokens=50,
+        output_tokens=10,
+        route_weight=1.0,
+    )
+    await session.commit()
+
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT route_key, input_tokens, output_tokens
+                FROM codeguard_user_usage_by_route
+                WHERE organization_id = :org
+                ORDER BY route_key
+                """
+            ),
+            {"org": str(org_id)},
+        )
+    ).all()
+
+    assert len(rows) == 2, (
+        f"Expected 2 rows (one per route_key); got {len(rows)}. "
+        "PK is missing route_key — calls for different routes are "
+        "colliding into a single bucket."
+    )
+    by_key = {r.route_key: r for r in rows}
+    assert by_key["scan"].input_tokens == 100
+    assert by_key["query"].input_tokens == 50
+
+
+async def test_record_user_usage_by_route_applies_route_weight(session: AsyncSession, by_route_test_org):
+    """`route_weight=5.0` (the /scan multiplier) must scale the
+    recorded tokens by 5× — same contract as the parent
+    `record_user_usage`. A regression that drops the multiplier here
+    would break the reconcile cron's drift detector (which compares
+    weighted totals across both tables).
+    """
+    from services.codeguard_quota_attribution import record_user_usage_by_route
+
+    org_id, user_id = by_route_test_org
+
+    await record_user_usage_by_route(
+        session,
+        org_id,
+        user_id,
+        route_key="scan",
+        input_tokens=200,
+        output_tokens=40,
+        route_weight=5.0,
+    )
+    await session.commit()
+
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT input_tokens, output_tokens
+                FROM codeguard_user_usage_by_route
+                WHERE organization_id = :org AND route_key = 'scan'
+                """
+            ),
+            {"org": str(org_id)},
+        )
+    ).one()
+
+    # 200 × 5 = 1000, 40 × 5 = 200.
+    assert row.input_tokens == 1000, (
+        f"Weighted input_tokens={row.input_tokens}, expected 1000 "
+        "(200 × 5.0). The route_weight kwarg was likely dropped from "
+        "`record_user_usage_by_route` or `_apply_weight` is misbehaving."
+    )
+    assert row.output_tokens == 200
+
+
+async def test_record_user_usage_by_route_skips_zero_token_calls(session: AsyncSession, by_route_test_org):
+    """HyDE cache hit → 0 input + 0 output → NO row written. Same
+    skip-on-zero contract as `record_user_usage`. Pin so a refactor
+    can't accidentally land a (0, 0) row that pollutes the breakdown
+    UI with a no-op entry.
+    """
+    from services.codeguard_quota_attribution import record_user_usage_by_route
+
+    org_id, user_id = by_route_test_org
+
+    await record_user_usage_by_route(
+        session,
+        org_id,
+        user_id,
+        route_key="query",
+        input_tokens=0,
+        output_tokens=0,
+        route_weight=1.0,
+    )
+    await session.commit()
+
+    count = (
+        await session.execute(
+            text("SELECT COUNT(*) FROM codeguard_user_usage_by_route WHERE organization_id = :org"),
+            {"org": str(org_id)},
+        )
+    ).scalar_one()
+
+    assert count == 0, (
+        f"Zero-token call wrote {count} row(s); expected 0. The "
+        "skip-on-zero guard at the top of record_user_usage_by_route "
+        "may have regressed."
+    )
+
+
+async def test_record_user_usage_by_route_does_not_leak_across_orgs(session: AsyncSession, by_route_test_org):
+    """Cross-org isolation: writes against org A's user MUST NOT
+    appear under org B. The PK includes organization_id; the WHERE
+    on read paths filters on it. Catches a regression that drops the
+    org_id from the INSERT params (which would let one tenant's
+    breakdown spend show up under another).
+    """
+    from services.codeguard_quota_attribution import record_user_usage_by_route
+
+    org_a, user_a = by_route_test_org
+    # Set up a second ephemeral org + user for isolation contrast.
+    org_b = uuid4()
+    user_b = uuid4()
+    await session.execute(
+        text("INSERT INTO organizations (id, name, slug) VALUES (:org, 'Iso B', :slug)"),
+        {"org": str(org_b), "slug": f"by-route-iso-b-{org_b}"},
+    )
+    await session.execute(
+        text("INSERT INTO users (id, email, organization_id) VALUES (:uid, :email, :org)"),
+        {
+            "uid": str(user_b),
+            "email": f"iso-b-{user_b}@example.com",
+            "org": str(org_b),
+        },
+    )
+    await session.commit()
+    try:
+        await record_user_usage_by_route(
+            session,
+            org_a,
+            user_a,
+            route_key="scan",
+            input_tokens=100,
+            output_tokens=20,
+            route_weight=1.0,
+        )
+        await record_user_usage_by_route(
+            session,
+            org_b,
+            user_b,
+            route_key="scan",
+            input_tokens=999,
+            output_tokens=99,
+            route_weight=1.0,
+        )
+        await session.commit()
+
+        # Org A's row sees ONLY its own tokens — not the contamination
+        # from org B's much larger write.
+        a_row = (
+            await session.execute(
+                text(
+                    """
+                    SELECT input_tokens FROM codeguard_user_usage_by_route
+                    WHERE organization_id = :org
+                    """
+                ),
+                {"org": str(org_a)},
+            )
+        ).one()
+        assert a_row.input_tokens == 100, (
+            f"Org A leaked org B's spend: input_tokens={a_row.input_tokens}, "
+            "expected 100. Cross-org write isolation broke."
+        )
+    finally:
+        await session.execute(
+            text("DELETE FROM organizations WHERE id = :org"),
+            {"org": str(org_b)},
+        )
+        await session.commit()
