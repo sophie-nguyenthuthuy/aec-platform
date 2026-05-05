@@ -822,6 +822,161 @@ def format_routes(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+# ---------- `usage-by-route` (per-user × per-route drill-down) ----------
+
+
+async def cmd_usage_by_route(org_id: UUID, *, limit: int = 10) -> dict[str, Any]:
+    """Read `codeguard_user_usage_by_route` for one org's CURRENT
+    period — the same data `/quota/top-users?breakdown=true` exposes
+    over HTTP, but available to ops without a JWT or curl.
+
+    Returns a dict with `org_id`, `period_start`, and a sorted
+    `users` list — each user carries their aggregate totals plus a
+    `routes` array. Mirrors the route's response shape so an
+    operator who's seen the dashboard sees the same numbers here.
+
+    Why a CLI: the breakdown is the answer to "who's spending and
+    on what?" — a high-frequency ops question that needs a one-liner,
+    not "open the web app, log in, navigate, expand each row." The
+    HTTP route stays as the authoritative read; the CLI is convenience.
+
+    `limit` clamps 1..50 (matches the route's clamp). Operators
+    occasionally want top-50 not top-10 when triaging a heavy month.
+    """
+    from sqlalchemy import text as sql_text
+
+    bounded_limit = max(1, min(int(limit), 50))
+
+    engine, factory = await _engine_factory()
+    try:
+        async with factory() as session:
+            # Top users by aggregate spend — same query shape as
+            # `/quota/top-users` (no breakdown). The LEFT JOIN on
+            # `users` preserves attribution for deleted users.
+            user_rows = (
+                await session.execute(
+                    sql_text(
+                        """
+                        SELECT
+                            u.user_id,
+                            COALESCE(usr.email, '')        AS email,
+                            u.input_tokens                 AS input_tokens,
+                            u.output_tokens                AS output_tokens,
+                            (u.input_tokens + u.output_tokens) AS total_tokens
+                        FROM codeguard_user_usage u
+                        LEFT JOIN users usr ON usr.id = u.user_id
+                        WHERE u.organization_id = :org_id
+                          AND u.period_start    = date_trunc('month', NOW())::date
+                        ORDER BY total_tokens DESC, u.user_id
+                        LIMIT :limit
+                        """
+                    ),
+                    {"org_id": str(org_id), "limit": bounded_limit},
+                )
+            ).all()
+
+            breakdown_by_user: dict[str, list[dict[str, Any]]] = {}
+            if user_rows:
+                # Pull every (user, route) row for the top-N users in a
+                # single query — same N+1-avoidance the HTTP route does.
+                user_ids = [str(r.user_id) for r in user_rows]
+                br_rows = (
+                    await session.execute(
+                        sql_text(
+                            """
+                            SELECT user_id, route_key, input_tokens, output_tokens
+                            FROM codeguard_user_usage_by_route
+                            WHERE organization_id = :org_id
+                              AND period_start    = date_trunc('month', NOW())::date
+                              AND user_id = ANY(CAST(:user_ids AS UUID[]))
+                            ORDER BY user_id, (input_tokens + output_tokens) DESC
+                            """
+                        ),
+                        {"org_id": str(org_id), "user_ids": user_ids},
+                    )
+                ).all()
+                for br in br_rows:
+                    breakdown_by_user.setdefault(str(br.user_id), []).append(
+                        {
+                            "route_key": br.route_key,
+                            "input_tokens": int(br.input_tokens),
+                            "output_tokens": int(br.output_tokens),
+                            "total_tokens": int(br.input_tokens) + int(br.output_tokens),
+                        }
+                    )
+
+            users = [
+                {
+                    "user_id": str(r.user_id),
+                    "email": r.email or "",
+                    "input_tokens": int(r.input_tokens),
+                    "output_tokens": int(r.output_tokens),
+                    "total_tokens": int(r.total_tokens),
+                    "routes": breakdown_by_user.get(str(r.user_id), []),
+                }
+                for r in user_rows
+            ]
+    finally:
+        await engine.dispose()
+
+    return {
+        "org_id": str(org_id),
+        "limit": bounded_limit,
+        "users": users,
+    }
+
+
+def format_usage_by_route(data: dict[str, Any]) -> str:
+    """Pretty-print the usage-by-route drill-down. Outer rows are
+    users; each user's `routes` render as an indented sub-block.
+
+    Format choices:
+      * Outer table is fixed-width so `quotas usage-by-route ... |
+        grep alice` returns a useful line.
+      * Sub-block prefixes routes with `  /` so a grep on `/scan`
+        works across the whole output regardless of which user owns
+        the row.
+      * vi-VN dot-grouping for readability of large numbers.
+    """
+    users = data.get("users") or []
+    if not users:
+        return "No usage rows for this org in the current period.\n"
+    lines: list[str] = []
+    header = f"{'user':<40}  {'in':>12}  {'out':>12}  {'total':>12}"
+    lines.append(header)
+    lines.append("-" * len(header))
+    for u in users:
+        # Empty email = user deleted between spend and read; render
+        # with an 8-char user_id stub so the row stays legible.
+        email = u["email"] or f"(deleted:{u['user_id'][:8]})"
+        lines.append(
+            f"{email[:40]:<40}  "
+            f"{_format_vi_int(u['input_tokens']):>12}  "
+            f"{_format_vi_int(u['output_tokens']):>12}  "
+            f"{_format_vi_int(u['total_tokens']):>12}"
+        )
+        for r in u.get("routes") or []:
+            # `  /` indented prefix for greppability — `grep '/scan'`
+            # finds every scan row across all users in one pass.
+            lines.append(
+                f"  /{r['route_key']:<37}  "
+                f"{_format_vi_int(r['input_tokens']):>12}  "
+                f"{_format_vi_int(r['output_tokens']):>12}  "
+                f"{_format_vi_int(r['total_tokens']):>12}"
+            )
+    return "\n".join(lines) + "\n"
+
+
+def _format_vi_int(n: int | None) -> str:
+    """vi-VN dot-grouped integer formatting. Pulled out as a private
+    helper so both `format_usage_by_route` and any future ops command
+    use the same formatting — keeps grep patterns stable across
+    subcommands."""
+    if n is None:
+        return "—"
+    return f"{n:,}".replace(",", ".")
+
+
 # ---------- main --------------------------------------------------------
 
 
@@ -931,6 +1086,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         "table. Read-only — doesn't touch the DB.",
     )
 
+    # `usage-by-route` — drill into one org's per-user × per-route
+    # spend for the current period. Same data the
+    # `/quota/top-users?breakdown=true` route returns, but available
+    # to ops without HTTP / JWT. Hyphen in name (matches `quota-history`
+    # convention) → translated to `usage_by_route` arg attribute by
+    # argparse.
+    ubr_p = sub.add_parser(
+        "usage-by-route",
+        help="Drill into one org's per-user × per-route spend for the "
+        "current period (top consumers + their per-route breakdown).",
+    )
+    ubr_p.add_argument("org_id", type=UUID, help="Organization UUID.")
+    ubr_p.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Max users to include (server-clamped 1..50). Default 10 "
+        "matches the dashboard's top-N panel; bump to 50 when triaging "
+        "a heavy month.",
+    )
+
     args = parser.parse_args(argv)
 
     if args.cmd == "set":
@@ -1000,6 +1176,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.stdout.write("\n")
         else:
             sys.stdout.write(format_routes(rows))
+    elif args.cmd == "usage-by-route":
+        result = asyncio.run(cmd_usage_by_route(args.org_id, limit=args.limit))
+        if args.json:
+            json.dump(result, sys.stdout, indent=2)
+            sys.stdout.write("\n")
+        else:
+            sys.stdout.write(format_usage_by_route(result))
     return 0
 
 

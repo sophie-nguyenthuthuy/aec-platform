@@ -1084,3 +1084,140 @@ async def test_record_user_usage_by_route_does_not_leak_across_orgs(session: Asy
             {"org": str(org_b)},
         )
         await session.commit()
+
+
+# ---------- retention prune for codeguard_quota_audit_log ---------------
+#
+# `codeguard_quota_audit_log` is in `RETENTION_POLICIES` with a 730-day
+# (2-year) age cutoff and `archive=True`. The other policies have Tier 3
+# tests in `test_retention.py` (mocked); this one was added without an
+# integration test, so the prune SQL has never actually been exercised
+# against the real table. Pin the round-trip:
+#
+#   1. Insert an old audit row (occurred_at = NOW() - 800 days).
+#   2. Insert a fresh audit row (occurred_at = NOW()).
+#   3. Run `prune_table(policy)` with the audit-log policy.
+#   4. Assert the old row is deleted, the fresh row remains.
+#
+# Catches: a regression in the policy's `age_column`, a typo in the
+# table name, or a `default_days` value that's too short.
+
+
+async def test_retention_prune_deletes_old_audit_log_rows_only(session: AsyncSession, two_test_orgs):
+    """Insert one stale audit row and one fresh one; run the prune
+    against the codeguard_quota_audit_log policy; only the stale
+    row should be deleted.
+    """
+    from services.retention import RETENTION_POLICIES, prune_table
+
+    org_id, _ = two_test_orgs
+
+    # Find the policy entry for codeguard_quota_audit_log. If the
+    # policy has been wiped from the registry, the snapshot test
+    # catches that — here we just need to exercise the prune.
+    policy = next(
+        (p for p in RETENTION_POLICIES if p.table == "codeguard_quota_audit_log"),
+        None,
+    )
+    if policy is None:
+        pytest.skip("codeguard_quota_audit_log policy missing — caught by snapshot test")
+
+    # Stale row: 800 days old (well past the 730-day cutoff). Fresh
+    # row: NOW(). Both belong to the same test org so the CASCADE
+    # cleanup at fixture teardown wipes them.
+    await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_quota_audit_log
+                (organization_id, action, before, after, actor, occurred_at)
+            VALUES
+                (:org, 'quota_set', NULL, NULL, 'test-stale',
+                 NOW() - INTERVAL '800 days'),
+                (:org, 'quota_set', NULL, NULL, 'test-fresh',
+                 NOW())
+            """
+        ),
+        {"org": str(org_id)},
+    )
+    await session.commit()
+
+    # Two rows for this org before the prune.
+    pre_count = (
+        await session.execute(
+            text("SELECT COUNT(*) FROM codeguard_quota_audit_log WHERE organization_id = :org"),
+            {"org": str(org_id)},
+        )
+    ).scalar_one()
+    assert pre_count == 2, f"Expected 2 rows for setup, got {pre_count}"
+
+    # Run the prune — archive=True means the row WOULD be S3-archived,
+    # but in CI without S3 credentials the archive helper silently
+    # skips (see services.retention._archive_to_s3). The DELETE still
+    # executes regardless. Pin that contract here too: a missing S3
+    # config must not block the prune itself, otherwise unbounded
+    # growth would happen quietly.
+    result = await prune_table(session, policy=policy)
+    await session.commit()
+
+    assert result["table"] == "codeguard_quota_audit_log"
+    assert result["deleted_count"] == 1, (
+        f"Expected 1 row deleted (the 800-day-old stale one); "
+        f"got {result['deleted_count']}. Either the age_column is "
+        "wrong (not occurred_at?) or default_days got shortened."
+    )
+
+    # Survivor: only the fresh row remains.
+    survivors = (
+        await session.execute(
+            text("SELECT actor FROM codeguard_quota_audit_log WHERE organization_id = :org"),
+            {"org": str(org_id)},
+        )
+    ).all()
+    assert len(survivors) == 1
+    assert survivors[0].actor == "test-fresh", (
+        f"Wrong row survived: actor={survivors[0].actor!r}. "
+        "The prune may be deleting by INSERT order rather than by "
+        "occurred_at — check the WHERE clause in services.retention."
+    )
+
+
+async def test_retention_prune_idempotent_when_no_old_rows(session: AsyncSession, two_test_orgs):
+    """Running the prune twice in a row when no old rows exist must
+    return deleted_count=0 both times — the prune is read-write but
+    idempotent on a clean table. Pin so a regression that started
+    deleting fresh rows would fail here loudly.
+    """
+    from services.retention import RETENTION_POLICIES, prune_table
+
+    org_id, _ = two_test_orgs
+    policy = next(
+        (p for p in RETENTION_POLICIES if p.table == "codeguard_quota_audit_log"),
+        None,
+    )
+    if policy is None:
+        pytest.skip("codeguard_quota_audit_log policy missing")
+
+    # Fresh row only — within the retention window.
+    await session.execute(
+        text(
+            """
+            INSERT INTO codeguard_quota_audit_log
+                (organization_id, action, before, after, actor)
+            VALUES (:org, 'quota_set', NULL, NULL, 'test-fresh-only')
+            """
+        ),
+        {"org": str(org_id)},
+    )
+    await session.commit()
+
+    result_1 = await prune_table(session, policy=policy)
+    await session.commit()
+    result_2 = await prune_table(session, policy=policy)
+    await session.commit()
+
+    assert result_1["deleted_count"] == 0, (
+        f"Fresh row was deleted (count={result_1['deleted_count']}); "
+        "the prune is overreaching. Either default_days is far too "
+        "short or the age_column comparison is wrong-direction."
+    )
+    assert result_2["deleted_count"] == 0

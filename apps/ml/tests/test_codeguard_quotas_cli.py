@@ -972,3 +972,147 @@ def test_main_routes_subcommand_with_json_flag_emits_valid_json(capsys):
     parsed = _json.loads(out)
     assert isinstance(parsed, list)
     assert any(r["route_key"] == "scan" for r in parsed)
+
+
+# ---------- usage-by-route (per-user × per-route drill-down) -----------
+
+
+@pytest.mark.asyncio
+async def test_usage_by_route_returns_users_with_breakdown(monkeypatch):
+    """`cmd_usage_by_route` issues TWO queries per call: top-users
+    SELECT then breakdown SELECT for those user_ids. Pin the wiring
+    by stubbing the engine and checking both fired with the right
+    bound params."""
+    org_id = uuid4()
+    user_id = uuid4()
+    user_row = _RowStub(
+        user_id=user_id,
+        email="alice@example.com",
+        input_tokens=1000,
+        output_tokens=200,
+        total_tokens=1200,
+    )
+    breakdown_row = _RowStub(
+        user_id=user_id,
+        route_key="scan",
+        input_tokens=800,
+        output_tokens=160,
+    )
+
+    # Engine stub: first execute returns the user row, second returns
+    # the breakdown row. Mirrors the order cmd_usage_by_route issues
+    # them. The factory's return value is unused here (we assert on
+    # the function's output, not on session.execute call count).
+    _stub_engine_factory(monkeypatch, [[user_row], [breakdown_row]])
+
+    result = await cli.cmd_usage_by_route(org_id, limit=10)
+
+    assert result["org_id"] == str(org_id)
+    assert result["limit"] == 10
+    assert len(result["users"]) == 1
+    user = result["users"][0]
+    assert user["email"] == "alice@example.com"
+    assert user["routes"] == [
+        {
+            "route_key": "scan",
+            "input_tokens": 800,
+            "output_tokens": 160,
+            "total_tokens": 960,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_usage_by_route_clamps_limit_to_50(monkeypatch):
+    """Server-clamps to 1..50 — same as `/quota/top-users`. A request
+    for limit=999 must come back at 50."""
+    _stub_engine_factory(monkeypatch, [[]])
+
+    result = await cli.cmd_usage_by_route(uuid4(), limit=999)
+    assert result["limit"] == 50
+
+
+@pytest.mark.asyncio
+async def test_usage_by_route_skips_breakdown_query_when_no_users(monkeypatch):
+    """No top-users → no breakdown query needed (nothing to look up
+    routes for). Pin so the second query doesn't fire on an empty
+    org — wasted round-trip otherwise."""
+    session = _stub_engine_factory(monkeypatch, [[]])
+
+    await cli.cmd_usage_by_route(uuid4(), limit=10)
+    # Only the top-users SELECT executed; no breakdown SELECT.
+    assert session.execute.call_count == 1
+
+
+def test_format_usage_by_route_renders_users_with_indented_routes():
+    """Outer rows = users; each user's routes render as `  /<key>` with
+    indentation. Pin the indented `/` prefix so `grep '/scan'` returns
+    every scan row across all users."""
+    out = cli.format_usage_by_route(
+        {
+            "org_id": "00000000-0000-0000-0000-000000000001",
+            "limit": 10,
+            "users": [
+                {
+                    "user_id": "00000000-0000-0000-0000-000000000099",
+                    "email": "alice@example.com",
+                    "input_tokens": 1000,
+                    "output_tokens": 200,
+                    "total_tokens": 1200,
+                    "routes": [
+                        {
+                            "route_key": "scan",
+                            "input_tokens": 800,
+                            "output_tokens": 160,
+                            "total_tokens": 960,
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    assert "alice@example.com" in out
+    # Indented route prefix — pin so grep workflows stay stable.
+    assert "  /scan" in out
+
+
+def test_format_usage_by_route_handles_empty_users():
+    """Empty `users` → friendly sentinel rather than a header-only
+    table (which looks like a parse failure)."""
+    out = cli.format_usage_by_route(
+        {"org_id": "00000000-0000-0000-0000-000000000001", "limit": 10, "users": []}
+    )
+    assert "No usage rows" in out
+
+
+def test_format_usage_by_route_renders_deleted_user_as_id_stub():
+    """Empty email = user deleted between recording and read. Render
+    with `(deleted:<8-char-stub>)` so the row is still legible
+    rather than silently empty."""
+    out = cli.format_usage_by_route(
+        {
+            "org_id": "00000000-0000-0000-0000-000000000001",
+            "limit": 10,
+            "users": [
+                {
+                    "user_id": "ab12cd34-efef-1234-5678-9abcdef01234",
+                    "email": "",
+                    "input_tokens": 50,
+                    "output_tokens": 10,
+                    "total_tokens": 60,
+                    "routes": [],
+                }
+            ],
+        }
+    )
+    assert "(deleted:ab12cd34)" in out
+
+
+def test_format_vi_int_dot_groups():
+    """vi-VN convention: `1.000.000` not `1,000,000`. Pin the helper
+    so a refactor doesn't accidentally start emitting comma-grouped
+    numbers (which clash with the format other ops dashboards use)."""
+    assert cli._format_vi_int(1_000) == "1.000"
+    assert cli._format_vi_int(1_000_000) == "1.000.000"
+    assert cli._format_vi_int(0) == "0"
+    assert cli._format_vi_int(None) == "—"
