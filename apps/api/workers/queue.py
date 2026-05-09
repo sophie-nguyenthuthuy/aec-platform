@@ -274,6 +274,264 @@ async def daily_activity_digest_cron(ctx: dict) -> dict:
         return await dispatch_daily_digests(session)
 
 
+async def retention_prune_cron(ctx: dict) -> dict:
+    """Daily prune of unbounded growth tables — see services.retention.
+
+    Runs at 03:00 UTC (~10:00 ICT) so it lands during the quietest
+    customer-facing window. The job is bounded by
+    `_MAX_PRUNE_ROWS_PER_RUN` per table per run; a backed-up tenant
+    catches up over multiple days, never blocking inserts.
+
+    Cross-tenant: `AdminSessionFactory` (BYPASSRLS) so we see all
+    orgs' rows. The age filter is the per-table predicate; org
+    isolation isn't a correctness concern here because we're deleting
+    by `created_at`, not exposing rows back to a user.
+    """
+    from db.session import AdminSessionFactory
+    from services.retention import run_retention_cron
+
+    async with AdminSessionFactory() as session:
+        summaries = await run_retention_cron(session)
+    total = sum(s.get("deleted_count", 0) for s in summaries)
+    logger.info("retention_prune_cron: deleted %d rows across %d tables: %s", total, len(summaries), summaries)
+    return {"deleted_total": total, "tables": summaries}
+
+
+async def webhook_drain_cron(ctx: dict) -> dict:
+    """Drain the webhook outbox: pick due deliveries, sign + POST,
+    mark delivered or schedule retry.
+
+    Cross-tenant by design — uses `AdminSessionFactory` because the
+    discovery query needs to see every org's pending deliveries. The
+    delivery rows themselves carry `organization_id`, so per-tenant
+    health metrics stay possible without re-querying.
+
+    Runs every minute (see WorkerSettings.cron_jobs). The minute
+    cadence is the floor on retry latency for a flaky receiver — if
+    we ever need sub-minute end-to-end, switch to a per-event
+    `pool.enqueue_job("webhook_deliver_one", delivery_id)` plus this
+    cron as a safety net for stuck rows.
+    """
+    from db.session import AdminSessionFactory
+    from services.webhooks import drain_pending
+
+    async with AdminSessionFactory() as session:
+        return await drain_pending(session)
+
+
+async def rfq_deadlines_cron(ctx: dict) -> dict:
+    """Auto-expire RFQ slots whose deadline has passed.
+
+    Why this exists: without it, an RFQ past its deadline silently sits
+    as `sent`/`responded` forever. Buyers see slot status `dispatched`
+    on suppliers who never quoted and have no idea whether to chase
+    them. The cron runs daily and:
+
+      * For each open RFQ (status NOT IN ('closed', 'expired')) whose
+        `deadline + 1 day` is in the past:
+        * Flips per-supplier slots whose status is `dispatched` /
+          `bounced` to `expired` (they had their chance; the buyer
+          shouldn't see them as still-pending).
+        * If NO supplier responded with a quote, flips RFQ status to
+          `expired` so the buyer's inbox doesn't carry deadweight.
+        * If at least one supplier responded, leaves status as
+          `responded` — the buyer can still accept a quote.
+
+    The `+ 1 day` grace is for late submissions: a supplier in a
+    different timezone might respond at 23:59 their time and have it
+    arrive after our 00:00 UTC clock cutoff.
+
+    Cross-tenant by design — runs under `AdminSessionFactory` for the
+    same reason `weekly_report_cron` does. The mutations only touch
+    RFQs whose deadline has already passed; tenant isolation isn't a
+    correctness concern here.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import text as sql_text
+
+    from db.session import AdminSessionFactory
+
+    cutoff = date.today() - timedelta(days=1)
+    expired_slots = 0
+    expired_rfqs = 0
+
+    async with AdminSessionFactory() as session:
+        # Pull RFQs we might need to mutate. The (status, deadline)
+        # combination is bounded — most RFQs close within their
+        # deadline, so the result set is small even at year+ runtime.
+        #
+        # `organization_id` joins the audit emit below — each affected
+        # RFQ gets a `costpulse.rfq.slots_expired` row attributed to
+        # its tenant so admins see the auto-expiry trail per-org.
+        rows = (
+            (
+                await session.execute(
+                    sql_text(
+                        """
+                        SELECT id, organization_id, status, sent_to, responses, deadline
+                        FROM rfqs
+                        WHERE status NOT IN ('closed', 'expired')
+                          AND deadline IS NOT NULL
+                          AND deadline < :cutoff
+                        """
+                    ),
+                    {"cutoff": cutoff},
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+        # Lazy import — keeps the cron module load cheap and avoids a
+        # cycle (audit imports webhooks, which imports the cron-side
+        # `enqueue_event`).
+        from services.audit import record as audit_record
+
+        for row in rows:
+            responses = list(row["responses"] or [])
+            mutated = False
+            any_responded = False
+            row_expired_slots = 0
+            for entry in responses:
+                if not isinstance(entry, dict):
+                    continue
+                status = entry.get("status")
+                if status == "responded":
+                    any_responded = True
+                elif status in ("dispatched", "bounced", None):
+                    entry["status"] = "expired"
+                    expired_slots += 1
+                    row_expired_slots += 1
+                    mutated = True
+
+            new_rfq_status = row["status"]
+            if not any_responded:
+                new_rfq_status = "expired"
+                expired_rfqs += 1
+
+            if mutated or new_rfq_status != row["status"]:
+                await session.execute(
+                    sql_text(
+                        """
+                        UPDATE rfqs
+                        SET status = :status, responses = :responses
+                        WHERE id = :id
+                        """
+                    ).bindparams(
+                        sql_bindparam("responses", type_=_JSONB()),
+                    ),
+                    {"id": row["id"], "status": new_rfq_status, "responses": responses},
+                )
+                # Audit the auto-expiry. `auth=None` because the cron
+                # is the actor — there's no human at the keyboard. The
+                # before/after diff captures only the fields that
+                # changed (status + count of expired slots) so the row
+                # stays small and PII-free.
+                await audit_record(
+                    session,
+                    organization_id=row["organization_id"],
+                    auth=None,
+                    action="costpulse.rfq.slots_expired",
+                    resource_type="rfq",
+                    resource_id=row["id"],
+                    before={"status": row["status"]},
+                    after={
+                        "status": new_rfq_status,
+                        "expired_slot_count": row_expired_slots,
+                    },
+                )
+        await session.commit()
+
+    logger.info(
+        "rfq_deadlines_cron: expired %d slot(s) across %d closed RFQ(s)",
+        expired_slots,
+        expired_rfqs,
+    )
+    return {"expired_slots": expired_slots, "expired_rfqs": expired_rfqs}
+
+
+async def codeguard_quota_reconcile_cron(ctx: dict) -> dict:
+    """Weekly drift check between codeguard_org_usage and SUM(codeguard_user_usage).
+
+    Sets the `codeguard_quota_drift_rows` gauge to the count of (org,
+    period) rows where the two tables diverge by more than 1000 tokens
+    (combined input + output). The `CodeguardQuotaUsageDrift` alert
+    fires on a sustained nonzero value.
+
+    FULL OUTER JOIN so an (org, period) present in only one side
+    still contributes to the drift count — both asymmetries (org_usage
+    missing user totals, OR user totals missing org row) indicate
+    attribution loss worth alerting on.
+
+    Cross-tenant: AdminSessionFactory (BYPASSRLS) so the SUM() sees
+    every org's rows. Weekly cadence (not daily): drift is an
+    attribution-loss signal, not a hot-path correctness check.
+    """
+    from sqlalchemy import text as sql_text
+
+    from core.metrics import codeguard_quota_drift_rows
+    from db.session import AdminSessionFactory
+
+    threshold_tokens = 1000
+
+    async with AdminSessionFactory() as session:
+        result = await session.execute(
+            sql_text(
+                """
+                WITH user_totals AS (
+                    SELECT organization_id, period_start,
+                           SUM(input_tokens)  AS u_in,
+                           SUM(output_tokens) AS u_out
+                    FROM codeguard_user_usage
+                    GROUP BY organization_id, period_start
+                )
+                SELECT COUNT(*) AS drift_rows
+                FROM codeguard_org_usage o
+                FULL OUTER JOIN user_totals u
+                  ON  o.organization_id = u.organization_id
+                  AND o.period_start    = u.period_start
+                WHERE
+                    ABS(
+                        COALESCE(o.input_tokens, 0)  - COALESCE(u.u_in, 0)
+                      + COALESCE(o.output_tokens, 0) - COALESCE(u.u_out, 0)
+                    ) > :threshold
+                """
+            ),
+            {"threshold": threshold_tokens},
+        )
+        drift_rows = int(result.scalar_one() or 0)
+
+    # Set explicitly on every run (including clean=0) so the gauge
+    # distinguishes "clean" from "metric never published" — the
+    # latter would look like the cron stopped firing.
+    codeguard_quota_drift_rows.set(drift_rows)
+    logger.info(
+        "codeguard_quota_reconcile_cron: drift_rows=%d (threshold=%d tokens)",
+        drift_rows,
+        threshold_tokens,
+    )
+    return {"drift_rows": drift_rows, "threshold_tokens": threshold_tokens}
+
+
+def sql_bindparam(*args, **kwargs):
+    """Local re-export so the cron body doesn't import sqlalchemy at module level.
+
+    Keeps the import lazy (the cron body runs once a day) and the import
+    statement physically next to the call site for readability.
+    """
+    from sqlalchemy import bindparam
+
+    return bindparam(*args, **kwargs)
+
+
+def _JSONB():
+    """Same lazy-import rationale as `sql_bindparam` above."""
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    return JSONB
+
+
 # ---------- Worker settings ----------
 
 
@@ -301,6 +559,27 @@ class WorkerSettings:
         # to every user who has watched at least one project. Empty
         # digests are skipped so a quiet day produces zero email noise.
         cron(daily_activity_digest_cron, hour=0, minute=0),
+        # Every day 01:00 UTC (~08:00 ICT) — auto-expire RFQ slots whose
+        # deadline (+1 day grace) has passed. Without this, the buyer's
+        # inbox carries dispatched-but-never-quoted slots forever and
+        # status filters lose their meaning.
+        cron(rfq_deadlines_cron, hour=1, minute=0),
+        # Every minute — drain the webhook outbox. A 1-minute floor
+        # bounds retry latency for transient receiver failures. Idempotent
+        # via `SELECT … FOR UPDATE SKIP LOCKED` so two workers running
+        # concurrently won't double-deliver.
+        cron(webhook_drain_cron, minute={i for i in range(60)}),
+        # Daily 03:00 UTC (~10:00 ICT) — prune unbounded telemetry
+        # tables (audit_events, search_queries, import_jobs,
+        # delivered/failed webhook_deliveries) per `RETENTION_POLICIES`.
+        # Capped at 10k rows per table per run so a backed-up tenant
+        # catches up over multiple days without locking up the table.
+        cron(retention_prune_cron, hour=3, minute=0),
+        # Every Monday 04:00 UTC (~11:00 ICT) — reconcile codeguard
+        # org-level vs per-user usage. Sets `codeguard_quota_drift_rows`;
+        # `CodeguardQuotaUsageDrift` alerts on sustained nonzero values.
+        # Weekly: drift is attribution loss, not hot-path correctness.
+        cron(codeguard_quota_reconcile_cron, weekday="mon", hour=4, minute=0),
     ]
     max_jobs = 8
     job_timeout = 900  # 15 min — weekly report with PDF rendering can be slow

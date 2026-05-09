@@ -1,6 +1,9 @@
 "use client";
 import { useParams } from "next/navigation";
 import { ChangeOrderCard } from "@aec/ui/pulse";
+
+import { ResourceAuditPanel } from "@/components/ResourceAuditPanel";
+
 import {
   useAnalyzeChangeOrder,
   useApproveChangeOrder,
@@ -26,15 +29,24 @@ export default function PulseChangeOrdersPage() {
 
       <div className="grid gap-3 md:grid-cols-2">
         {(cosQ.data ?? []).map((co) => (
-          <ChangeOrderCard
-            key={co.id}
-            changeOrder={co}
-            analyzing={analyze.isPending && analyze.variables === co.id}
-            onAnalyze={(id) => analyze.mutate(id)}
-            onApprove={(id, decision) =>
-              approve.mutate({ id, decision: { decision } })
-            }
-          />
+          <div key={co.id} className="space-y-2">
+            <ChangeOrderCard
+              changeOrder={co}
+              analyzing={analyze.isPending && analyze.variables === co.id}
+              onAnalyze={(id) => analyze.mutate(id)}
+              onApprove={(id, decision) =>
+                approve.mutate({ id, decision: { decision } })
+              }
+            />
+            {/* Per-CO audit drilldown — answers "who approved this CO?"
+                without leaving the page. Renders nothing for non-admin
+                viewers and nothing when there's no audit history. */}
+            <ResourceAuditPanel
+              resourceType="change_orders"
+              resourceId={co.id}
+              limit={5}
+            />
+          </div>
         ))}
       </div>
     </div>

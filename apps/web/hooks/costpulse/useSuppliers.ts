@@ -38,6 +38,48 @@ export function useSuppliers(filters: SupplierFilters = {}) {
   });
 }
 
+/**
+ * Download the org's supplier directory as a binary blob.
+ *
+ * Mirrors `useExportBoq`: fetch with auth headers, get the filename
+ * out of `Content-Disposition`, synthesise an `<a download>` click,
+ * revoke the object URL on a delay so the browser has time to start
+ * the download.
+ *
+ * The returned function takes the format string (`"xlsx" | "csv"`) so
+ * a single button group can offer both. The exported file's header row
+ * matches what the import endpoint recognises — buyers can round-trip:
+ * export, edit in Excel, re-import.
+ */
+export function useExportSuppliers() {
+  const { token, orgId } = useSession();
+  return async function downloadSuppliers(format: "xlsx" | "csv"): Promise<void> {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+    const res = await fetch(`${baseUrl}/api/v1/costpulse/suppliers/export.${format}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-Org-ID": orgId,
+      },
+    });
+    if (!res.ok) {
+      throw new Error(`Supplier export failed: HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    try {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `suppliers.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  };
+}
+
+
 export function useRfqs(projectId?: UUID) {
   const { token, orgId } = useSession();
   return useQuery({

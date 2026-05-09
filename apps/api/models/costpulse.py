@@ -103,6 +103,15 @@ class Rfq(Base):
     sent_to: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID(as_uuid=True)), default=list)
     responses: Mapped[list] = mapped_column(JSONB, default=list)
     deadline: Mapped[date | None] = mapped_column(Date)
+    # Buyer's "pick a winner" trail — added by migration 0024_rfq_acceptance.
+    # Set when the buyer accepts a quote; null until then. The frontend's
+    # QuoteComparisonTable renders a "✓ Accepted" badge on the column whose
+    # supplier_id matches this — so the field absence on the model meant
+    # every RFQ rendered as "no winner picked yet" no matter the DB state.
+    accepted_supplier_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("suppliers.id", ondelete="SET NULL")
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(TZ)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 

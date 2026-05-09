@@ -61,10 +61,16 @@ test.describe("real invitation flow", () => {
     await page.getByLabel(/Email/i).fill(ADMIN_EMAIL);
     await page.getByLabel(/Mật khẩu/i).fill(ADMIN_PASSWORD);
     await page.getByRole("button", { name: /Đăng nhập/i }).click();
-    await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:3102\/(\?|$)/);
+    // `/` redirects to `/winwork` server-side; tolerate either.
+    await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:3102\/(?:winwork|\?|$)/);
 
     await page.goto("/settings/members");
-    await expect(page.getByRole("heading", { name: /Thành viên/i })).toBeVisible();
+    // The members page now has three headings whose text *contains*
+    // "Thành viên" (page title h2 + 2 section h3s); use `exact` so the
+    // page-title h2 is the only match — strict mode would 422 otherwise.
+    await expect(
+      page.getByRole("heading", { name: "Thành viên", exact: true }),
+    ).toBeVisible();
 
     // ---- Step 2: admin issues invitation ----
     const invitee = uniqueInviteeEmail();
@@ -98,10 +104,10 @@ test.describe("real invitation flow", () => {
     await page.getByLabel(/Mật khẩu/i).fill(inviteePw);
     await page.getByRole("button", { name: /Chấp nhận/i }).click();
 
-    // After accept the form auto-signs-in and replaces to /. The
-    // dashboard should render with the invitee's email + Dev Org +
-    // role=member badge (lowercase from the api).
-    await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:3102\/(\?|$)/, {
+    // After accept the form auto-signs-in and replaces to `/`, which
+    // redirects to `/winwork` server-side. The dashboard should render
+    // with the invitee's email + Dev Org + role=member badge.
+    await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:3102\/(?:winwork|\?|$)/, {
       timeout: 15_000,
     });
     await expect(page.getByText(invitee)).toBeVisible();

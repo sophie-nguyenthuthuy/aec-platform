@@ -30,6 +30,67 @@ jobs:
           python-version: "3.11"
           cache: pip
       - uses: pre-commit/action@v3.0.1
+        env:
+          # The local `codeguard-surface-snapshot` hook (see
+          # .pre-commit-config.yaml) is `language: system` and shells
+          # out to `pytest`. It assumes the runner has the api venv
+          # active — true for developer machines (after `pip install
+          # -r apps/api/requirements-dev.txt`), false for the
+          # pre-commit job here, which only installs Python + pre-commit
+          # itself. Skipping in CI is safe because the dedicated
+          # `codeguard-surface` job below runs the same snapshot test
+          # against the full api dependency tree.
+          SKIP: codeguard-surface-snapshot,integrator-surface-snapshot
+
+  # Fast gate against silent revert of the codeguard surface contract.
+  # Pins the exact set of routes/metrics/cron jobs/retention policies
+  # the system depends on (the snapshot test) AND that every `aec_*` /
+  # `codeguard_*` token in the alert YAML resolves to a real registered
+  # metric (the prometheus rules validator). Independent job (not a
+  # step inside `python-api`) so a snapshot failure goes red on its own
+  # line in the PR's checks list rather than buried inside a 5-minute
+  # pytest run.
+  codeguard-surface:
+    name: Codeguard surface contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install minimal deps
+        working-directory: apps/api
+        # The snapshot test imports the router, the metric registry,
+        # and `WorkerSettings.cron_jobs` — which transitively need the
+        # full requirements set. The validator script also imports
+        # `core.metrics` for registry introspection. Same install as
+        # `python-api` for parity; no alembic / Postgres steps.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Snapshot — codeguard router + metrics + crons + retention
+        working-directory: apps/api
+        run: pytest tests/test_codeguard_surface_snapshot.py -q
+      - name: Validate — Prometheus alert rules reference real metrics
+        run: python scripts/validate_prometheus_rules.py infra/prometheus/codeguard.alerts.yml
+
+  # `integrator-surface` job intentionally omitted on this branch.
+  #
+  # The job and its target test (tests/test_integrator_surface_snapshot.py)
+  # were added by parallel-session automation that pins surface code
+  # (Settings.metrics_token, AuthContext.api_key_mode/api_key_id,
+  # services.api_keys.mint_key(mode=...), KEY_MODES, routers.ops,
+  # WebhookDeliveryOut.subscription_id, …) — none of which is committed
+  # to this branch. With the test file missing, CI bails with
+  # `file or directory not found`. With the test file added (commit
+  # 6597035, since reverted in 2d6b1c7), all 12 tests fail at import
+  # time because the surface they guard isn't on the branch.
+  #
+  # The right fix lives in the PR that lands the integrator surface
+  # feature: re-add this job, the test file, AND the source code in a
+  # single change. Until then, leaving the job out keeps the PR's CI
+  # honest about what's actually on the branch.
 
   node:
     name: Node — typecheck + lint + web build
@@ -59,8 +120,21 @@ jobs:
       # `packages/ui`. Fast (~2s), runs in jsdom, no browser. Catches
       # prop/state/handler regressions that Playwright can only see via
       # full-page workflows. See docs/testing.md §"UI component lane".
-      - name: Vitest (packages/ui — component tests)
-        run: pnpm --filter @aec/ui test
+      # `:coverage` runs the same suite under v8 instrumentation and
+      # enforces the thresholds in `packages/ui/vitest.config.ts`.
+      # Slower than plain `test` (~3x) but catches "tests dropped"
+      # regressions that would otherwise silently land.
+      - name: Vitest (packages/ui — component tests + coverage)
+        run: pnpm --filter @aec/ui test:coverage
+
+      # Library-level tests for `apps/web/lib/*` — apiFetch + the
+      # api-client.ts wrapper. Pure-function unit tests, ~1-2s in jsdom.
+      # The contract these enforce (URL building, header merging,
+      # body=undefined → no body, error envelope unwrap) is what every
+      # TanStack hook in the app depends on; a regression here breaks
+      # every dashboard page. See docs/testing.md §"Web lib lane".
+      - name: Vitest (apps/web — lib + hooks unit tests + coverage)
+        run: pnpm --filter @aec/web test:coverage
 
       - name: Build web
         run: pnpm --filter @aec/web build
@@ -72,6 +146,18 @@ jobs:
           # ANON_KEY (anon was renamed). Setting both keeps both code paths
           # happy if the dep gets bumped or rolled back.
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+
+      # Bundle-size guard. Compares the just-built `.next/static/{chunks,css}`
+      # against the baseline in `apps/web/.bundle-baseline.json` and fails
+      # if any section grew by more than 10%. Catches the kind of
+      # regression that lands when someone pulls in a heavy library by
+      # accident (e.g. the full lodash bundle instead of `lodash-es`).
+      #
+      # When a feature legitimately needs more bytes, regenerate the
+      # baseline locally with `pnpm --filter @aec/web bundle:update` and
+      # commit the updated JSON in the same PR.
+      - name: Bundle size guard
+        run: pnpm --filter @aec/web bundle:check
 
       # ---- Playwright E2E ----
       # Tests live in apps/web/tests/e2e/*.spec.ts. The Playwright config
@@ -207,7 +293,7 @@ jobs:
           alembic downgrade base
           alembic upgrade head
 
-      - name: Pytest (unit + integration)
+      - name: Pytest (unit + integration, with coverage)
         working-directory: apps/api
         # `--integration` opts the 12 lane-tagged tests into the run. The lane
         # is wired by apps/api/tests/conftest.py — without the flag those
@@ -215,10 +301,31 @@ jobs:
         # containers above plus the alembic step (which provisions aec_app)
         # satisfy every requirement.
         #
+        # `-p no:randomly` pins file/test order so a CI red is reproducible.
+        # pytest-randomly is loaded by default (informally useful — it surfaces
+        # order-dependent flakes during local dev); but on the gate we want
+        # determinism so a flake that fails for run #57 fails for everyone
+        # who reproduces locally with the same command. Order-dependent
+        # flakes get caught by the separate `python-api-shakeout` job
+        # below, which runs the same suite WITH randomization and is
+        # informational (continue-on-error).
+        #
         # `--junitxml` writes a structured report into test-results/ so the
         # upload-artifact step below has something to publish on failure.
         # Mirrors the Playwright trace upload in the Node job.
-        run: pytest --integration -q --junitxml=test-results/junit.xml
+        #
+        # `--cov` opts coverage measurement on; configuration (which dirs
+        # to measure, which lines to exclude) lives in pyproject.toml
+        # [tool.coverage.*]. Baseline as of 2026-05-01: 78% line+branch
+        # over 619 tests. We don't `--cov-fail-under` today — pin a
+        # threshold once the 0%-covered services (invitation_email,
+        # price_alerts, webhooks) get test coverage.
+        run: |
+          pytest --integration -q -p no:randomly \
+            --junitxml=test-results/junit.xml \
+            --cov \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=xml:test-results/coverage.xml
 
       # Upload pytest results when the job fails so a CI-only flake doesn't
       # require a re-run with extra logging. Default retention keeps disk
@@ -230,6 +337,75 @@ jobs:
           name: pytest-results
           path: apps/api/test-results/
           retention-days: 7
+
+  # ----------------------------------------------------------------------
+  # Order-dependence shakeout — same suite, randomized order. Catches
+  # the "test A leaves a global in a state that test B doesn't expect"
+  # class of bug that the deterministic gate above intentionally hides.
+  #
+  # Non-blocking (continue-on-error): a randomized red is informational,
+  # not a merge-blocker. The expectation is "look at the failure, decide
+  # whether the order-dependence is the test's fault (fix it) or a real
+  # cross-test leak (fix the production code)". Treating these as P0
+  # would spike the merge-block rate and discourage running the suite at
+  # all — exactly the wrong tradeoff.
+  # ----------------------------------------------------------------------
+  python-api-shakeout:
+    name: Python — order-dependence shakeout (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: aec
+          POSTGRES_PASSWORD: aec
+          POSTGRES_DB: aec_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U aec"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-retries 10
+    env:
+      # Same env as `python-api`; copied verbatim so a config drift
+      # between the two jobs is caught at review time, not by a green
+      # gate masking a red shakeout.
+      DATABASE_URL: postgresql+asyncpg://aec:aec@localhost:5432/aec_test
+      DATABASE_URL_SYNC: postgresql://aec:aec@localhost:5432/aec_test
+      DATABASE_URL_ADMIN: postgresql+asyncpg://aec:aec@localhost:5432/aec_test
+      REDIS_URL: redis://localhost:6379/0
+      SUPABASE_JWT_SECRET: ci-test-secret
+      ANTHROPIC_API_KEY: ci-placeholder
+      OPENAI_API_KEY: ci-placeholder
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install deps
+        working-directory: apps/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Alembic upgrade
+        working-directory: apps/api
+        run: alembic upgrade head
+      - name: Pytest (random order — flake hunter)
+        working-directory: apps/api
+        # No `-p no:randomly` here — pytest-randomly's default `--randomly-seed`
+        # rolls a fresh seed per run, so each CI invocation tries a different
+        # order. A failure in this job + a green main gate = order-dependent
+        # test, fix the leak.
+        run: pytest -q --tb=line
 
   terraform:
     name: Terraform — fmt + validate

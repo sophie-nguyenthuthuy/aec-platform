@@ -29,9 +29,7 @@ def _user_key(user: UserContext = Depends(require_user)) -> str:
     return str(user.user_id)
 
 
-_me_orgs_limiter = rate_limit(
-    prefix="me-orgs", limit=60, window_sec=60, key_dep=Depends(_user_key)
-)
+_me_orgs_limiter = rate_limit(prefix="me-orgs", limit=60, window_sec=60, key_dep=Depends(_user_key))
 
 
 @router.get("/orgs", dependencies=[Depends(_me_orgs_limiter)])

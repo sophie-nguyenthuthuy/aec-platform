@@ -24,8 +24,14 @@ export interface QueryStreamHandlers {
    *  follow. */
   onDone?: (response: QueryResponse) => void;
   /** Terminal: pipeline reported an error, OR the HTTP request itself
-   *  failed (network, 5xx, etc.). Same shape either way. */
-  onError?: (message: string) => void;
+   *  failed (network, 5xx, etc.). Same shape either way.
+   *
+   *  `detailsUrl` is set when the server returns an error envelope with
+   *  `details_url` populated — currently only the codeguard cap-check
+   *  429 (→ "/codeguard/quota"). UIs should render a CTA pointing at
+   *  it. Falls back to undefined for stream-internal errors and
+   *  network failures, where there's no in-app surface to point at. */
+  onError?: (err: { message: string; detailsUrl?: string }) => void;
 }
 
 /**
@@ -75,24 +81,29 @@ export function useCodeguardQueryStream() {
           body: JSON.stringify(payload),
         });
       } catch (err) {
-        handlers.onError?.(err instanceof Error ? err.message : "Network error");
+        handlers.onError?.({
+          message: err instanceof Error ? err.message : "Network error",
+        });
         return;
       }
 
       if (!res.ok || !res.body) {
         // Try to extract an envelope-shaped error message; fall back to
         // the bare HTTP status when the body isn't JSON (which happens
-        // for plain proxy 502s, etc.).
+        // for plain proxy 502s, etc.). Also extract `details_url` for
+        // the cap-check 429 → /codeguard/quota CTA.
         let message = `HTTP ${res.status}`;
+        let detailsUrl: string | undefined;
         try {
           const envelope = (await res.json()) as {
-            errors?: Array<{ message?: string }>;
+            errors?: Array<{ message?: string; details_url?: string | null }>;
           };
           message = envelope.errors?.[0]?.message ?? message;
+          detailsUrl = envelope.errors?.[0]?.details_url ?? undefined;
         } catch {
           // Body wasn't JSON — keep the HTTP-status fallback.
         }
-        handlers.onError?.(message);
+        handlers.onError?.({ message, detailsUrl });
         return;
       }
 
@@ -134,18 +145,18 @@ export function useCodeguardQueryStream() {
                 const response = JSON.parse(data) as QueryResponse;
                 handlers.onDone?.(response);
               } catch (err) {
-                handlers.onError?.(
-                  err instanceof Error ? err.message : "Bad done frame",
-                );
+                handlers.onError?.({
+                  message: err instanceof Error ? err.message : "Bad done frame",
+                });
               }
               terminated = true;
               break;
             } else if (event === "error") {
               try {
                 const { message } = JSON.parse(data) as { message?: string };
-                handlers.onError?.(message ?? "Unknown server error");
+                handlers.onError?.({ message: message ?? "Unknown server error" });
               } catch {
-                handlers.onError?.("Unknown server error");
+                handlers.onError?.({ message: "Unknown server error" });
               }
               terminated = true;
               break;
@@ -156,7 +167,9 @@ export function useCodeguardQueryStream() {
           }
         }
       } catch (err) {
-        handlers.onError?.(err instanceof Error ? err.message : "Stream read error");
+        handlers.onError?.({
+          message: err instanceof Error ? err.message : "Stream read error",
+        });
       } finally {
         // Best-effort cleanup; cancel() rejects gracefully if the stream
         // has already completed naturally.

@@ -174,3 +174,61 @@ class ScraperRun(Base):
     written: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     rule_hits: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     unmatched_sample: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+
+
+class NotificationPreference(Base):
+    """Per-user, per-org opt-in for an alert kind.
+
+    `key` is a stable string discriminator (`scraper_drift`,
+    `rfq_deadline_summary`, …) chosen by callers in `services.ops_alerts`
+    and friends. The two channel booleans are independent so users can
+    opt into email but not Slack, or vice versa, once Slack delivery
+    exists.
+
+    Schema rationale + migration: see `0025_notification_prefs.py`.
+    """
+
+    __tablename__ = "notification_preferences"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    organization_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    key: Mapped[str] = mapped_column(Text, nullable=False)
+    email_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    slack_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(TZ)
+    updated_at: Mapped[datetime] = mapped_column(TZ)
+
+
+class NormalizerRule(Base):
+    """DB-backed regex rule for the price scraper's material normaliser.
+
+    Pairs with `services.price_scrapers.normalizer._RULES` (in-code).
+    DB rules are loaded at scraper-run time and merged on top of code
+    rules — see `_load_db_rules()` in the normaliser. Lets ops tune
+    coverage from the admin UI without a deploy.
+
+    Schema rationale + hot-path index: see migration
+    `0028_normalizer_rules.py`.
+    """
+
+    __tablename__ = "normalizer_rules"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    pattern: Mapped[str] = mapped_column(Text, nullable=False)
+    material_code: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str | None] = mapped_column(Text)
+    canonical_name: Mapped[str] = mapped_column(Text, nullable=False)
+    # Comma-separated unit hints; normaliser splits on read.
+    preferred_units: Mapped[str] = mapped_column(Text, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(TZ)
+    updated_at: Mapped[datetime] = mapped_column(TZ)
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))

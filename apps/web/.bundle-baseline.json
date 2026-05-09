@@ -1,0 +1,9 @@
+{
+  "sections": {
+    "chunks": 2540479,
+    "css": 47759
+  },
+  "total": 2588238,
+  "updated_at": "2026-05-02T10:32:51.952Z",
+  "note": "Baseline for `apps/web` JS+CSS bundle size. Regenerate with `pnpm --filter @aec/web bundle:update` after an intentional size change."
+}

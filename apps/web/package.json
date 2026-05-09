@@ -7,12 +7,15 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "typecheck": "rm -f tsconfig.tsbuildinfo && tsc --noEmit",
+    "test": "rm -f tsconfig.tsbuildinfo && tsc --noEmit && vitest run",
     "test:watch": "vitest",
+    "test:coverage": "rm -f tsconfig.tsbuildinfo && tsc --noEmit && vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:real-auth": "playwright test --config=playwright.real-auth.config.ts",
-    "test:e2e:install": "playwright install chromium"
+    "test:e2e:install": "playwright install chromium",
+    "bundle:check": "node scripts/check-bundle-size.mjs",
+    "bundle:update": "node scripts/check-bundle-size.mjs --update"
   },
   "dependencies": {
     "@aec/types": "workspace:*",
@@ -36,8 +39,12 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.0",
     "@playwright/test": "^1.48.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.0.1",
     "@types/node": "^22.7.4",
+    "@vitest/coverage-v8": "^2.1.4",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.20",

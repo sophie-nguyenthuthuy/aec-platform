@@ -218,6 +218,15 @@ test.describe("Punch list / detail", () => {
 
     await page.goto(`/punchlist/${LIST_ID}`);
 
+    // The page renders `Đang tải...` while React Query resolves the
+    // mocked fetch. `allInnerTexts()` is a one-shot read with no
+    // auto-retry — without an explicit wait for the loaded state, it
+    // races the query and gets `[]`. Wait for one of the rendered
+    // descriptions to be visible before snapshotting the item-number
+    // strip. (Locator-based `expect` assertions auto-retry; this is
+    // the conventional fix per Playwright best practices.)
+    await expect(page.getByText("Outlet B-103 dead")).toBeVisible();
+
     // Item numbers in order — #1 before #2 in the visible list (sorted).
     // Scope to the items <list> + use `getByText` with a regex; the
     // deprecated `page.locator("text=/.../")` engine catches zero matches
@@ -275,5 +284,49 @@ test.describe("Punch list / detail", () => {
     await expect.poll(() => patchCall).not.toBeNull();
     const parsed = JSON.parse(patchCall!.body);
     expect(parsed.status).toBe("verified");
+  });
+
+  test("AddItemDialog renders a native camera capture input", async ({ page }) => {
+    // Phase 5 mobile-first regression guard. The Add-item dialog must
+    // expose a `<input type="file" accept="image/*" capture="environment">`
+    // so iOS / Android open the rear camera directly. Removing the
+    // `capture` attr (or the input entirely) would silently downgrade
+    // the field-engineer flow to a gallery picker — exactly the kind
+    // of regression that's invisible on a desktop demo.
+    await page.route(`**/api/v1/punchlist/lists/${LIST_ID}`, async (route: Route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: _detail({ allDone: false }),
+          meta: null,
+          errors: null,
+        }),
+      });
+    });
+    await page.route(`**/api/v1/punchlist/lists/${LIST_ID}/photo-hints*`, async (route: Route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: { list_id: LIST_ID, walkthrough_date: "2026-05-01", window_days: 3, results: [] },
+          meta: null,
+          errors: null,
+        }),
+      });
+    });
+
+    await page.goto(`/punchlist/${LIST_ID}`);
+    await page.getByRole("button", { name: /Thêm item/ }).click();
+
+    // The visible "Chụp ảnh" button.
+    await expect(page.getByRole("button", { name: /Chụp ảnh/ })).toBeVisible();
+    // The hidden file input behind it — pin the `capture="environment"`
+    // attribute so a future style refactor doesn't strip it.
+    const input = page.locator('input[type="file"][accept="image/*"]');
+    await expect(input).toHaveCount(1);
+    await expect(input).toHaveAttribute("capture", "environment");
   });
 });

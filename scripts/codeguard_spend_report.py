@@ -68,7 +68,7 @@ def _percentile(values: list[int], p: float) -> int:
     if p >= 100:
         return s[-1]
     # Nearest-rank method — close enough for ops dashboards.
-    k = max(0, min(len(s) - 1, int(round((p / 100.0) * (len(s) - 1)))))
+    k = max(0, min(len(s) - 1, round((p / 100.0) * (len(s) - 1))))
     return s[k]
 
 

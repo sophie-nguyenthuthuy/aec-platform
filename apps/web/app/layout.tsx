@@ -14,6 +14,15 @@ export const metadata: Metadata = {
   description: "AI-powered platform for architecture, engineering, and construction",
 };
 
+// Every page mounted under this layout reads request cookies and the Supabase
+// session, so static prerender is meaningless — the rendered HTML depends on
+// per-request auth. Marking the layout `force-dynamic` makes that explicit
+// (otherwise Next's prerender pass walks each page and trips the layout's
+// `cookies()` / `supabaseServer()` calls). Keeps `next build` honest and
+// avoids the "missing Supabase env" prerender errors on build machines that
+// don't have the runtime secrets.
+export const dynamic = "force-dynamic";
+
 const ACTIVE_ORG_COOKIE = "aec-active-org";
 
 interface OrgRow {

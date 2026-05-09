@@ -2,9 +2,50 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/auth-context";
 import type { ISODate, UUID } from "@aec/types/envelope";
+
+/** Translate a thrown error from the assistant ask paths into a
+ *  user-facing message. Special-cases the `403` (role-gated `/ask`
+ *  + `/ask/stream`): viewers get a plain-language "you don't have
+ *  permission" message instead of a generic backend detail string.
+ *
+ *  Why this lives here (not in a global error renderer): the role
+ *  gate is specific to the assistant — the same 403 shape from a
+ *  different surface (e.g. admin-only audit endpoint) wants a
+ *  different sentence. Keep the translation co-located with the
+ *  hook that triggers the call so a future "kill switch" 403 from
+ *  this same surface can extend the same helper without touching
+ *  unrelated error UI elsewhere.
+ *
+ *  Component usage:
+ *    onError: (err) => toast.error(getAssistantErrorMessage(err))
+ */
+export function getAssistantErrorMessage(err: unknown): string {
+  // Streaming path emits a `{message, status}` shape via `onError`;
+  // recognize it the same way as a thrown ApiError for the 403
+  // special case. Both paths converge on the same friendly copy.
+  const status =
+    err instanceof ApiError
+      ? err.status
+      : typeof err === "object" && err !== null && "status" in err
+        ? (err as { status?: unknown }).status
+        : undefined;
+
+  if (status === 403) {
+    return (
+      "Bạn không có quyền sử dụng trợ lý AI. " +
+      "Vai trò 'viewer' chỉ xem được dữ liệu — liên hệ quản trị " +
+      "tổ chức để được nâng cấp lên 'member' hoặc cao hơn nếu " +
+      "bạn cần đặt câu hỏi cho trợ lý."
+    );
+  }
+
+  if (err instanceof ApiError) return err.message;
+  if (err instanceof Error) return err.message;
+  return "Đã xảy ra lỗi khi gọi trợ lý AI. Vui lòng thử lại sau.";
+}
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -141,8 +182,13 @@ export interface StreamEventHandlers {
     context_token_estimate: number;
   }) => void;
   /** Fired when the server emits an `event: error` frame (e.g. project
-   *  not found). The stream stops after this. */
-  onError?: (err: { message: string }) => void;
+   *  not found) OR when the request fails to start (e.g. 403 from the
+   *  role gate; 401 expired token). `status` is the HTTP status code
+   *  for pre-stream failures, or `undefined` for in-stream errors —
+   *  consumers can pipe this through `getAssistantErrorMessage` to
+   *  render the friendly copy for known statuses (403 → "you don't
+   *  have permission"). */
+  onError?: (err: { message: string; status?: number }) => void;
 }
 
 /** POST a question to the streaming endpoint and consume the SSE response.
@@ -182,8 +228,14 @@ export async function streamAssistantAsk(
     },
   );
   if (!res.ok || !res.body) {
+    // Surface the status so consumers (or `getAssistantErrorMessage`)
+    // can branch on 403 → "you don't have permission" copy. The role
+    // gate fires BEFORE the StreamingResponse is constructed, so a
+    // viewer's request lands here as a hard 4xx — never as an in-band
+    // `event: error` frame.
     handlers.onError?.({
       message: `HTTP ${res.status}: stream failed to start`,
+      status: res.status,
     });
     return;
   }

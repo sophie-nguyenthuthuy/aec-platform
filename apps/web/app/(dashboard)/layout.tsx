@@ -7,6 +7,7 @@ import { MobileNavShell } from "@/components/MobileNavShell";
 
 import { OrgSwitcher } from "./_components/OrgSwitcher";
 import { SearchTrigger } from "./_components/SearchTrigger";
+import { QuotaStatusBanner } from "./codeguard/QuotaStatusBanner";
 
 const NAV: Array<{ href: Route; label: string; section?: string }> = [
   { section: "Tổng quan", href: "/inbox", label: "Hôm nay" },
@@ -26,7 +27,16 @@ const NAV: Array<{ href: Route; label: string; section?: string }> = [
   { section: "Bàn giao", href: "/handover", label: "Handover" },
   { href: "/punchlist", label: "Punch list" },
   { section: "Cài đặt", href: "/settings/members", label: "Thành viên" },
+  { href: "/settings/notifications", label: "Thông báo" },
   { href: "/settings/audit", label: "Nhật ký kiểm tra" },
+  { href: "/settings/webhooks", label: "Webhooks" },
+  { href: "/settings/search-analytics", label: "Phân tích tìm kiếm" },
+  { href: "/settings/import", label: "Nhập dữ liệu" },
+  { href: "/settings/export", label: "Xuất dữ liệu" },
+  { href: "/settings/retention", label: "Retention" },
+  { href: "/settings/api-keys", label: "API keys" },
+  { section: "Tài liệu", href: "/docs/webhooks", label: "Webhooks" },
+  { href: "/docs/api", label: "API reference" },
 ];
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
@@ -62,6 +72,15 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           shell so the shortcut works from any sub-page. */}
       <CommandPalette />
       <MobileNavShell nav={navContent} footer={<OrgSwitcher />}>
+        {/* Quota banner is dashboard-wide, not codeguard-only. Codeguard
+            owns the cap, but the cap applies to LLM calls from every
+            surface (drawbridge, costpulse, winwork, etc.). Rendering
+            the banner only inside `/codeguard/*` meant a user pushing
+            usage from drawbridge would hit a 429 mid-conversation
+            with no prior warning. The banner self-hides for unlimited
+            orgs and on fetch errors, so the spillover cost on
+            quota-irrelevant pages (settings, docs) is zero pixels. */}
+        <QuotaStatusBanner />
         {children}
       </MobileNavShell>
     </>

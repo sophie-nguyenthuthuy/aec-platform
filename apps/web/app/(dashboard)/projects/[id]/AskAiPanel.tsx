@@ -9,6 +9,7 @@ import {
   type AssistantSource,
   type ChatTurn,
   type ThreadSummary,
+  getAssistantErrorMessage,
   streamAssistantAsk,
   useAssistantThread,
   useAssistantThreads,
@@ -131,8 +132,15 @@ export function AskAiPanel({ projectId }: { projectId: UUID }) {
               // Refresh sidebar: the thread's last_message_at moved.
               threadsQ.refetch();
             },
-            onError: ({ message }) => {
-              setErrorMsg(message);
+            onError: (err) => {
+              // Run the error through `getAssistantErrorMessage` so a
+              // 403 from the role gate (viewers hitting /ask/stream)
+              // renders as plain-language vi-VN copy explaining the
+              // member-or-above requirement, not as the raw "HTTP 403:
+              // stream failed to start" the streaming hook emits.
+              // Other statuses (cap-check 429, 5xx) still surface
+              // their backend message — only the 403 special-cases.
+              setErrorMsg(getAssistantErrorMessage(err));
               // Roll back the placeholder assistant bubble — there's
               // nothing real to show.
               setMessages((prev) => prev.slice(0, -1));

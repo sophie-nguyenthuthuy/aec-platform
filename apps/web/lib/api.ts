@@ -8,6 +8,14 @@ export class ApiError extends Error {
     public code: string,
     message: string,
     public field?: string,
+    /**
+     * Optional in-app URL surfaced from the error envelope's
+     * `details_url`. Today only the codeguard cap-check 429 sets it
+     * (→ "/codeguard/quota"); UI components should render a "Xem
+     * chi tiết" CTA when present and skip it when undefined. Plain
+     * toast / inline error otherwise.
+     */
+    public detailsUrl?: string,
   ) {
     super(message);
   }
@@ -48,7 +56,13 @@ export async function apiFetch<T>(path: string, opts: ApiFetchOptions): Promise<
 
   if (!res.ok) {
     const err = json.errors?.[0];
-    throw new ApiError(res.status, err?.code ?? String(res.status), err?.message ?? res.statusText, err?.field ?? undefined);
+    throw new ApiError(
+      res.status,
+      err?.code ?? String(res.status),
+      err?.message ?? res.statusText,
+      err?.field ?? undefined,
+      err?.details_url ?? undefined,
+    );
   }
 
   return json;

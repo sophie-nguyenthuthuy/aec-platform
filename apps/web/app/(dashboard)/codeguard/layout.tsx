@@ -9,7 +9,14 @@ const NAV = [
   { href: "/codeguard/checklist", label: "Checklist cấp phép" },
   { href: "/codeguard/regulations", label: "Thư viện quy chuẩn" },
   { href: "/codeguard/history", label: "Lịch sử kiểm tra" },
+  { href: "/codeguard/quota", label: "Hạn mức" },
 ] as const;
+
+// `<QuotaStatusBanner>` used to live here. It's been promoted to the
+// dashboard-root layout so it covers every LLM-touching surface
+// (drawbridge, costpulse, winwork, codeguard) — the org-level cap
+// applies to all of them. Rendering it here too would double-print
+// on /codeguard/* pages.
 
 export default function CodeguardLayout({ children }: { children: ReactNode }) {
   return (

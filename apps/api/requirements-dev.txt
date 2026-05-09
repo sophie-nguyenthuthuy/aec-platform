@@ -8,4 +8,8 @@ mypy==1.13.0
 
 pytest==8.3.3
 pytest-asyncio==0.24.0
+# pytest-cov produces line + branch coverage. We pin a known-good
+# version; major bumps occasionally change the XML/JSON report shape
+# that CI artifact consumers depend on, which would silently red CI.
+pytest-cov==6.0.0
 httpx==0.27.2

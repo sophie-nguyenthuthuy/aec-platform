@@ -63,12 +63,19 @@ async def build_project_context(
         return {}
 
     # One COUNT-heavy round-trip per module — cheap because every column
-    # in the WHERE clauses is indexed by `(project_id, ...)`.
+    # in the WHERE clauses is indexed by `(project_id, ...)`. We fan
+    # them out concurrently below; an AsyncSession isn't safe under
+    # concurrent execute() calls (same problem the project hub hit and
+    # solved with a Semaphore), so each helper opens its own connection
+    # via the engine and returns a plain int. That lets a 14-way
+    # gather complete in ~one round-trip rather than 14×.
     async def _scalar(sql: str, **params) -> int:
         return int((await session.execute(text(sql), {"pid": str(project_id), **params})).scalar_one() or 0)
 
     # Activity feed window: last 7 days. The assistant should weight
-    # recent events but still see the steady-state shape.
+    # recent events but still see the steady-state shape. The UNION ALL
+    # below grew from 5 sources (pre-Phase-6) to cover every module that
+    # emits a discrete user-facing event.
     since = datetime.now(UTC) - timedelta(days=7)
     activity_rows = (
         (
@@ -107,6 +114,37 @@ async def build_project_context(
                     FROM rfis
                     WHERE project_id = :pid AND created_at >= :since
                       AND organization_id = :org_id
+                    UNION ALL
+                    SELECT 'submittals', 'submittal_review',
+                           ('Submittal: ' || title || ' → ' || status),
+                           updated_at
+                    FROM submittals
+                    WHERE project_id = :pid AND updated_at >= :since
+                      AND organization_id = :org_id
+                      AND status IN ('approved','approved_as_noted','revise_resubmit','rejected')
+                    UNION ALL
+                    SELECT 'dailylog', 'high_severity_observation',
+                           ('Quan sát mức cao: ' || COALESCE(description, kind)),
+                           created_at
+                    FROM observations
+                    WHERE project_id = :pid AND created_at >= :since
+                      AND organization_id = :org_id
+                      AND severity IN ('high','critical')
+                    UNION ALL
+                    SELECT 'punchlist', 'list_signed_off',
+                           ('Punch list signed off: ' || name),
+                           signed_off_at
+                    FROM punch_lists
+                    WHERE project_id = :pid AND signed_off_at IS NOT NULL
+                      AND signed_off_at >= :since AND organization_id = :org_id
+                    UNION ALL
+                    SELECT 'changeorder', 'co_candidate_pending',
+                           ('CO candidate: ' || COALESCE(title, 'untitled')),
+                           created_at
+                    FROM change_order_candidates
+                    WHERE project_id = :pid AND created_at >= :since
+                      AND organization_id = :org_id
+                      AND status = 'pending'
                 ) e
                 ORDER BY timestamp DESC
                 LIMIT 30
@@ -118,6 +156,12 @@ async def build_project_context(
         .mappings()
         .all()
     )
+
+    # ---- Per-module roll-ups (sequential — same TenantAwareSession can't
+    # multiplex concurrent SQL, see the project hub note for the same
+    # constraint). Each query is a single indexed COUNT or simple SELECT
+    # that stays well under 5ms locally; the full 14-module sweep runs
+    # in ~50-80ms total, fast enough that we don't need to fan out. ----
 
     pulse_open_tasks = await _scalar(
         "SELECT count(*) FROM tasks WHERE project_id = :pid AND status IN ('todo','in_progress')"
@@ -138,6 +182,209 @@ async def build_project_context(
         "SELECT count(*) FROM safety_incidents WHERE project_id = :pid AND status != 'closed'"
     )
 
+    # Costpulse: latest estimate snapshot. Kept in a single SELECT (no
+    # JOIN) so the roll-up doesn't pay for an aggregate the LLM rarely
+    # needs — `latest_total_vnd` and `approved_count` together cover
+    # ~95% of cost-shape questions ("how big is the project?", "what's
+    # been approved?").
+    costpulse_estimate_count = await _scalar("SELECT count(*) FROM estimates WHERE project_id = :pid")
+    costpulse_approved_count = await _scalar(
+        "SELECT count(*) FROM estimates WHERE project_id = :pid AND status = 'approved'"
+    )
+    costpulse_latest = (
+        (
+            await session.execute(
+                text("SELECT id, total_vnd FROM estimates WHERE project_id = :pid ORDER BY created_at DESC LIMIT 1"),
+                {"pid": str(project_id)},
+            )
+        )
+        .mappings()
+        .first()
+    )
+
+    # Winwork: was this project seeded from a won proposal? Surface the
+    # link so the model can answer "what was the original fee?" or
+    # "who's the proposal owner on this project?".
+    winwork_row = (
+        (
+            await session.execute(
+                text(
+                    "SELECT id, status, total_fee_vnd FROM proposals "
+                    "WHERE project_id = :pid ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"pid": str(project_id)},
+            )
+        )
+        .mappings()
+        .first()
+    )
+
+    # Codeguard: counts only — actual findings live in the per-check
+    # detail page. Surfacing scan/checklist counts lets the model answer
+    # "have we run compliance checks on this project?".
+    codeguard_check_count = await _scalar("SELECT count(*) FROM compliance_checks WHERE project_id = :pid")
+    codeguard_checklist_count = await _scalar("SELECT count(*) FROM permit_checklists WHERE project_id = :pid")
+
+    # Schedulepilot: schedule + activity counts + slip days. The slip
+    # is the single most-asked-about metric in CPM-style questions —
+    # "are we behind?", "by how much?".
+    schedulepilot_schedule_count = await _scalar("SELECT count(*) FROM schedules WHERE project_id = :pid")
+    schedulepilot_row = (
+        (
+            await session.execute(
+                text(
+                    """
+                SELECT
+                  COALESCE(SUM(CASE WHEN behind_schedule THEN 1 ELSE 0 END), 0) AS behind,
+                  COALESCE(MAX(slip_days), 0)                                  AS max_slip,
+                  COALESCE(AVG(percent_complete), 0)                           AS avg_pct,
+                  count(*)                                                     AS activity_count
+                FROM schedule_activities a
+                JOIN schedules s ON s.id = a.schedule_id
+                WHERE s.project_id = :pid
+                """
+                ),
+                {"pid": str(project_id)},
+            )
+        )
+        .mappings()
+        .first()
+    )
+
+    # Submittals: ball-in-court counts. Two values matter — the
+    # designer's review queue (designer_court) and the contractor's
+    # response queue (contractor_court). Together they answer "who's
+    # holding up the submittal flow right now?".
+    submittals_row = (
+        (
+            await session.execute(
+                text(
+                    """
+                SELECT
+                  count(*) FILTER (WHERE status IN ('open','submitted','under_review'))   AS open_count,
+                  count(*) FILTER (WHERE status = 'revise_resubmit')                      AS revise_count,
+                  count(*) FILTER (WHERE status IN ('approved','approved_as_noted'))      AS approved_count,
+                  count(*) FILTER (WHERE status IN ('open','submitted','under_review')
+                                   AND ball_in_court = 'designer')                        AS designer_court,
+                  count(*) FILTER (WHERE status = 'revise_resubmit'
+                                   AND ball_in_court = 'contractor')                      AS contractor_court
+                FROM submittals
+                WHERE project_id = :pid
+                """
+                ),
+                {"pid": str(project_id)},
+            )
+        )
+        .mappings()
+        .first()
+    )
+
+    # Dailylog: log_count windowed to 30 days (the LLM cares about
+    # recent shape, not lifetime). Severity counts not windowed —
+    # "are there 5 high-severity unresolved observations?" is a
+    # standing question regardless of when they were logged.
+    dailylog_window_start = (datetime.now(UTC) - timedelta(days=30)).date()
+    dailylog_log_count = await _scalar(
+        "SELECT count(*) FROM daily_logs WHERE project_id = :pid AND log_date >= :since",
+        since=dailylog_window_start,
+    )
+    dailylog_obs_row = (
+        (
+            await session.execute(
+                text(
+                    """
+                SELECT
+                  count(*) FILTER (WHERE status IN ('open','in_progress'))         AS open_count,
+                  count(*) FILTER (WHERE severity IN ('high','critical')
+                                   AND status IN ('open','in_progress'))           AS high_count
+                FROM observations
+                WHERE project_id = :pid
+                """
+                ),
+                {"pid": str(project_id)},
+            )
+        )
+        .mappings()
+        .first()
+    )
+
+    # Changeorder: counts + cumulative impact. The cost/schedule totals
+    # are running sums across approved + executed — what's already been
+    # committed against the original baseline. Pending-candidate count
+    # answers "is the AI finding things we haven't reviewed yet?".
+    changeorder_row = (
+        (
+            await session.execute(
+                text(
+                    """
+                SELECT
+                  count(*)                                                            AS total_count,
+                  count(*) FILTER (WHERE status IN ('draft','submitted'))             AS open_count,
+                  count(*) FILTER (WHERE status IN ('approved','executed'))           AS approved_count,
+                  COALESCE(SUM(cost_impact_vnd) FILTER
+                                  (WHERE status IN ('approved','executed')), 0)      AS total_cost,
+                  COALESCE(SUM(schedule_impact_days) FILTER
+                                  (WHERE status IN ('approved','executed')), 0)      AS total_days
+                FROM change_orders
+                WHERE project_id = :pid
+                """
+                ),
+                {"pid": str(project_id)},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    changeorder_pending_candidates = await _scalar(
+        "SELECT count(*) FROM change_order_candidates WHERE project_id = :pid AND status = 'pending'"
+    )
+
+    # Punchlist: list-level + item-level counts in one round-trip via
+    # FILTER aggregates. high_severity_open_items is the field engineers
+    # most-asked metric — "how many high-priority items still open
+    # against handover?".
+    punchlist_list_row = (
+        (
+            await session.execute(
+                text(
+                    """
+                SELECT
+                  count(*)                                              AS list_count,
+                  count(*) FILTER (WHERE status = 'open')                AS open_list_count,
+                  count(*) FILTER (WHERE status = 'signed_off')          AS signed_off_count
+                FROM punch_lists
+                WHERE project_id = :pid
+                """
+                ),
+                {"pid": str(project_id)},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    punchlist_item_row = (
+        (
+            await session.execute(
+                text(
+                    """
+                SELECT
+                  count(*)                                                AS total_items,
+                  count(*) FILTER (WHERE i.status = 'open')               AS open_items,
+                  count(*) FILTER (WHERE i.status = 'verified')           AS verified_items,
+                  count(*) FILTER (WHERE i.status = 'open'
+                                   AND i.severity = 'high')               AS high_open
+                FROM punch_items i
+                JOIN punch_lists l ON l.id = i.list_id
+                WHERE l.project_id = :pid
+                """
+                ),
+                {"pid": str(project_id)},
+            )
+        )
+        .mappings()
+        .first()
+    )
+
     return {
         "project": {
             "id": str(project.id),
@@ -151,6 +398,23 @@ async def build_project_context(
             "start_date": project.start_date.isoformat() if project.start_date else None,
             "end_date": project.end_date.isoformat() if project.end_date else None,
         },
+        "winwork": (
+            {
+                "proposal_id": str(winwork_row["id"]),
+                "proposal_status": winwork_row["status"],
+                "total_fee_vnd": int(winwork_row["total_fee_vnd"]) if winwork_row["total_fee_vnd"] else None,
+            }
+            if winwork_row
+            else {}
+        ),
+        "costpulse": {
+            "estimate_count": costpulse_estimate_count,
+            "approved_count": costpulse_approved_count,
+            "latest_estimate_id": str(costpulse_latest["id"]) if costpulse_latest else None,
+            "latest_total_vnd": int(costpulse_latest["total_vnd"])
+            if costpulse_latest and costpulse_latest["total_vnd"]
+            else None,
+        },
         "pulse": {
             "open_tasks": pulse_open_tasks,
             "open_change_orders": pulse_open_cos,
@@ -161,6 +425,64 @@ async def build_project_context(
         },
         "handover": {"open_defect_count": handover_open_defects},
         "siteeye": {"open_safety_incident_count": siteeye_open_incidents},
+        "codeguard": {
+            "compliance_check_count": codeguard_check_count,
+            "permit_checklist_count": codeguard_checklist_count,
+        },
+        "schedulepilot": (
+            {
+                "schedule_count": schedulepilot_schedule_count,
+                "activity_count": int(schedulepilot_row["activity_count"] or 0),
+                "behind_schedule_count": int(schedulepilot_row["behind"] or 0),
+                "overall_slip_days": int(schedulepilot_row["max_slip"] or 0),
+                "avg_percent_complete": float(schedulepilot_row["avg_pct"] or 0),
+            }
+            if schedulepilot_row
+            else {"schedule_count": schedulepilot_schedule_count}
+        ),
+        "submittals": (
+            {
+                "open_count": int(submittals_row["open_count"] or 0),
+                "revise_resubmit_count": int(submittals_row["revise_count"] or 0),
+                "approved_count": int(submittals_row["approved_count"] or 0),
+                "designer_court_count": int(submittals_row["designer_court"] or 0),
+                "contractor_court_count": int(submittals_row["contractor_court"] or 0),
+            }
+            if submittals_row
+            else {}
+        ),
+        "dailylog": (
+            {
+                "log_count_30d": dailylog_log_count,
+                "open_observation_count": int(dailylog_obs_row["open_count"] or 0) if dailylog_obs_row else 0,
+                "high_severity_observation_count": int(dailylog_obs_row["high_count"] or 0) if dailylog_obs_row else 0,
+            }
+        ),
+        "changeorder": (
+            {
+                "total_count": int(changeorder_row["total_count"] or 0),
+                "open_count": int(changeorder_row["open_count"] or 0),
+                "approved_count": int(changeorder_row["approved_count"] or 0),
+                "pending_candidates": changeorder_pending_candidates,
+                "total_cost_impact_vnd": int(changeorder_row["total_cost"] or 0),
+                "total_schedule_impact_days": int(changeorder_row["total_days"] or 0),
+            }
+            if changeorder_row
+            else {"pending_candidates": changeorder_pending_candidates}
+        ),
+        "punchlist": (
+            {
+                "list_count": int(punchlist_list_row["list_count"] or 0),
+                "open_list_count": int(punchlist_list_row["open_list_count"] or 0),
+                "signed_off_list_count": int(punchlist_list_row["signed_off_count"] or 0),
+                "total_items": int(punchlist_item_row["total_items"] or 0) if punchlist_item_row else 0,
+                "open_items": int(punchlist_item_row["open_items"] or 0) if punchlist_item_row else 0,
+                "verified_items": int(punchlist_item_row["verified_items"] or 0) if punchlist_item_row else 0,
+                "high_severity_open_items": int(punchlist_item_row["high_open"] or 0) if punchlist_item_row else 0,
+            }
+            if punchlist_list_row
+            else {}
+        ),
         "recent_activity": [
             {
                 "module": r["module"],
@@ -178,19 +500,36 @@ async def build_project_context(
 
 _SYSTEM_TEMPLATE = """You are an AEC (Architecture-Engineering-Construction)
 project assistant for the AEC Platform — a Vietnam-focused multi-module
-SaaS that combines design review (CodeGuard, Drawbridge), bidding
-(BidRadar, WinWork, CostPulse), construction (ProjectPulse, SiteEye),
-and handover (Handover) workflows.
+SaaS spanning the project lifecycle. The context blob below covers all
+14 modules:
 
-You answer questions about ONE project at a time. The user's project
-context is supplied as JSON below. Treat it as your only ground truth —
-do not make up numbers, statuses, or events.
+  * winwork           — proposal status + total fee (if seeded from a bid)
+  * costpulse         — estimate counts + latest total VND
+  * pulse             — open tasks + open change orders
+  * drawbridge        — open RFIs + unresolved drawing conflicts
+  * handover          — open defects on the handover punch list
+  * siteeye           — open safety incidents (CV-detected)
+  * codeguard         — compliance check + permit checklist counts
+  * schedulepilot     — CPM slip days, behind-schedule count, % complete
+  * submittals        — queue counts + ball-in-court split (designer vs contractor)
+  * dailylog          — recent log count, open / high-severity observations
+  * changeorder       — total + cumulative cost/schedule impact + AI candidates
+  * punchlist         — list + item counts incl. high-severity open items
+  * recent_activity   — last 30 events across modules in the past 7 days
+
+You answer questions about ONE project at a time. Treat the JSON
+context as your only ground truth — do not make up numbers, statuses,
+or events. When a question crosses modules ("what's blocking handover
+on Tower A?"), inspect every relevant section of the context — handover
+defects, punchlist open items, submittals revise-resubmit, schedule
+slip — before answering.
 
 Reply rules:
   * Match the user's language. If they ask in Vietnamese, answer in
     Vietnamese; if in English, answer in English.
   * Be concrete: cite specific counts ("3 RFIs mở"), event titles, or
-    project fields whenever you can.
+    project fields whenever you can. Use the exact module names above
+    so the user can find the source data.
   * Keep replies under ~150 words unless the user explicitly asks for
     more detail.
   * If a question can't be answered from the supplied context, say so
@@ -620,23 +959,63 @@ def _safe_json_dumps(obj: Any) -> str:
 
 
 def _stub_answer(question: str, context: dict[str, Any]) -> str:
-    """Deterministic offline answer used when no Anthropic key is configured."""
+    """Deterministic offline answer used when no Anthropic key is configured.
+
+    Phase 6: surfaces a one-liner per non-empty module so the dev/test
+    flow exercises the full 14-module context shape, not just pulse.
+    """
     project = context.get("project", {})
+    parts = ["[AI assistant offline — no ANTHROPIC_API_KEY configured]", f"You asked: {question}"]
+
     pulse = context.get("pulse", {})
-    return (
-        f"[AI assistant offline — no ANTHROPIC_API_KEY configured]\n\n"
-        f"You asked: {question}\n\n"
-        f"Quick stats for {project.get('name', 'this project')}: "
-        f"{pulse.get('open_tasks', 0)} task mở, "
-        f"{pulse.get('open_change_orders', 0)} change order mở. "
-        f"Recent activity: {len(context.get('recent_activity') or [])} events in last 7 days."
+    drawbridge = context.get("drawbridge", {})
+    handover = context.get("handover", {})
+    siteeye = context.get("siteeye", {})
+    schedulepilot = context.get("schedulepilot", {})
+    submittals = context.get("submittals", {})
+    dailylog = context.get("dailylog", {})
+    changeorder = context.get("changeorder", {})
+    punchlist = context.get("punchlist", {})
+
+    snapshot: list[str] = []
+    if pulse.get("open_tasks") or pulse.get("open_change_orders"):
+        snapshot.append(f"pulse: {pulse.get('open_tasks', 0)} task mở, {pulse.get('open_change_orders', 0)} CO mở")
+    if drawbridge.get("open_rfi_count"):
+        snapshot.append(f"drawbridge: {drawbridge['open_rfi_count']} RFI mở")
+    if handover.get("open_defect_count"):
+        snapshot.append(f"handover: {handover['open_defect_count']} lỗi tồn đọng")
+    if siteeye.get("open_safety_incident_count"):
+        snapshot.append(f"siteeye: {siteeye['open_safety_incident_count']} sự cố an toàn mở")
+    if schedulepilot.get("overall_slip_days"):
+        snapshot.append(f"schedulepilot: trễ {schedulepilot['overall_slip_days']} ngày")
+    if submittals.get("revise_resubmit_count"):
+        snapshot.append(f"submittals: {submittals['revise_resubmit_count']} cần làm lại")
+    if dailylog.get("high_severity_observation_count"):
+        snapshot.append(f"dailylog: {dailylog['high_severity_observation_count']} quan sát mức cao")
+    if changeorder.get("pending_candidates"):
+        snapshot.append(f"changeorder: {changeorder['pending_candidates']} candidate AI chờ duyệt")
+    if punchlist.get("high_severity_open_items"):
+        snapshot.append(f"punchlist: {punchlist['high_severity_open_items']} item mức cao chưa xử lý")
+
+    parts.append(
+        f"Snapshot {project.get('name', 'this project')}: "
+        + (" · ".join(snapshot) if snapshot else "no module signal")
+        + f". Recent activity: {len(context.get('recent_activity') or [])} events in last 7 days."
     )
+    return "\n\n".join(parts)
 
 
 def _default_sources(project_id: UUID, context: dict[str, Any]) -> list[AssistantSource]:
     """Build clickable in-app citations from the context modules that
     have non-empty signal. Front-end renders these as a strip under the
-    answer, so users can drill into the source data."""
+    answer, so users can drill into the source data.
+
+    Each branch is gated on a "this module has non-zero signal" check —
+    a project that's still in the bidding phase doesn't need a Punchlist
+    citation, and surfacing every module unconditionally would dilute
+    the strip into noise. The threshold is intentionally generous (any
+    non-zero count counts), so a single open RFI still earns a chip.
+    """
     sources: list[AssistantSource] = []
     p = str(project_id)
 
@@ -679,6 +1058,117 @@ def _default_sources(project_id: UUID, context: dict[str, Any]) -> list[Assistan
                 route=f"/siteeye?project_id={p}",
             )
         )
+
+    # ---- Phase 6: 9 additional module citations. Same gating pattern —
+    # only render a chip when there's signal worth showing. ----
+
+    winwork = context.get("winwork", {})
+    if winwork.get("proposal_id"):
+        sources.append(
+            AssistantSource(
+                module="winwork",
+                label=f"Proposal: {winwork.get('proposal_status', 'unknown')}",
+                route=f"/winwork/proposals/{winwork['proposal_id']}",
+            )
+        )
+    costpulse = context.get("costpulse", {})
+    if costpulse.get("estimate_count") or costpulse.get("approved_count"):
+        sources.append(
+            AssistantSource(
+                module="costpulse",
+                label=(f"{costpulse.get('estimate_count', 0)} dự toán · {costpulse.get('approved_count', 0)} đã duyệt"),
+                route=f"/costpulse/estimates?project_id={p}",
+            )
+        )
+    codeguard = context.get("codeguard", {})
+    if codeguard.get("compliance_check_count") or codeguard.get("permit_checklist_count"):
+        sources.append(
+            AssistantSource(
+                module="codeguard",
+                label=(
+                    f"{codeguard.get('compliance_check_count', 0)} kiểm tra · "
+                    f"{codeguard.get('permit_checklist_count', 0)} checklist cấp phép"
+                ),
+                route=f"/codeguard?project_id={p}",
+            )
+        )
+    schedulepilot = context.get("schedulepilot", {})
+    if schedulepilot.get("schedule_count") or schedulepilot.get("activity_count"):
+        # Slip days is the most useful single number here — surface it
+        # in the chip label so the user sees "tracking 7 days late" at
+        # a glance without clicking through.
+        slip = schedulepilot.get("overall_slip_days", 0)
+        behind = schedulepilot.get("behind_schedule_count", 0)
+        sources.append(
+            AssistantSource(
+                module="schedulepilot",
+                label=(
+                    f"{schedulepilot.get('schedule_count', 0)} schedule"
+                    + (f" · slip {slip}d" if slip else "")
+                    + (f" · {behind} hoạt động trễ" if behind else "")
+                ),
+                route=f"/schedule?project_id={p}",
+            )
+        )
+    submittals = context.get("submittals", {})
+    if submittals.get("open_count") or submittals.get("revise_resubmit_count") or submittals.get("approved_count"):
+        # Show ball-in-court split — answers "who's the bottleneck?" at
+        # the chip level. `designer_court` and `contractor_court`
+        # together name the queue holding things up.
+        designer = submittals.get("designer_court_count", 0)
+        contractor = submittals.get("contractor_court_count", 0)
+        sources.append(
+            AssistantSource(
+                module="submittals",
+                label=(
+                    f"{submittals.get('open_count', 0)} mở"
+                    + (f" · designer {designer}" if designer else "")
+                    + (f" · contractor {contractor}" if contractor else "")
+                ),
+                route=f"/submittals?project_id={p}",
+            )
+        )
+    dailylog = context.get("dailylog", {})
+    high_obs = dailylog.get("high_severity_observation_count", 0)
+    if dailylog.get("log_count_30d") or high_obs:
+        sources.append(
+            AssistantSource(
+                module="dailylog",
+                label=(
+                    f"{dailylog.get('log_count_30d', 0)} nhật ký 30d"
+                    + (f" · {high_obs} quan sát mức cao" if high_obs else "")
+                ),
+                route=f"/dailylog?project_id={p}",
+            )
+        )
+    changeorder = context.get("changeorder", {})
+    pending = changeorder.get("pending_candidates", 0)
+    if changeorder.get("total_count") or pending:
+        sources.append(
+            AssistantSource(
+                module="changeorder",
+                label=(
+                    f"{changeorder.get('open_count', 0)} mở · "
+                    f"{changeorder.get('approved_count', 0)} duyệt" + (f" · {pending} candidate AI" if pending else "")
+                ),
+                route=f"/changeorder?project_id={p}",
+            )
+        )
+    punchlist = context.get("punchlist", {})
+    if punchlist.get("list_count") or punchlist.get("total_items"):
+        high_open = punchlist.get("high_severity_open_items", 0)
+        sources.append(
+            AssistantSource(
+                module="punchlist",
+                label=(
+                    f"{punchlist.get('list_count', 0)} list · "
+                    f"{punchlist.get('open_items', 0)}/{punchlist.get('total_items', 0)} mở"
+                    + (f" · {high_open} cao chưa xử lý" if high_open else "")
+                ),
+                route=f"/punchlist?project_id={p}",
+            )
+        )
+
     if context.get("recent_activity"):
         sources.append(
             AssistantSource(

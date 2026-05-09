@@ -140,7 +140,35 @@ def _project_row(**overrides: Any):
 
 
 def _push_full_context(fake_db: FakeAsyncSession, project, *, activity_count: int = 0):
-    """Helper: queue the standard 8 results the service requests."""
+    """Helper: queue ALL the results the service requests during a full
+    context roll-up — 23 queries in total, covering every module
+    (pulse + drawbridge + handover + siteeye + costpulse + codeguard +
+    schedulepilot + submittals + dailylog + changeorder + punchlist).
+
+    Why 23 specifically: `services.assistant._get_full_context` walks
+    every module in turn, firing one or more `session.execute(...)`
+    per. The test fixture pushes exactly that many so any per-test
+    `fake_db.push(...)` lands at query #24+ (typically the thread
+    SELECT). Without this padding, a test that pushes a `thread_q`
+    after the helper sees its `thread_q` consumed by query #9 (a
+    costpulse `_scalar` call) — and the actual thread query at #24
+    falls through to the FakeAsyncSession's empty-queue default,
+    creating a fresh thread instead of loading the existing one.
+
+    Hard-coded 23 rather than auto-detected because:
+      * The count is a contract between the service and the test —
+        adding a module that fires a 24th query is a deliberate change
+        and should require updating this helper.
+      * Auto-detecting (e.g. by counting `session.execute` calls in
+        the source) would tie the helper to the service's import-time
+        AST, which is brittle.
+
+    If a new module adds a context query: bump the padding count below
+    AND add the bookkeeping signal to the matching service rollup. The
+    snapshot tests don't catch this — the service's `_get_full_context`
+    will silently return `[]` for the new module's signal, and the
+    assistant's prompt will be missing one bullet point.
+    """
     proj_q = MagicMock()
     proj_q.scalar_one_or_none.return_value = project
     fake_db.push(proj_q)
@@ -161,6 +189,27 @@ def _push_full_context(fake_db: FakeAsyncSession, project, *, activity_count: in
         s = MagicMock()
         s.scalar_one.return_value = n
         fake_db.push(s)
+    # 15 padding results — covering costpulse (3) + codeguard (3) +
+    # schedulepilot (3) + submittals (1) + dailylog (3) + changeorder
+    # (2). Each module's contribution counts every session.execute
+    # the service fires during its rollup, including the non-_scalar
+    # ones (estimates list, schedules list, etc).
+    #
+    # Defaults match the FakeAsyncSession's empty-queue mock — empty
+    # mappings / scalars / scalar=0 — which cleanly reads as "no
+    # signal" through every module's rollup logic. Tests that need a
+    # specific signal (e.g. a populated estimates list) push their
+    # own results AFTER calling this helper; those land at query
+    # 24+, past the context-rollup window.
+    for _ in range(15):
+        pad = MagicMock()
+        pad.scalar_one_or_none.return_value = None
+        pad.scalar_one.return_value = 0
+        pad.mappings.return_value.all.return_value = []
+        pad.mappings.return_value.first.return_value = None
+        pad.scalars.return_value.all.return_value = []
+        pad.scalars.return_value.first.return_value = None
+        fake_db.push(pad)
 
 
 # ---------- Happy path (stub answer) ----------
@@ -560,3 +609,144 @@ async def test_ask_stream_emits_error_for_cross_tenant_project(client, fake_db):
     from models.assistant import AssistantThread
 
     assert not any(isinstance(o, AssistantThread) for o in fake_db.added)
+
+
+# ---------- RBAC: role gate on cost-bearing endpoints -------------------
+#
+# `/ask` and `/ask/stream` invoke the LLM, which costs the org real
+# money. Both are gated at `Role.MEMBER` and above so viewers (the
+# role given to clients, auditors, contractor liaisons) can't burn
+# tokens against the org's cap.
+#
+# The READ endpoints (`/threads`, `/threads/{id}`, DELETE) keep
+# `require_auth` only — they're scoped to `auth.user_id` so a viewer
+# only ever sees their own conversation history. Pin both directions
+# so a refactor that loosens `/ask` (or tightens `/threads`) surfaces
+# loudly here.
+
+
+def _build_app_for_role(fake_db: FakeAsyncSession, role: str):
+    """Build the assistant router app with `auth.role` set to a
+    specific value. Mirrors the `app` fixture above but parameterized
+    so the role-gate tests can sweep across {viewer, member, admin,
+    owner} without four separate fixtures."""
+    from fastapi import FastAPI, HTTPException
+
+    from core.envelope import http_exception_handler, unhandled_exception_handler
+    from db.deps import get_db
+    from middleware.auth import AuthContext, require_auth
+    from routers import assistant as assistant_router
+
+    auth_ctx = AuthContext(
+        user_id=USER_ID,
+        organization_id=ORG_ID,
+        role=role,
+        email="tester@example.com",
+    )
+
+    app = FastAPI()
+    app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
+    app.include_router(assistant_router.router)
+
+    async def _db_override():
+        yield fake_db
+
+    app.dependency_overrides[require_auth] = lambda: auth_ctx
+    app.dependency_overrides[get_db] = _db_override
+    return app
+
+
+async def test_ask_endpoint_returns_403_for_viewer_role(fake_db):
+    """A viewer hitting POST /ask must get 403 — the cost-bearing
+    endpoint is gated. Pin so a refactor that drops the role floor
+    silently lets viewers burn LLM tokens."""
+    app = _build_app_for_role(fake_db, role="viewer")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(
+            f"/api/v1/assistant/projects/{uuid4()}/ask",
+            json={"question": "anything"},
+        )
+    assert res.status_code == 403, (
+        f"Viewer should be 403'd from /ask; got {res.status_code}. "
+        "The role floor on /ask has been lowered or removed — "
+        "viewers can now burn LLM tokens, which the branch's RBAC "
+        "is supposed to prevent."
+    )
+    # Error body carries the role-floor message so the UI can render
+    # something better than a raw 403. Pin the substring.
+    body = res.json()
+    detail = body.get("detail") or body.get("errors", [{}])[0].get("message", "")
+    assert "member" in str(detail).lower(), (
+        f"403 body did not mention the role floor; got {body!r}. "
+        "The frontend keys off this string to render a friendly "
+        "'you don't have permission' message."
+    )
+
+
+async def test_ask_stream_endpoint_returns_403_for_viewer_role(fake_db):
+    """Streaming variant of the same gate — the 403 must fire BEFORE
+    the StreamingResponse is constructed (otherwise the headers go
+    out as 200 and the client gets confused by an in-band error
+    frame on a "successful" response)."""
+    app = _build_app_for_role(fake_db, role="viewer")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(
+            f"/api/v1/assistant/projects/{uuid4()}/ask/stream",
+            json={"question": "anything"},
+        )
+    assert res.status_code == 403, (
+        f"Viewer should be 403'd from /ask/stream; got {res.status_code}. "
+        "If this was a 200 with an in-band error frame, the role gate "
+        "is firing too late — it must be a HARD 4xx so EventSource "
+        "clients see the error."
+    )
+
+
+@pytest.mark.parametrize("role", ["member", "admin", "owner"])
+async def test_ask_endpoint_passes_for_member_admin_owner(fake_db, role):
+    """The hierarchy floor — `member`, `admin`, `owner` all pass.
+    Pin all three so a refactor that re-keyed off `Role.ADMIN`
+    instead of `Role.MEMBER` (silently locking out members) is
+    caught here, not via a customer ticket.
+
+    Stub the LLM path (no ANTHROPIC_API_KEY set by the autouse
+    fixture above) so the request returns 200 with the deterministic
+    stub answer. We're not testing the LLM here, just the gate.
+    """
+    project = _project_row()
+    _push_full_context(fake_db, project, activity_count=0)
+
+    app = _build_app_for_role(fake_db, role=role)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(
+            f"/api/v1/assistant/projects/{project.id}/ask",
+            json={"question": "What's the project status?"},
+        )
+    assert res.status_code == 200, (
+        f"role={role!r} should pass the /ask gate; got {res.status_code}. "
+        f"Body: {res.text}. The role floor was likely raised above "
+        "Role.MEMBER, locking out a tier that should have access."
+    )
+
+
+async def test_threads_list_remains_open_to_viewer(fake_db):
+    """Read-only `/threads` is intentionally NOT gated at the member
+    floor — a viewer who once had member access and got demoted can
+    still see their own conversation history. Pin so a future
+    "tighten everything to member+" refactor doesn't accidentally
+    lock viewers out of their own data.
+    """
+    # No threads — empty result. The handler short-circuits to ok([]).
+    app = _build_app_for_role(fake_db, role="viewer")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get(f"/api/v1/assistant/projects/{uuid4()}/threads")
+    assert res.status_code == 200, (
+        f"Viewer should be able to LIST their own threads; got {res.status_code}. "
+        "If this is a 403, /threads got over-tightened — viewers have a "
+        "legitimate read use case (see their own past conversations)."
+    )

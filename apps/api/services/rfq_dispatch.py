@@ -46,9 +46,7 @@ _BACKOFF_BASE_SECONDS = 1.0
 _TERMINAL_SLOT_STATUSES = frozenset({"dispatched", "responded"})
 
 
-async def _send_with_retry(
-    *, to: str, subject: str, text_body: str, html_body: str | None = None
-) -> tuple[dict, int]:
+async def _send_with_retry(*, to: str, subject: str, text_body: str, html_body: str | None = None) -> tuple[dict, int]:
     """Send with up to `_MAX_SEND_ATTEMPTS` retries on transient transport errors.
 
     Returns `(last_delivery_dict, attempts_made)`. The `delivery` dict is
@@ -64,9 +62,7 @@ async def _send_with_retry(
     """
     last_delivery: dict | None = None
     for attempt in range(1, _MAX_SEND_ATTEMPTS + 1):
-        last_delivery = await send_mail(
-            to=to, subject=subject, text_body=text_body, html_body=html_body
-        )
+        last_delivery = await send_mail(to=to, subject=subject, text_body=text_body, html_body=html_body)
         if last_delivery["delivered"]:
             return last_delivery, attempt
         reason = last_delivery.get("reason") or ""

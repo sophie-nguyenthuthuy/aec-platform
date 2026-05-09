@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from .base import BaseScraper, NormalisedPrice, ScrapedPrice, ScrapeError
-from .normalizer import normalise
+from .normalizer import normalise, refresh_db_rules
 from .writer import write_prices
 
 if TYPE_CHECKING:
@@ -122,6 +122,12 @@ async def run_scraper(scraper: BaseScraper) -> dict:
         }
         await _persist_run(summary, started_at=started_at, finished_at=_now())
         return summary
+
+    # Refresh the DB-rules cache before normalising so an ops edit
+    # since the last scrape lands. Best-effort — the helper logs +
+    # returns 0 on a DB outage, and the in-code `_RULES` carry the
+    # canonical coverage so the scrape continues either way.
+    await refresh_db_rules()
 
     result = normalise(raw)
     write_summary = await write_prices(result.matched)

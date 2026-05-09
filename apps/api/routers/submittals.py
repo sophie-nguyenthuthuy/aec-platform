@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import text
 
 from core.envelope import ok, paginated
@@ -308,6 +308,7 @@ async def review_revision(
     revision_id: UUID,
     payload: SubmittalRevisionReview,
     auth: Annotated[AuthContext, Depends(require_auth)],
+    request: Request,
 ):
     """Designer files a review verdict on a specific revision.
 
@@ -369,6 +370,42 @@ async def review_revision(
                 "sid": str(rev_d["submittal_id"]),
             },
         )
+
+        # Audit: every reviewer verdict is governance-bearing — designers
+        # are speaking on behalf of the design intent, contractors will
+        # later cite these decisions in close-out. Resource is the
+        # parent submittal (not the revision) so a /settings/audit
+        # query for "what verdicts were filed against submittal X" is a
+        # single resource_id lookup. Resubmittal is also tracked because
+        # it's a binding "this version is a no-go" decision even though
+        # the submittal stays open.
+        from services import audit as _audit
+
+        verdict_to_action: dict[str, str] = {
+            "approved": "submittals.review.approve",
+            "approved_as_noted": "submittals.review.approve_as_noted",
+            "revise_resubmit": "submittals.review.revise_resubmit",
+            "rejected": "submittals.review.reject",
+        }
+        verdict_action = verdict_to_action.get(payload.review_status.value)
+        if verdict_action is not None:
+            await _audit.record(
+                session,
+                organization_id=auth.organization_id,
+                auth=auth,
+                action=verdict_action,  # type: ignore[arg-type]
+                resource_type="submittals",
+                resource_id=rev_d["submittal_id"],
+                before={"revision_id": str(revision_id)},
+                after={
+                    "review_status": payload.review_status.value,
+                    "submittal_status": new_sub_status,
+                    "ball_in_court": new_bic,
+                    "reviewer_notes": payload.reviewer_notes,
+                },
+                request=request,
+            )
+
         await session.commit()
 
     return ok(SubmittalRevision.model_validate(rev_d).model_dump(mode="json"))

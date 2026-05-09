@@ -1,0 +1,153 @@
+# Prometheus alert rules for the CODEGUARD per-org token quota system.
+#
+# Loaded into Prometheus via `rule_files` in prometheus.yml:
+#
+#     rule_files:
+#       - /etc/prometheus/codeguard.alerts.yml
+#
+# When the deployment moves to Prometheus Operator on k8s, wrap this
+# file in a `PrometheusRule` CRD (the `groups:` shape below maps 1:1
+# onto `spec.groups`). Keeping it as a native rule file today means
+# it works against vanilla Prometheus, kube-prometheus, and any Helm
+# chart that supports `rule_files` — no operator dependency.
+#
+# Series these rules consume are documented in `docs/codeguard.md`
+# §14.3 and emitted by `apps/api/core/metrics.py`:
+#   * codeguard_quota_429_total{limit_kind}
+#   * codeguard_quota_check_duration_seconds{}
+#
+# ---- Threshold rationale ----
+# The numbers below were chosen for "noisy enough to catch real
+# incidents, quiet enough that on-call doesn't ignore them." They
+# can be tuned later from real production data, but pin defaults
+# here so a fresh deployment doesn't go silent on day one.
+
+groups:
+  - name: codeguard.quota
+    interval: 30s
+    rules:
+      # ---- Cap-check latency ----
+      #
+      # Fires when the pre-flight cap-check SELECT consistently takes
+      # >100ms at p99 over 5m. Why 100ms:
+      #   * Healthy local p99 on the 2-row JOIN against
+      #     codeguard_org_quotas + codeguard_org_usage is ~3ms.
+      #   * 100ms ≈ 30× regression — well past noise, well below a
+      #     full Postgres outage which would surface on its own.
+      #   * The cap-check fires on EVERY LLM route, so a 100ms tail
+      #     adds up: 6 routes × ~10 RPS = 60 cap-checks/sec, each
+      #     contributing 100ms tail latency = visible p99 inflation
+      #     across the whole codeguard product surface.
+      # Severity warn (not page) — DB pressure usually self-resolves
+      # within minutes; pageworthy if it sustains an hour.
+      - alert: CodeguardQuotaCheckSlow
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(codeguard_quota_check_duration_seconds_bucket[5m]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warn
+          service: codeguard
+          component: quota
+        annotations:
+          summary: "Codeguard cap-check p99 > 100ms"
+          description: |
+            The pre-flight cap-check SELECT is taking longer than 100ms
+            at p99 over the last 5 minutes. Healthy baseline is ~3ms.
+            This adds latency to every LLM-invoking codeguard route.
+            Check Postgres connection pool saturation, slow-query log,
+            and `codeguard_org_quotas` / `codeguard_org_usage` index
+            health. See docs/codeguard.md §14.3.
+          runbook_url: "https://github.com/<org>/<repo>/blob/main/docs/codeguard.md#143-the-metrics-series"
+
+      # ---- 429 refusal-rate spike ----
+      #
+      # Fires when refusals exceed 5/minute sustained for 10m. Why
+      # 5/min sustained 10m (not 1/min sustained 1m):
+      #   * 1/min: noise from a single tenant who's correctly being
+      #     refused — that's the system working as designed.
+      #   * 5/min for 10m: a genuine pattern. Either (a) one tenant
+      #     is hammering past their cap (likely a runaway script in
+      #     their integration), or (b) ops just lowered a cap and
+      #     forgot to notify the tenant, or (c) a deploy regression
+      #     dropped quotas to zero somewhere.
+      # Severity page (not warn) — sustained refusals mean someone is
+      # being actively blocked from the product, and the longer this
+      # runs the more support tickets pile up.
+      - alert: CodeguardQuotaRefusalSpike
+        expr: |
+          sum(rate(codeguard_quota_429_total[5m])) > (5 / 60)
+        for: 10m
+        labels:
+          severity: page
+          service: codeguard
+          component: quota
+        annotations:
+          summary: "Codeguard quota refusals spiking ({{ $value | humanize }} per second)"
+          description: |
+            Cap-check 429s are firing at >5/minute sustained over 10
+            minutes. Either a tenant is hammering past their cap, ops
+            just lowered a cap without notice, or a deploy regression
+            dropped quota values. Triage:
+              1. Identify the affected org(s):
+                 `python scripts/codeguard_quotas.py list --over-pct 100`
+              2. Check recent audit-log entries for unexpected cap
+                 changes:
+                 `python scripts/codeguard_quotas.py audit <org-uuid>
+                  --since <today>`
+              3. If a deploy regression: roll back. If a tenant
+                 hammering: contact them. If an intentional cap-lower:
+                 confirm the tenant was notified.
+            See docs/codeguard.md §14.5 (billing-dispute runbook) for
+            how to reset usage if needed.
+          runbook_url: "https://github.com/<org>/<repo>/blob/main/docs/codeguard.md#145-billing-dispute-runbook-3-steps"
+
+      # ---- Reconcile drift ----
+      #
+      # Fires when `codeguard_quota_drift_rows > 0` for two consecutive
+      # cron runs (≥7 days). The reconcile cron runs weekly (Mon 04:00
+      # UTC); a single run reporting drift could be a transient artifact
+      # of a Redis outage during a write window. Two consecutive runs
+      # means the system didn't auto-resolve over a week — that's
+      # genuine drift between `codeguard_org_usage` and the per-user
+      # rollup, and remediation policy is undecided (see runbook).
+      #
+      # Why >= 14d for `for:` not 7d: weekly cron has 7-day periodicity,
+      # so a single offending run keeps the gauge nonzero for ~6.99 days
+      # until the next run resets it. To catch "TWO consecutive drift
+      # detections," the alert needs to see nonzero for >7 days. 14d is
+      # the safest "two cron runs both confirmed drift" floor.
+      #
+      # Severity warn (not page) — drift is a forensic problem, not a
+      # user-facing one. The cap-enforcement loop still works correctly
+      # because `check_org_quota` reads `codeguard_org_usage`. Drift
+      # only affects the per-user attribution widget on the quota page.
+      - alert: CodeguardQuotaUsageDrift
+        expr: codeguard_quota_drift_rows > 0
+        for: 14d
+        labels:
+          severity: warn
+          service: codeguard
+          component: quota
+        annotations:
+          summary: "Codeguard org/user usage drift unresolved over 2+ cron runs"
+          description: |
+            The reconcile cron has detected drift between
+            `codeguard_org_usage` and `SUM(codeguard_user_usage)` for
+            two consecutive weekly runs. This means one of the writes
+            in `_with_usage_recording` has been failing silently — the
+            cap-check still works (it reads the org-level row directly),
+            but the "Top users" widget on /codeguard/quota and any
+            per-user reporting will show numbers that don't add up to
+            the org total. Triage:
+              1. Pull the full drift dump for the affected org(s):
+                 `python scripts/codeguard_quotas.py reconcile --json`
+              2. Read the structured `codeguard.quota.drift` log lines
+                 from the cron's most recent two runs to identify
+                 patterns (always-the-same orgs? always around a Redis
+                 outage window?).
+              3. Decide remediation per ticket. The audit log preserves
+                 history so a manual `set` to reconcile is itself
+                 audited.
+          runbook_url: "https://github.com/<org>/<repo>/blob/main/docs/codeguard.md#14-quotas--operations-runbook"

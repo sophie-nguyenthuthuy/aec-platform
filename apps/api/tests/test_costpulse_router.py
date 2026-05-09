@@ -631,15 +631,20 @@ def _build_boq_xlsx_bytes(rows: list[tuple[str, str, str, float, float]]) -> byt
 async def test_import_boq_xlsx_replaces_items_and_recomputes_total(client, fake_db):
     """Happy path: an .xlsx with two rows lands as two BoqItem inserts."""
     estimate = _estimate_row(status="draft")
-    # The handler issues four execute() calls in order:
-    #   1. SELECT Estimate          (auth check)
-    #   2. DELETE BoqItem           (wipe old rows; return value unused)
-    #   3. SELECT Estimate          (in _load_estimate_detail; .scalar_one())
-    #   4. SELECT BoqItem           (in _load_estimate_detail; .scalars().all())
+    # The handler issues five execute() calls in order:
+    #   1. SELECT Estimate           (auth check)
+    #   2. DELETE BoqItem            (wipe old rows; return value unused)
+    #   3. SELECT webhook_subs       (audit → webhook outbox enqueue)
+    #   4. SELECT Estimate           (in _load_estimate_detail; .scalar_one())
+    #   5. SELECT BoqItem            (in _load_estimate_detail; .scalars().all())
     q_estimate = MagicMock()
     q_estimate.scalar_one_or_none.return_value = estimate
     fake_db.push_execute(q_estimate)
     fake_db.push_execute(MagicMock())  # DELETE — no consumer cares
+    # Webhook-outbox query has no matching subscriptions in tests.
+    webhook_subs_q = MagicMock()
+    webhook_subs_q.scalars.return_value.all.return_value = []
+    fake_db.push_execute(webhook_subs_q)
     detail_q = MagicMock()
     detail_q.scalar_one.return_value = estimate
     fake_db.push_execute(detail_q)
@@ -821,3 +826,315 @@ async def test_filename_for_export_replaces_unsafe_chars():
     assert "—" not in _filename_for_export("Tower X — Schematic v1", ext="xlsx")
     # Empty estimate name still produces a usable default.
     assert _filename_for_export("", ext="pdf") == "boq.pdf"
+
+
+# ---------- Estimate version history & diff ----------
+
+
+def _boq_item(estimate_id: UUID, **overrides):
+    base = dict(
+        id=uuid4(),
+        estimate_id=estimate_id,
+        parent_id=None,
+        sort_order=0,
+        code=None,
+        description="",
+        unit="m3",
+        quantity=Decimal("100"),
+        unit_price_vnd=Decimal("1000"),
+        total_price_vnd=Decimal("100000"),
+        material_code=None,
+        source=None,
+        notes=None,
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+async def test_list_versions_returns_chain_descending(client, fake_db):
+    pivot = _estimate_row(version=2, status="draft")
+    other_versions = [
+        _estimate_row(id=uuid4(), version=2, status="draft", project_id=pivot.project_id, name=pivot.name),
+        _estimate_row(id=uuid4(), version=1, status="superseded", project_id=pivot.project_id, name=pivot.name),
+    ]
+    pivot_q = MagicMock()
+    pivot_q.scalar_one_or_none.return_value = pivot
+    chain_q = MagicMock()
+    chain_q.scalars.return_value.all.return_value = other_versions
+    fake_db.push_execute(pivot_q)
+    fake_db.push_execute(chain_q)
+
+    res = await client.get(f"/api/v1/costpulse/estimates/{pivot.id}/versions")
+    assert res.status_code == 200, res.text
+    data = res.json()["data"]
+    assert [r["version"] for r in data] == [2, 1]
+
+
+async def test_list_versions_404_for_other_org(client, fake_db):
+    q = MagicMock()
+    q.scalar_one_or_none.return_value = None
+    fake_db.push_execute(q)
+    res = await client.get(f"/api/v1/costpulse/estimates/{uuid4()}/versions")
+    assert res.status_code == 404
+
+
+async def test_diff_versions_buckets_added_changed_removed(client, fake_db):
+    """Pair items by `material_code` first; bucket the deltas."""
+    base_id = uuid4()
+    target_id = uuid4()
+    proj = uuid4()
+    base = _estimate_row(id=base_id, project_id=proj, name="Tower X", version=1, total_vnd=100)
+    target = _estimate_row(id=target_id, project_id=proj, name="Tower X", version=2, total_vnd=200)
+
+    # base has CONC_C30 + REBAR_CB500; target has CONC_C30 (with bumped
+    # qty) + a new BRICK_RED. So we expect one changed (concrete),
+    # one added (brick), one removed (rebar).
+    base_items = [
+        _boq_item(
+            base_id,
+            description="Bê tông C30",
+            material_code="CONC_C30",
+            quantity=Decimal("100"),
+            unit_price_vnd=Decimal("2000000"),
+        ),
+        _boq_item(
+            base_id,
+            description="Thép CB500",
+            material_code="REBAR_CB500",
+            quantity=Decimal("8000"),
+            unit_price_vnd=Decimal("20000"),
+        ),
+    ]
+    target_items = [
+        _boq_item(
+            target_id,
+            description="Bê tông C30",
+            material_code="CONC_C30",
+            quantity=Decimal("120"),  # bumped
+            unit_price_vnd=Decimal("2000000"),
+        ),
+        _boq_item(
+            target_id,
+            description="Gạch đỏ",
+            material_code="BRICK_RED",
+            quantity=Decimal("5000"),
+            unit_price_vnd=Decimal("1200"),
+        ),
+    ]
+
+    estimates_q = MagicMock()
+    estimates_q.scalars.return_value.all.return_value = [base, target]
+    base_items_q = MagicMock()
+    base_items_q.scalars.return_value.all.return_value = base_items
+    target_items_q = MagicMock()
+    target_items_q.scalars.return_value.all.return_value = target_items
+    fake_db.push_execute(estimates_q)
+    fake_db.push_execute(base_items_q)
+    fake_db.push_execute(target_items_q)
+
+    res = await client.get(f"/api/v1/costpulse/estimates/{base_id}/diff?to={target_id}")
+    assert res.status_code == 200, res.text
+    body = res.json()["data"]
+    assert body["from_version"] == 1
+    assert body["to_version"] == 2
+
+    rows_by_kind = {r["kind"]: r for r in body["rows"]}
+    assert set(rows_by_kind.keys()) == {"added", "changed", "removed"}
+    assert rows_by_kind["added"]["material_code"] == "BRICK_RED"
+    assert rows_by_kind["removed"]["material_code"] == "REBAR_CB500"
+    changed = rows_by_kind["changed"]
+    assert changed["material_code"] == "CONC_C30"
+    assert changed["from_qty"] == "100"
+    assert changed["to_qty"] == "120"
+
+
+async def test_diff_400_when_estimates_in_different_chains(client, fake_db):
+    """Different `(project, name)` family → 400, not a nonsense diff."""
+    a_id, b_id = uuid4(), uuid4()
+    a = _estimate_row(id=a_id, name="Tower X", project_id=uuid4(), version=1)
+    b = _estimate_row(id=b_id, name="Tower Y", project_id=uuid4(), version=1)
+    estimates_q = MagicMock()
+    estimates_q.scalars.return_value.all.return_value = [a, b]
+    fake_db.push_execute(estimates_q)
+
+    res = await client.get(f"/api/v1/costpulse/estimates/{a_id}/diff?to={b_id}")
+    assert res.status_code == 400
+
+
+async def test_diff_404_when_either_id_missing(client, fake_db):
+    """Caller's org has only one of the two ids → 404."""
+    a_id, b_id = uuid4(), uuid4()
+    only_a = _estimate_row(id=a_id, name="Tower X", project_id=uuid4(), version=1)
+    estimates_q = MagicMock()
+    estimates_q.scalars.return_value.all.return_value = [only_a]
+    fake_db.push_execute(estimates_q)
+
+    res = await client.get(f"/api/v1/costpulse/estimates/{a_id}/diff?to={b_id}")
+    assert res.status_code == 404
+
+
+# ---------- _persist_items: recompute behavior ----------
+#
+# `_persist_items(recompute=True)` is the contract every save path
+# relies on (create / PUT BOQ / Excel import / quote-clone). These
+# tests pin the recompute math directly — a refactor that drops the
+# recompute flag would otherwise silently land stale totals in
+# material_prices and the buyer's estimate display.
+
+
+def test_persist_items_recomputes_line_total_when_qty_and_unit_price_set():
+    """qty * unit_price should override any pre-existing total when
+    `recompute=True`. Without this, an Excel import where the formula
+    column was stale would persist the wrong total."""
+    from routers.costpulse import _persist_items
+    from schemas.costpulse import BoqItemIn
+
+    class _Sink:
+        added: list = []
+
+        def add(self, obj):
+            self.added.append(obj)
+
+    sink = _Sink()
+    items = [
+        BoqItemIn(
+            id=None,
+            parent_id=None,
+            sort_order=0,
+            code="1.1",
+            description="Bê tông C30",
+            unit="m3",
+            quantity=Decimal("120"),
+            unit_price_vnd=Decimal("2000000"),
+            # Caller passed a stale total — the recompute should win.
+            total_price_vnd=Decimal("999"),
+            material_code="CONC_C30",
+        )
+    ]
+    total = _persist_items(sink, uuid4(), items, recompute=True)
+
+    # 120 * 2_000_000 = 240_000_000 — recompute wins over the stale 999.
+    assert total == Decimal("240000000")
+    persisted = sink.added[0]
+    assert persisted.total_price_vnd == Decimal("240000000")
+
+
+def test_persist_items_keeps_explicit_total_when_recompute_false():
+    """`recompute=False` is the escape hatch for "trust the caller's total"
+    — used when the buyer manually overrode a single line. Pin that the
+    flag actually gates the recompute."""
+    from routers.costpulse import _persist_items
+    from schemas.costpulse import BoqItemIn
+
+    class _Sink:
+        added: list = []
+
+        def add(self, obj):
+            self.added.append(obj)
+
+    sink = _Sink()
+    items = [
+        BoqItemIn(
+            id=None,
+            parent_id=None,
+            sort_order=0,
+            code="1.1",
+            description="x",
+            unit="m3",
+            quantity=Decimal("10"),
+            unit_price_vnd=Decimal("100"),
+            total_price_vnd=Decimal("9999"),  # buyer-provided
+            material_code=None,
+        )
+    ]
+    total = _persist_items(sink, uuid4(), items, recompute=False)
+
+    # qty*unit_price = 1000, but recompute is off → explicit 9999 kept.
+    assert total == Decimal("9999")
+    assert sink.added[0].total_price_vnd == Decimal("9999")
+
+
+def test_persist_items_skips_recompute_when_qty_or_unit_price_missing():
+    """A line that only has a top-line total (no qty/unit_price) must
+    NOT have its total nulled out by the recompute branch — that would
+    silently drop the value."""
+    from routers.costpulse import _persist_items
+    from schemas.costpulse import BoqItemIn
+
+    class _Sink:
+        added: list = []
+
+        def add(self, obj):
+            self.added.append(obj)
+
+    sink = _Sink()
+    items = [
+        BoqItemIn(
+            id=None,
+            parent_id=None,
+            sort_order=0,
+            code="2.1",
+            description="Lump sum",
+            unit="lot",
+            quantity=None,  # ← missing
+            unit_price_vnd=None,  # ← missing
+            total_price_vnd=Decimal("5000000"),
+            material_code=None,
+        )
+    ]
+    total = _persist_items(sink, uuid4(), items, recompute=True)
+
+    # No qty * price math possible → keeps the explicit total.
+    assert total == Decimal("5000000")
+    assert sink.added[0].total_price_vnd == Decimal("5000000")
+
+
+def test_persist_items_only_top_level_rolls_up_to_estimate_total():
+    """Sub-items (parent_id set) get their line_total recomputed but do
+    NOT contribute to `estimate.total_vnd`. Without this gate the
+    estimate's total would double-count children + parent."""
+    from routers.costpulse import _persist_items
+    from schemas.costpulse import BoqItemIn
+
+    class _Sink:
+        added: list = []
+
+        def add(self, obj):
+            self.added.append(obj)
+
+    parent_id = uuid4()
+    sink = _Sink()
+    items = [
+        BoqItemIn(
+            id=parent_id,
+            parent_id=None,
+            sort_order=0,
+            code="1",
+            description="Concrete works",
+            quantity=None,
+            unit_price_vnd=None,
+            total_price_vnd=Decimal("100"),
+            material_code=None,
+            unit=None,
+        ),
+        BoqItemIn(
+            id=None,
+            parent_id=parent_id,
+            sort_order=1,
+            code="1.1",
+            description="Sub-item",
+            quantity=Decimal("5"),
+            unit_price_vnd=Decimal("50"),
+            total_price_vnd=None,
+            material_code=None,
+            unit="m3",
+        ),
+    ]
+    total = _persist_items(sink, uuid4(), items, recompute=True)
+
+    # Only the parent (no parent_id) contributes — sub-items are
+    # children of an existing line.
+    assert total == Decimal("100")
+    # Sub-item still got its own line total recomputed.
+    sub = next(a for a in sink.added if a.code == "1.1")
+    assert sub.total_price_vnd == Decimal("250")

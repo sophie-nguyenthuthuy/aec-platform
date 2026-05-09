@@ -19,7 +19,16 @@ export const adminKeys = {
  * `/admin/scrapers` dashboard. One row per slug with total_runs,
  * failure_rate, avg_drift, last_run_at, last_run_ok. Sorted by drift
  * DESC server-side so degraded slugs surface first.
+ *
+ * `points` is the per-run drift series for the inline sparkline,
+ * oldest → newest. `ratio === null` represents a run that scraped 0
+ * rows (no division-by-zero ratio possible) — render as a gap.
  */
+export interface ScraperRunsSummaryPoint {
+  started_at: string;
+  ratio: number | null;
+}
+
 export interface ScraperRunsSummaryRow {
   slug: string;
   total_runs: number;
@@ -27,6 +36,7 @@ export interface ScraperRunsSummaryRow {
   avg_drift: number | null;
   last_run_at: string | null;
   last_run_ok: boolean | null;
+  points: ScraperRunsSummaryPoint[];
 }
 
 

@@ -39,10 +39,12 @@ test.describe("real Supabase auth", () => {
     await page.getByLabel(/Mật khẩu/i).fill(PASSWORD);
     await page.getByRole("button", { name: /Đăng nhập/i }).click();
 
-    // After successful sign-in we get redirected back to / (the default
-    // `next` value). The dashboard layout renders the org switcher with
-    // the user's org name + email + role.
-    await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:3102\/(\?|$)/);
+    // After successful sign-in we get redirected back to `/` (the default
+    // `next` value), which itself redirects server-side to `/winwork`
+    // (the default landing page — see `app/page.tsx`'s
+    // `redirect("/winwork")`). Either landing point is fine; what
+    // matters is we left `/login` with a valid session.
+    await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:3102\/(?:winwork|\?|$)/);
     await expect(page.getByText("Dev Org")).toBeVisible();
     await expect(page.getByText(EMAIL)).toBeVisible();
 

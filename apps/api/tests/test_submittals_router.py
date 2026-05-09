@@ -51,10 +51,16 @@ def _scalar(value: Any) -> MagicMock:
 class _ProgrammableSession:
     def __init__(self) -> None:
         self._queue: list[Any] = []
+        # `add()` is called by services.audit.record. Capture rather than
+        # crash so tests can introspect the audit row when relevant.
+        self.added: list[Any] = []
 
     def queue(self, result: Any) -> _ProgrammableSession:
         self._queue.append(result)
         return self
+
+    def add(self, obj: Any) -> None:
+        self.added.append(obj)
 
     async def execute(self, stmt: Any, params: Any = None) -> Any:
         if self._queue:

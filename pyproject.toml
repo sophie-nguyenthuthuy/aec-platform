@@ -13,6 +13,17 @@ select = [
   "RUF",             # ruff-specific
 ]
 ignore = ["E501"]  # line length handled by formatter
+# RUF002 / RUF003 flag "ambiguous unicode" — chars that LOOK like ASCII
+# but aren't. The ones that hit us are intentional typography in
+# performance/math docstrings, not typos:
+#   ×  U+00D7  MULTIPLICATION SIGN  (e.g. "3 phases × 50ms")
+#   →  U+2192  RIGHTWARDS ARROW     (e.g. "todo → in_progress")
+#   ≥  U+2265  GREATER-THAN-OR-EQUAL (math)
+#   ≤  U+2264  LESS-THAN-OR-EQUAL    (math)
+# Whitelist the codepoints so they don't fire — the lint is meant to
+# catch lookalikes (e.g. Cyrillic 'е' in identifiers), not legitimate
+# unicode operators.
+allowed-confusables = ["×", "→", "≥", "≤"]
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's whole point is parameter-default DI: `arg = Depends(...)` /

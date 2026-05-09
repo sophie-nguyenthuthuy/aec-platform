@@ -55,3 +55,63 @@ repos:
       - id: check-added-large-files
         args: [--maxkb=500]
       - id: detect-private-key
+
+  # ---------- Codeguard surface contract --------------------------------
+  # Local-only hook (not on the public pre-commit registry). Runs the
+  # snapshot test against the codeguard router routes, the metric
+  # registry, the cron schedule, and the retention policy registry —
+  # the same surface CI's `codeguard-surface` job pins.
+  #
+  # Why run pre-commit (not just CI): the local working tree has
+  # historically had an aggressive linter / reformat pass that drops
+  # router routes, metric registrations, and cron entries between
+  # rounds of work. Without a local gate the wiped state can be
+  # committed (and pushed) before the CI gate fires; the loop wastes
+  # work because each round restores what the prior round added.
+  # Catching the regression at `git commit` time stops the leak at
+  # the source.
+  #
+  # Why `system` language (not `python`): the snapshot test imports
+  # the FastAPI router, arq cron entries, Prometheus metric registry,
+  # and retention policy module. All of those carry the full apps/api
+  # dependency tree (sqlalchemy, asyncpg, fastapi). The local repo's
+  # venv already has them installed; reinstalling under a pre-commit-
+  # owned virtualenv would add ~30s to every commit. `system` reuses
+  # the active Python.
+  #
+  # `files:` regex: only run when one of the surface files changes.
+  # The vast majority of commits touch unrelated code (web, ml, infra)
+  # and shouldn't pay the ~1s import cost. The regex covers every
+  # module the snapshot test reads from PLUS the snapshot test itself
+  # — a refactor of the test file is exactly when we want to confirm
+  # the assertions still hold.
+  - repo: local
+    hooks:
+      - id: codeguard-surface-snapshot
+        name: Codeguard surface contract (routes + metrics + crons + retention)
+        language: system
+        entry: bash -c 'cd apps/api && pytest tests/test_codeguard_surface_snapshot.py -q'
+        pass_filenames: false
+        files: ^apps/api/(routers/codeguard(_quota)?\.py|core/metrics\.py|workers/queue\.py|services/(retention|codeguard_quotas|codeguard_quota_attribution)\.py|tests/test_codeguard_surface_snapshot\.py)$
+
+      # ---------- Integrator-platform surface contract ----------
+      # Sister hook to codeguard-surface-snapshot above, applied to a
+      # different cluster of code: API-keys (mode + scopes), AuthContext,
+      # ops router (/healthz, /readyz, /metrics), webhook dead-letter,
+      # admin API-keys usage telemetry, Settings.metrics_token.
+      #
+      # Every one of those surfaces has been silently rolled back during
+      # ongoing development by an aggressive external linter pass. The
+      # snapshot test below pins the exact field/parameter/route set,
+      # and this hook runs it at commit time so a rollback can't slip
+      # past staging into a push.
+      #
+      # Same `language: system` rationale as the codeguard hook — the
+      # snapshot test imports the FastAPI app, schemas, and middleware,
+      # which need the full apps/api dependency tree.
+      - id: integrator-surface-snapshot
+        name: Integrator surface contract (api-keys + ops + webhooks + admin)
+        language: system
+        entry: bash -c 'cd apps/api && pytest tests/test_integrator_surface_snapshot.py -q'
+        pass_filenames: false
+        files: ^apps/api/(routers/(api_keys|ops|webhooks|admin)\.py|services/api_keys\.py|middleware/(auth|api_key_auth)\.py|core/config\.py|schemas/webhooks\.py|main\.py|tests/test_integrator_surface_snapshot\.py)$
