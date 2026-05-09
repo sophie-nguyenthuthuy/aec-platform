@@ -8,6 +8,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 
 ## Index
 
+- [Audit action callsite](#audit-action-callsite)
 - [Audit completeness](#audit-completeness)
 - [Audit index freshness](#audit-index-freshness)
 - [Ci precommit drift](#ci-precommit-drift)
@@ -17,14 +18,18 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Dep parity](#dep-parity)
 - [Dependency direction](#dependency-direction)
 - [Fixture duplication](#fixture-duplication)
+- [Fk index coverage](#fk-index-coverage)
 - [Fk ondelete](#fk-ondelete)
 - [Frontend bundle composition](#frontend-bundle-composition)
+- [Http status constants](#http-status-constants)
 - [Idempotency contract](#idempotency-contract)
+- [Input schemas no organization id](#input-schemas-no-organization-id)
 - [Logging structure](#logging-structure)
 - [Migration safety](#migration-safety)
 - [Naive datetime](#naive-datetime)
 - [Openapi route docs](#openapi-route-docs)
 - [Openapi tags](#openapi-tags)
+- [Output schemas no secret fields](#output-schemas-no-secret-fields)
 - [Pydantic field constraint](#pydantic-field-constraint)
 - [Pydantic strictness](#pydantic-strictness)
 - [Rate limit](#rate-limit)
@@ -34,6 +39,13 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Tenant predicate](#tenant-predicate)
 - [Todo aging](#todo-aging)
 - [Worker retry policy](#worker-retry-policy)
+
+## Audit action callsite <a id="audit-action-callsite"></a>
+_File:_ `apps/api/tests/test_audit_action_callsite_audit.py`
+
+Audit: every `audit.record(action="...")` call site MUST pass an `action` string that's in the canonical `AuditAction` Literal.
+
+**Tests**: `test_every_audit_record_action_in_literal`, `test_audit_actually_finds_call_sites`, `test_canonical_audit_action_set_size_floor`, `test_dynamic_call_sites_allowlist_is_minimal`
 
 ## Audit completeness <a id="audit-completeness"></a>
 _File:_ `apps/api/tests/test_audit_completeness_audit.py`
@@ -135,6 +147,19 @@ Test-fixture duplication audit.
 
 **Tests**: `test_fixture_pattern_duplication_does_not_grow`, `test_baselines_cover_every_recognised_pattern`, `test_pattern_regex_actually_matches_documented_shape`, `test_per_pattern_baseline_breakdown_is_visible_on_fail`
 
+## Fk index coverage <a id="fk-index-coverage"></a>
+_File:_ `apps/api/tests/test_fk_index_coverage_audit.py`
+
+Foreign-key index coverage audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_UNCOVERED_FKS` | `125` |
+
+**Tests**: `test_every_fk_column_has_a_leading_index`, `test_audit_recognises_documented_shapes`, `test_allowlist_entries_actually_correspond_to_real_fks`
+
 ## Fk ondelete <a id="fk-ondelete"></a>
 _File:_ `apps/api/tests/test_fk_ondelete_audit.py`
 
@@ -155,6 +180,19 @@ Frontend bundle composition tracker.
 
 **Tests**: `test_no_unreviewed_packages_enter_the_bundle`, `test_no_server_only_imports_in_client_source`, `test_allowlist_entries_correspond_to_real_files`, `test_audit_recognises_documented_import_shapes`
 
+## Http status constants <a id="http-status-constants"></a>
+_File:_ `apps/api/tests/test_http_status_constants_audit.py`
+
+HTTP status-code constants audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_LITERAL_STATUS_CODES` | `43` |
+
+**Tests**: `test_no_literal_http_status_codes`, `test_audit_recognises_documented_call_shapes`, `test_allowlist_entries_actually_exist_in_source`
+
 ## Idempotency contract <a id="idempotency-contract"></a>
 _File:_ `apps/api/tests/test_idempotency_contract_audit.py`
 
@@ -167,6 +205,13 @@ Idempotency-key contract audit.
 | `BASELINE_NON_IDEMPOTENT_CREATES` | `33` |
 
 **Tests**: `test_every_creation_post_uses_idempotent_route`, `test_create_pattern_matches_at_least_some_routes`, `test_idempotent_route_class_is_importable`
+
+## Input schemas no organization id <a id="input-schemas-no-organization-id"></a>
+_File:_ `apps/api/tests/test_input_schemas_no_organization_id_audit.py`
+
+Audit: Pydantic *input* schemas (Create / Update / Patch / Payload) MUST NOT accept `organization_id` from the client.
+
+**Tests**: `test_no_input_schema_accepts_organization_id`, `test_audit_actually_walks_input_schemas`, `test_output_schema_classifier_correct`, `test_input_schemas_with_org_id_allowlist_is_minimal`
 
 ## Logging structure <a id="logging-structure"></a>
 _File:_ `apps/api/tests/test_logging_structure_audit.py`
@@ -234,6 +279,13 @@ Per-route OpenAPI tags audit.
 | `BASELINE_UNTAGGED_ROUTES` | `0` |
 
 **Tests**: `test_every_route_has_at_least_one_tag`, `test_allowlist_entries_actually_match_routes`
+
+## Output schemas no secret fields <a id="output-schemas-no-secret-fields"></a>
+_File:_ `apps/api/tests/test_output_schemas_no_secret_fields_audit.py`
+
+Audit: Pydantic *output* schemas (Out / Detail / Response / Read / Summary / Row / View / Returned) MUST NOT carry secret-shaped fields.
+
+**Tests**: `test_no_output_schema_carries_secret_field`, `test_audit_actually_walks_output_schemas`, `test_classifier_exempts_create_response_shapes`, `test_secret_field_name_set_is_conservative`, `test_output_schemas_with_secret_allowlist_is_minimal`
 
 ## Pydantic field constraint <a id="pydantic-field-constraint"></a>
 _File:_ `apps/api/tests/test_pydantic_field_constraint_audit.py`
