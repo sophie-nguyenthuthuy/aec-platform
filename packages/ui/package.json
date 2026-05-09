@@ -20,25 +20,29 @@
     "react-dom": "^18"
   },
   "peerDependenciesMeta": {
-    "next": { "optional": true }
+    "next": {
+      "optional": true
+    }
   },
   "dependencies": {
-    "clsx": "^2.1.1",
-    "tailwind-merge": "^2.5.2",
     "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
     "lucide-react": "^0.445.0",
-    "recharts": "^2.12.7"
+    "recharts": "^2.12.7",
+    "tailwind-merge": "^2.5.2"
   },
   "devDependencies": {
-    "next": "14.2.35",
-    "@types/react": "^18.3.11",
-    "@types/react-dom": "^18.3.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.0.1",
     "@testing-library/user-event": "^14.5.2",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
     "@vitest/coverage-v8": "^2.1.4",
+    "fast-check": "^3.23.1",
     "jsdom": "^25.0.1",
+    "next": "14.2.35",
     "typescript": "^5.4.5",
-    "vitest": "^2.1.4"
+    "vitest": "^2.1.4",
+    "vitest-axe": "^0.1.0"
   }
 }
