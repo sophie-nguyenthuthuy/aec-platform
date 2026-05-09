@@ -107,6 +107,25 @@ _GLOBAL_TABLES: dict[str, str] = {
     # Import jobs — the jobs themselves carry organization_id
     # (sanity-checked below); this comment is here for clarity
     # of the convention.
+    # Scraped public tender notices (gov procurement portals).
+    # No per-tenant attribution — every tenant sees the same
+    # tender catalog; tenant-scoped joins live on `tender_matches`.
+    "tenders": "scraped public tender catalog; tenant scope on tender_matches",
+    # Scraped public construction-material price index. The
+    # tenant-scoped views (alerts, BOQ snapshots) reference rows
+    # by material_code; the price catalog itself is shared.
+    "material_prices": "scraped public price catalog; shared across tenants",
+    # Public building codes / regulations — country + jurisdiction
+    # keyed reference data. Tenant-scoped checks live on
+    # `compliance_checks`, which carries organization_id.
+    "regulations": "public regulation catalog; tenant scope on compliance_checks",
+    # Embedding-chunked pieces of `regulations` rows; same
+    # global lifetime as the parent (cascade-deleted with it).
+    "regulation_chunks": "chunks of `regulations`; same global lifetime as parent",
+    # Public industry fee benchmarks by discipline + country +
+    # project type. Used as reference input by proposal
+    # generation; not authored by any tenant.
+    "fee_benchmarks": "industry fee benchmark reference data; cross-tenant",
 }
 
 

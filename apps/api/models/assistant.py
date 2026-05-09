@@ -72,6 +72,11 @@ class AssistantMessage(Base):
     __tablename__ = "assistant_messages"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    organization_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     thread_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("assistant_threads.id", ondelete="CASCADE"),
