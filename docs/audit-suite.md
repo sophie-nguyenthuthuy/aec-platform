@@ -8,6 +8,9 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 
 ## Index
 
+- [Admin routes role gate](#admin-routes-role-gate)
+- [Admin session factory usage](#admin-session-factory-usage)
+- [Alembic chain integrity](#alembic-chain-integrity)
 - [Audit action callsite](#audit-action-callsite)
 - [Audit completeness](#audit-completeness)
 - [Audit index freshness](#audit-index-freshness)
@@ -17,6 +20,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Cron mutex](#cron-mutex)
 - [Dep parity](#dep-parity)
 - [Dependency direction](#dependency-direction)
+- [Every router mounted in main](#every-router-mounted-in-main)
 - [Fixture duplication](#fixture-duplication)
 - [Fk index coverage](#fk-index-coverage)
 - [Fk ondelete](#fk-ondelete)
@@ -26,19 +30,43 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Input schemas no organization id](#input-schemas-no-organization-id)
 - [Logging structure](#logging-structure)
 - [Migration safety](#migration-safety)
+- [N plus one](#n-plus-one)
 - [Naive datetime](#naive-datetime)
 - [Openapi route docs](#openapi-route-docs)
 - [Openapi tags](#openapi-tags)
+- [Orm tables organization id](#orm-tables-organization-id)
 - [Output schemas no secret fields](#output-schemas-no-secret-fields)
 - [Pydantic field constraint](#pydantic-field-constraint)
 - [Pydantic strictness](#pydantic-strictness)
 - [Rate limit](#rate-limit)
+- [Rls policy coverage](#rls-policy-coverage)
 - [Router commit](#router-commit)
 - [Router docstring](#router-docstring)
 - [Secret access](#secret-access)
 - [Tenant predicate](#tenant-predicate)
 - [Todo aging](#todo-aging)
 - [Worker retry policy](#worker-retry-policy)
+
+## Admin routes role gate <a id="admin-routes-role-gate"></a>
+_File:_ `apps/api/tests/test_admin_routes_role_gate_audit.py`
+
+Audit: every `/api/v1/admin/*` route MUST have an admin-role dep in its dependency tree.
+
+**Tests**: `test_every_admin_route_has_admin_role_gate`, `test_admin_route_audit_catches_at_least_one_route`, `test_public_admin_allowlist_is_minimal`
+
+## Admin session factory usage <a id="admin-session-factory-usage"></a>
+_File:_ `apps/api/tests/test_admin_session_factory_usage_audit.py`
+
+Audit: `AdminSessionFactory` (BYPASSRLS) MUST only be used by the curated allowlist of routers that have a legitimate cross-tenant reason for it.
+
+**Tests**: `test_routers_using_admin_session_factory_match_allowlist`, `test_allowlist_entries_have_rationale`, `test_allowlist_size_does_not_grow_silently`
+
+## Alembic chain integrity <a id="alembic-chain-integrity"></a>
+_File:_ `apps/api/tests/test_alembic_chain_integrity_audit.py`
+
+Audit: alembic migration chain integrity.
+
+**Tests**: `test_audit_finds_migration_files`, `test_revision_ids_are_unique`, `test_down_revisions_resolve_to_known_revisions`, `test_exactly_one_root_revision`, `test_at_most_one_head_revision_or_explicit_multi_head`, `test_no_cycle_in_migration_chain`, `test_filename_prefix_matches_revision_id`
 
 ## Audit action callsite <a id="audit-action-callsite"></a>
 _File:_ `apps/api/tests/test_audit_action_callsite_audit.py`
@@ -140,6 +168,13 @@ Dependency-direction audit (layered-architecture pin).
 
 **Tests**: `test_no_upward_layer_imports`, `test_allowlist_entries_correspond_to_real_files`, `test_layer_lookup_is_consistent`, `test_audit_recognises_documented_import_shapes`
 
+## Every router mounted in main <a id="every-router-mounted-in-main"></a>
+_File:_ `apps/api/tests/test_every_router_mounted_in_main_audit.py`
+
+Audit: every router module under `apps/api/routers/` is imported AND mounted by `main.py::create_app()`.
+
+**Tests**: `test_every_router_module_is_imported_in_main`, `test_every_imported_router_is_mounted`, `test_audit_finds_at_least_one_router`, `test_deliberately_unmounted_allowlist_entries_have_rationale`, `test_deliberately_unmounted_allowlist_is_minimal`
+
 ## Fixture duplication <a id="fixture-duplication"></a>
 _File:_ `apps/api/tests/test_fixture_duplication_audit.py`
 
@@ -240,6 +275,19 @@ Alembic migration safety audit.
 
 **Tests**: `test_no_locking_index_creation_on_pre_existing_tables`, `test_no_set_not_null_without_backfill_annotation`, `test_audit_recognises_documented_safety_patterns`
 
+## N plus one <a id="n-plus-one"></a>
+_File:_ `apps/api/tests/test_n_plus_one_audit.py`
+
+N+1 query detection audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_N_PLUS_ONE_CALLS` | `22` |
+
+**Tests**: `test_no_db_query_inside_loop_body`, `test_audit_recognises_documented_patterns`
+
 ## Naive datetime <a id="naive-datetime"></a>
 _File:_ `apps/api/tests/test_naive_datetime_audit.py`
 
@@ -279,6 +327,13 @@ Per-route OpenAPI tags audit.
 | `BASELINE_UNTAGGED_ROUTES` | `0` |
 
 **Tests**: `test_every_route_has_at_least_one_tag`, `test_allowlist_entries_actually_match_routes`
+
+## Orm tables organization id <a id="orm-tables-organization-id"></a>
+_File:_ `apps/api/tests/test_orm_tables_organization_id_audit.py`
+
+Audit: every ORM table is either tenant-bearing (has an `organization_id` column) OR explicitly allowlisted as global.
+
+**Tests**: `test_audit_walks_orm_models`, `test_every_table_has_org_id_or_is_explicitly_global`, `test_global_table_entries_have_rationale`, `test_global_table_set_size_does_not_grow_silently`, `test_known_tenant_tables_actually_have_org_id`
 
 ## Output schemas no secret fields <a id="output-schemas-no-secret-fields"></a>
 _File:_ `apps/api/tests/test_output_schemas_no_secret_fields_audit.py`
@@ -326,6 +381,13 @@ Per-tenant rate-limit audit.
 | `BASELINE_UNGUARDED_EXPENSIVE` | `34` |
 
 **Tests**: `test_every_expensive_route_has_a_rate_limit`, `test_allowlist_entries_actually_match_routes`, `test_expensive_path_patterns_match_at_least_one_route_each`
+
+## Rls policy coverage <a id="rls-policy-coverage"></a>
+_File:_ `apps/api/tests/test_rls_policy_coverage_audit.py`
+
+Audit: every tenant-bearing ORM table has at least one `CREATE POLICY` declared in the alembic migrations.
+
+**Tests**: `test_every_tenant_bearing_table_has_an_rls_policy`, `test_audit_finds_tenant_bearing_tables`, `test_audit_finds_create_policy_statements`, `test_allowlist_entries_have_rationale`, `test_allowlist_size_is_minimal`
 
 ## Router commit <a id="router-commit"></a>
 _File:_ `apps/api/tests/test_router_commit_audit.py`
