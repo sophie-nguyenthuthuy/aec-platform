@@ -30,6 +30,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Input schemas no organization id](#input-schemas-no-organization-id)
 - [Logging structure](#logging-structure)
 - [Migration safety](#migration-safety)
+- [Migration upgrade downgrade symmetry](#migration-upgrade-downgrade-symmetry)
 - [N plus one](#n-plus-one)
 - [Naive datetime](#naive-datetime)
 - [Openapi route docs](#openapi-route-docs)
@@ -45,6 +46,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Secret access](#secret-access)
 - [Tenant predicate](#tenant-predicate)
 - [Todo aging](#todo-aging)
+- [Type ignore specificity](#type-ignore-specificity)
 - [Worker retry policy](#worker-retry-policy)
 
 ## Admin routes role gate <a id="admin-routes-role-gate"></a>
@@ -275,6 +277,13 @@ Alembic migration safety audit.
 
 **Tests**: `test_no_locking_index_creation_on_pre_existing_tables`, `test_no_set_not_null_without_backfill_annotation`, `test_audit_recognises_documented_safety_patterns`
 
+## Migration upgrade downgrade symmetry <a id="migration-upgrade-downgrade-symmetry"></a>
+_File:_ `apps/api/tests/test_migration_upgrade_downgrade_symmetry_audit.py`
+
+Audit: every alembic migration's `upgrade()` has a non-trivial `downgrade()` covering the same DDL (or is explicitly allowlisted as one-way).
+
+**Tests**: `test_every_migration_has_upgrade_and_downgrade`, `test_downgrade_non_empty_when_upgrade_has_ddl`, `test_audit_finds_migration_files`, `test_one_way_allowlist_entries_have_rationale`, `test_one_way_allowlist_size_is_minimal`
+
 ## N plus one <a id="n-plus-one"></a>
 _File:_ `apps/api/tests/test_n_plus_one_audit.py`
 
@@ -455,6 +464,19 @@ TODO / FIXME aging audit.
 | `BASELINE_STALE_TODOS` | `0` |
 
 **Tests**: `test_unannotated_todo_count_does_not_grow`, `test_stale_todo_count_does_not_grow`, `test_audit_recognises_documented_annotation_shapes`
+
+## Type ignore specificity <a id="type-ignore-specificity"></a>
+_File:_ `apps/api/tests/test_type_ignore_specificity_audit.py`
+
+`# type: ignore` specificity audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_BARE_TYPE_IGNORE` | `0` |
+
+**Tests**: `test_no_bare_type_ignore_comments`, `test_audit_recognises_documented_shapes`
 
 ## Worker retry policy <a id="worker-retry-policy"></a>
 _File:_ `apps/api/tests/test_worker_retry_policy_audit.py`
