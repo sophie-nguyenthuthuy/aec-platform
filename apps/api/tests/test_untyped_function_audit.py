@@ -74,7 +74,9 @@ _SCAN_DIRS = [_API_ROOT / "routers", _API_ROOT / "services"]
 
 
 # Today's baseline. Filled in on first run.
-BASELINE_UNTYPED_SLOTS = 204  # 2026-05: first-run baseline; ratchet down by adding annotations to the chunkiest functions first
+BASELINE_UNTYPED_SLOTS = (
+    204  # 2026-05: first-run baseline; ratchet down by adding annotations to the chunkiest functions first
+)
 
 
 # Per-(relative_path, function_name) allowlist. Each entry needs
@@ -239,11 +241,7 @@ def test_audit_recognises_documented_shapes():
             assert _count_untyped_slots(child) == 0
 
     # `__init__` without `-> None` is fine (conventional).
-    init = ast.parse(
-        "class D:\n"
-        "    def __init__(self, x: int):\n"
-        "        self.x = x\n"
-    )
+    init = ast.parse("class D:\n    def __init__(self, x: int):\n        self.x = x\n")
     cls_def = init.body[0]
     assert isinstance(cls_def, ast.ClassDef)
     init_fn = cls_def.body[0]

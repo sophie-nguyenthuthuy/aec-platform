@@ -54,11 +54,7 @@ def _list_audit_files_at_ref(ref: str) -> list[str]:
         cwd=_REPO_ROOT,
         check=True,
     ).stdout
-    return [
-        line
-        for line in out.splitlines()
-        if re.match(r"apps/api/tests/test_.+_audit\.py$", line)
-    ]
+    return [line for line in out.splitlines() if re.match(r"apps/api/tests/test_.+_audit\.py$", line)]
 
 
 def _read_file_at_ref(ref: str, rel_path: str) -> str | None:
@@ -194,16 +190,10 @@ def _render(
         f"{int_drift_total}.\n"
     )
     if new_audits:
-        parts.append(
-            f"**{len(new_audits)} new audit(s) on HEAD**: "
-            + ", ".join(f"`{a}`" for a in new_audits)
-            + "\n"
-        )
+        parts.append(f"**{len(new_audits)} new audit(s) on HEAD**: " + ", ".join(f"`{a}`" for a in new_audits) + "\n")
     if removed_audits:
         parts.append(
-            f"**{len(removed_audits)} audit(s) removed on HEAD**: "
-            + ", ".join(f"`{a}`" for a in removed_audits)
-            + "\n"
+            f"**{len(removed_audits)} audit(s) removed on HEAD**: " + ", ".join(f"`{a}`" for a in removed_audits) + "\n"
         )
 
     parts.append("| Audit | Constant | Base | HEAD | Δ |")
