@@ -74,7 +74,7 @@ _SCAN_DIRS = [_API_ROOT / "routers", _API_ROOT / "services"]
 
 
 # Today's baseline. Filled in on first run.
-BASELINE_UNTYPED_SLOTS = 119  # 2026-05: 148 → 119 after a further 29 slots were typed in parallel-session work
+BASELINE_UNTYPED_SLOTS = 97  # 2026-05: 118 → 97 after typing 11 webhooks + 10 siteeye handlers
 
 
 # Per-(relative_path, function_name) allowlist. Each entry needs

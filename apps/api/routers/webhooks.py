@@ -96,7 +96,7 @@ class _VerifySignatureRequest(_PdBaseModel):
 
 
 @router.post("/verify-signature")
-async def verify_signature(payload: _VerifySignatureRequest):
+async def verify_signature(payload: _VerifySignatureRequest) -> dict[str, Any]:
     """Diagnose a receiver-side signature verification.
 
     Returns the same dict shape `services.webhooks.verify_payload_with_trace`
@@ -133,7 +133,7 @@ async def verify_signature(payload: _VerifySignatureRequest):
 
 
 @router.get("/event-types")
-async def list_event_types():
+async def list_event_types() -> dict[str, Any]:
     """Public catalog of every webhook event type the platform emits,
     each with a human description and a payload sample. Drives the
     `/docs/webhooks/events` partner-docs page.
@@ -170,7 +170,7 @@ async def create_webhook(
     payload: WebhookSubscriptionCreate,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Register a new webhook subscription.
 
     Returns the generated secret in the response — the only time the
@@ -218,7 +218,7 @@ async def create_webhook(
 async def list_webhooks(
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Every webhook in the caller's org. Secret is intentionally
     never included — see the module docstring."""
     rows = (
@@ -244,7 +244,7 @@ async def update_webhook(
     payload: WebhookSubscriptionUpdate,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     sub = (
         await db.execute(
             select(WebhookSubscription).where(
@@ -301,7 +301,7 @@ async def rotate_webhook_secret(
     webhook_id: UUID,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Issue a NEW HMAC secret for this webhook, retaining the old one
     for a 24h grace window.
 
@@ -392,7 +392,7 @@ async def test_webhook(
     webhook_id: UUID,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Enqueue a synthetic `webhook.test` event so the customer can
     verify their receiver responds correctly. The receiver sees the
     same shape as a real event — there's no special "this is a test"
@@ -437,7 +437,7 @@ async def list_deliveries(
     status_filter: Annotated[DeliveryStatus | None, Query(alias="status")] = None,
     since_days: Annotated[int, Query(ge=1, le=90)] = 7,
     limit: int = 50,
-):
+) -> dict[str, Any]:
     """Recent delivery attempts — debug aid when a customer says
     "your webhook didn't fire." Includes status code + error +
     response snippet.
@@ -470,7 +470,7 @@ async def deliveries_histogram(
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
     days: Annotated[int, Query(ge=1, le=30)] = 7,
-):
+) -> dict[str, Any]:
     """Day-bucketed delivery counts by status. Drives the small
     histogram on `/settings/webhooks/[id]` so admins can spot failure
     spikes at a glance.
@@ -518,7 +518,7 @@ async def list_dead_letter(
     db: Annotated[AsyncSession, Depends(get_db)],
     since_days: Annotated[int, Query(ge=1, le=90)] = 7,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
-):
+) -> dict[str, Any]:
     """Cross-subscription dead-letter feed (status='failed') for the
     calling org. Pinned by tests/test_integrator_surface_snapshot.py
     — do not remove without updating that test."""
@@ -546,7 +546,7 @@ async def redeliver(
     delivery_id: UUID,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Re-enqueue a delivery — usually called on a `failed` row that
     the customer's receiver was down for. We don't mutate the original
     row (it's audit history); we INSERT a fresh delivery with the same
