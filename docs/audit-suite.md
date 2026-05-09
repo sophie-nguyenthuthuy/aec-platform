@@ -21,6 +21,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Cron mutex](#cron-mutex)
 - [Dep parity](#dep-parity)
 - [Dependency direction](#dependency-direction)
+- [Dunder all consistency](#dunder-all-consistency)
 - [Every router mounted in main](#every-router-mounted-in-main)
 - [Fixture duplication](#fixture-duplication)
 - [Fk index coverage](#fk-index-coverage)
@@ -30,6 +31,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Http status constants](#http-status-constants)
 - [Idempotency contract](#idempotency-contract)
 - [Input schemas no organization id](#input-schemas-no-organization-id)
+- [Logger exception outside except](#logger-exception-outside-except)
 - [Logging structure](#logging-structure)
 - [Migration safety](#migration-safety)
 - [Migration upgrade downgrade symmetry](#migration-upgrade-downgrade-symmetry)
@@ -190,6 +192,13 @@ Dependency-direction audit (layered-architecture pin).
 
 **Tests**: `test_no_upward_layer_imports`, `test_allowlist_entries_correspond_to_real_files`, `test_layer_lookup_is_consistent`, `test_audit_recognises_documented_import_shapes`
 
+## Dunder all consistency <a id="dunder-all-consistency"></a>
+_File:_ `apps/api/tests/test_dunder_all_consistency_audit.py`
+
+Audit: every name in a module's `__all__` MUST exist as a top-level symbol in that module.
+
+**Tests**: `test_every_name_in_dunder_all_resolves_to_a_top_level_symbol`, `test_no_underscore_names_in_dunder_all`, `test_audit_finds_at_least_one_dunder_all`
+
 ## Every router mounted in main <a id="every-router-mounted-in-main"></a>
 _File:_ `apps/api/tests/test_every_router_mounted_in_main_audit.py`
 
@@ -276,6 +285,19 @@ _File:_ `apps/api/tests/test_input_schemas_no_organization_id_audit.py`
 Audit: Pydantic *input* schemas (Create / Update / Patch / Payload) MUST NOT accept `organization_id` from the client.
 
 **Tests**: `test_no_input_schema_accepts_organization_id`, `test_audit_actually_walks_input_schemas`, `test_output_schema_classifier_correct`, `test_input_schemas_with_org_id_allowlist_is_minimal`
+
+## Logger exception outside except <a id="logger-exception-outside-except"></a>
+_File:_ `apps/api/tests/test_logger_exception_outside_except_audit.py`
+
+`logger.exception(...)` outside an `except` block audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_LOGGER_EXCEPTION_OUTSIDE_EXCEPT` | `0` |
+
+**Tests**: `test_no_logger_exception_outside_except`, `test_audit_recognises_documented_shapes`
 
 ## Logging structure <a id="logging-structure"></a>
 _File:_ `apps/api/tests/test_logging_structure_audit.py`
