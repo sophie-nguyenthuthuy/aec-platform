@@ -181,8 +181,7 @@ def test_no_eq_against_singletons():
         )
     if n < BASELINE_SINGLETON_EQ:
         pytest.fail(
-            f"Singleton-eq count dropped from {BASELINE_SINGLETON_EQ} "
-            f"to {n}. 🎉 Update `BASELINE_SINGLETON_EQ` to {n}."
+            f"Singleton-eq count dropped from {BASELINE_SINGLETON_EQ} to {n}. 🎉 Update `BASELINE_SINGLETON_EQ` to {n}."
         )
 
 

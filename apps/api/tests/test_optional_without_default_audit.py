@@ -62,7 +62,9 @@ _SCHEMAS_DIR = _API_ROOT / "schemas"
 
 
 # Today's baseline. Filled in on first run.
-BASELINE_OPTIONAL_NO_DEFAULT = 30  # 2026-05: first-run baseline; ratchet down by adding `= None` defaults or dropping `| None`
+BASELINE_OPTIONAL_NO_DEFAULT = (
+    30  # 2026-05: first-run baseline; ratchet down by adding `= None` defaults or dropping `| None`
+)
 
 
 # Per-(module, class, field) allowlist. Each entry needs a stated

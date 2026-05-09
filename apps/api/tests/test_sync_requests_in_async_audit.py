@@ -207,22 +207,14 @@ def test_no_sync_http_in_async_function():
 def test_audit_recognises_documented_patterns():
     """Defensive: positive + negative AST fixtures."""
     # Positive: requests.get inside async.
-    pos = ast.parse(
-        "import requests\n"
-        "async def f(url):\n"
-        "    return requests.get(url).json()\n"
-    )
+    pos = ast.parse("import requests\nasync def f(url):\n    return requests.get(url).json()\n")
     fn = pos.body[1]
     assert isinstance(fn, ast.AsyncFunctionDef)
     out = _collect_in_async_function(fn)
     assert len(out) == 1 and out[0][1] == "requests.get"
 
     # Positive: urllib.request.urlopen.
-    pos2 = ast.parse(
-        "import urllib.request\n"
-        "async def g(url):\n"
-        "    return urllib.request.urlopen(url).read()\n"
-    )
+    pos2 = ast.parse("import urllib.request\nasync def g(url):\n    return urllib.request.urlopen(url).read()\n")
     fn = pos2.body[1]
     assert isinstance(fn, ast.AsyncFunctionDef)
     out = _collect_in_async_function(fn)
@@ -230,10 +222,7 @@ def test_audit_recognises_documented_patterns():
 
     # Negative: httpx.AsyncClient.
     neg = ast.parse(
-        "import httpx\n"
-        "async def h(url):\n"
-        "    async with httpx.AsyncClient() as c:\n"
-        "        return await c.get(url)\n"
+        "import httpx\nasync def h(url):\n    async with httpx.AsyncClient() as c:\n        return await c.get(url)\n"
     )
     fn = neg.body[1]
     assert isinstance(fn, ast.AsyncFunctionDef)
@@ -241,24 +230,14 @@ def test_audit_recognises_documented_patterns():
     assert out == []
 
     # Negative: requests.get in sync def — out of audit scope.
-    neg2 = ast.parse(
-        "import requests\n"
-        "def k(url):\n"
-        "    return requests.get(url).json()\n"
-    )
-    async_funcs = [
-        n for n in ast.walk(neg2) if isinstance(n, ast.AsyncFunctionDef)
-    ]
+    neg2 = ast.parse("import requests\ndef k(url):\n    return requests.get(url).json()\n")
+    async_funcs = [n for n in ast.walk(neg2) if isinstance(n, ast.AsyncFunctionDef)]
     assert async_funcs == []
 
     # Negative: nested sync def inside async — sync's blocking
     # is the inner function's concern.
     nested = ast.parse(
-        "import requests\n"
-        "async def outer():\n"
-        "    def inner(url):\n"
-        "        return requests.get(url)\n"
-        "    return inner\n"
+        "import requests\nasync def outer():\n    def inner(url):\n        return requests.get(url)\n    return inner\n"
     )
     fn = nested.body[1]
     assert isinstance(fn, ast.AsyncFunctionDef)

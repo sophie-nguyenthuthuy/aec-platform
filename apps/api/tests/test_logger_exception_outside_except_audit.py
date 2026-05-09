@@ -190,12 +190,7 @@ def test_no_logger_exception_outside_except():
 def test_audit_recognises_documented_shapes():
     """Defensive: positive + negative AST fixtures."""
     # Positive: outside except.
-    pos = ast.parse(
-        "import logging\n"
-        "logger = logging.getLogger(__name__)\n"
-        "def f():\n"
-        "    logger.exception('bad')\n"
-    )
+    pos = ast.parse("import logging\nlogger = logging.getLogger(__name__)\ndef f():\n    logger.exception('bad')\n")
     out = _collect_offenders(pos)
     assert out == [4], f"Expected line 4, got {out}"
 
@@ -232,9 +227,6 @@ def test_audit_recognises_documented_shapes():
     assert out == [9], f"Audit should flag finally-block: {out}"
 
     # Negative: unrelated `.exception` method on a non-logger.
-    neg3 = ast.parse(
-        "def k(req):\n"
-        "    return req.exception()\n"
-    )
+    neg3 = ast.parse("def k(req):\n    return req.exception()\n")
     out = _collect_offenders(neg3)
     assert out == [], f"Audit should ignore non-logger receiver: {out}"

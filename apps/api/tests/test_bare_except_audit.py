@@ -150,51 +150,23 @@ def test_no_bare_except_clauses():
         )
     if n < BASELINE_BARE_EXCEPT:
         pytest.fail(
-            f"Bare-except count dropped from {BASELINE_BARE_EXCEPT} "
-            f"to {n}. 🎉 Update `BASELINE_BARE_EXCEPT` to {n}."
+            f"Bare-except count dropped from {BASELINE_BARE_EXCEPT} to {n}. 🎉 Update `BASELINE_BARE_EXCEPT` to {n}."
         )
 
 
 def test_audit_recognises_documented_shapes():
     """Defensive: positive + negative AST fixtures."""
     # Positive: bare except.
-    pos = ast.parse(
-        "def f():\n"
-        "    try:\n"
-        "        x = 1\n"
-        "    except:\n"
-        "        pass\n"
-    )
-    bares = [
-        n for n in ast.walk(pos)
-        if isinstance(n, ast.ExceptHandler) and n.type is None
-    ]
+    pos = ast.parse("def f():\n    try:\n        x = 1\n    except:\n        pass\n")
+    bares = [n for n in ast.walk(pos) if isinstance(n, ast.ExceptHandler) and n.type is None]
     assert len(bares) == 1
 
     # Negative: except Exception.
-    neg = ast.parse(
-        "def g():\n"
-        "    try:\n"
-        "        x = 1\n"
-        "    except Exception:\n"
-        "        pass\n"
-    )
-    bares = [
-        n for n in ast.walk(neg)
-        if isinstance(n, ast.ExceptHandler) and n.type is None
-    ]
+    neg = ast.parse("def g():\n    try:\n        x = 1\n    except Exception:\n        pass\n")
+    bares = [n for n in ast.walk(neg) if isinstance(n, ast.ExceptHandler) and n.type is None]
     assert bares == []
 
     # Negative: except (A, B).
-    neg2 = ast.parse(
-        "def h():\n"
-        "    try:\n"
-        "        x = 1\n"
-        "    except (TypeError, ValueError):\n"
-        "        pass\n"
-    )
-    bares = [
-        n for n in ast.walk(neg2)
-        if isinstance(n, ast.ExceptHandler) and n.type is None
-    ]
+    neg2 = ast.parse("def h():\n    try:\n        x = 1\n    except (TypeError, ValueError):\n        pass\n")
+    bares = [n for n in ast.walk(neg2) if isinstance(n, ast.ExceptHandler) and n.type is None]
     assert bares == []
