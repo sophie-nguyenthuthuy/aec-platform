@@ -275,22 +275,45 @@ def test_handler_filters_by_organization_id():
     """SECURITY-CRITICAL pin. The audit log is per-tenant — every
     query MUST filter by `auth.organization_id`. A regression that
     dropped this filter would expose every other tenant's audit
-    rows to any admin (cross-tenant leak via the audit endpoint)."""
+    rows to any admin (cross-tenant leak via the audit endpoint).
+
+    The actual WHERE clause was extracted into `_build_where` so
+    the JSON list endpoint and the CSV export stay in lock-step.
+    This test follows the refactor: it verifies the end-to-end
+    invariant ("the org filter is wired through to SQL with
+    auth.organization_id as the source") by checking BOTH the
+    builder's body AND the handler's delegation.
+    """
     import routers.audit as mod
 
-    src = inspect.getsource(mod.list_audit_events)
-    assert "organization_id = :org" in src or "organization_id =:org" in src, (
-        "list_audit_events no longer filters by organization_id. "
+    # Layer 1: the SQL builder produces the filter clause.
+    builder_src = inspect.getsource(mod._build_where)
+    assert "organization_id = :org" in builder_src or "organization_id =:org" in builder_src, (
+        "_build_where no longer emits `organization_id = :org`. "
         "Cross-tenant audit-row leak via the admin audit endpoint — "
         "the worst-class regression possible on this surface."
     )
-    # And the bound value comes from auth.organization_id (NOT a
-    # query param the caller controls — that would defeat RLS).
-    assert "auth.organization_id" in src, (
-        "list_audit_events no longer binds organization_id from "
-        "auth.organization_id. If the org filter comes from a "
-        "caller-supplied param instead, an admin could query "
-        "another tenant's audit log by passing a different org id."
+
+    # Layer 2: the handler delegates with auth.organization_id as
+    # the bound value (NOT a query param the caller controls —
+    # that would defeat RLS even with the filter present).
+    handler_src = inspect.getsource(mod.list_audit_events)
+    assert "_build_where(" in handler_src and "organization_id=auth.organization_id" in handler_src, (
+        "list_audit_events no longer calls `_build_where(...)` with "
+        "`organization_id=auth.organization_id`. If the org filter "
+        "comes from a caller-supplied param instead, an admin could "
+        "query another tenant's audit log by passing a different "
+        "org id."
+    )
+
+    # Layer 3 (belt-and-suspenders): the handler's SQL templates
+    # interpolate `where_sql` from the builder. A future refactor
+    # that bypassed the helper would also pass layers 1+2 but
+    # silently emit unfiltered SQL.
+    assert "WHERE {where_sql}" in handler_src, (
+        "list_audit_events no longer interpolates `where_sql` from "
+        "_build_where into its SQL templates. Filter could be built "
+        "but never bound — verify the WHERE clause flows end-to-end."
     )
 
 
@@ -305,7 +328,10 @@ def test_handler_resource_filter_supports_drill_down():
     assert "resource_type" in sig.parameters
     assert "resource_id" in sig.parameters
 
-    # And the WHERE clause references both.
-    src = inspect.getsource(mod.list_audit_events)
-    assert "resource_type = :rtype" in src
-    assert "resource_id = :rid" in src
+    # And the WHERE clause references both. After the
+    # _build_where refactor, the SQL fragments live in the
+    # builder rather than the handler — same end-to-end
+    # invariant, just one helper hop down.
+    builder_src = inspect.getsource(mod._build_where)
+    assert "resource_type = :rtype" in builder_src
+    assert "resource_id = :rid" in builder_src
