@@ -1,4 +1,4 @@
-.PHONY: seed-codeguard seed-demo eval-codeguard test test-cov test-api test-api-cov test-api-integration test-api-integration-up test-ml test-ml-cov test-ui test-ui-cov test-web test-web-unit test-web-unit-cov hooks lint ci-local backfill-rfi-embeddings backfill-dailylog audit audit-index
+.PHONY: seed-codeguard seed-demo eval-codeguard test test-cov test-api test-api-cov test-api-integration test-api-integration-up test-ml test-ml-cov test-ui test-ui-cov test-web test-web-unit test-web-unit-cov hooks lint ci-local backfill-rfi-embeddings backfill-dailylog audit audit-index audit-drift
 
 # Install local pre-commit hooks. Run once per clone. After this, every
 # `git commit` runs ruff check + ruff format + basic hygiene checks on
@@ -117,6 +117,20 @@ audit:
 # walk over each audit file. ~50ms.
 audit-index:
 	cd apps/api && python -m scripts.generate_audit_index
+
+# PR-review aid: tabulate every BASELINE_* constant that drifted
+# between `main` (or BASE) and HEAD (or HEAD ref). Each row is one
+# (audit, constant) pair where the value differs; the summary shows
+# net integer delta + which audits are new/removed.
+#
+# Override the refs:
+#   make audit-drift BASE=origin/main HEAD=feat/my-branch
+#
+# Hermetic — no FastAPI/SQLAlchemy load, pure git + AST. <1s.
+BASE ?= main
+HEAD ?= HEAD
+audit-drift:
+	cd apps/api && python -m scripts.audit_baseline_drift --base $(BASE) --head $(HEAD)
 
 # Mirror of the canonical CI gate. Run BEFORE pushing if you've touched:
 #   * api routes / schemas (pytest + OpenAPI snapshot)
