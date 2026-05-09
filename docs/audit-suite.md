@@ -47,6 +47,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Router docstring](#router-docstring)
 - [Router handlers are async](#router-handlers-are-async)
 - [Secret access](#secret-access)
+- [Shell injection](#shell-injection)
 - [Tenant predicate](#tenant-predicate)
 - [Todo aging](#todo-aging)
 - [Type ignore specificity](#type-ignore-specificity)
@@ -473,6 +474,19 @@ Secret/env-var access audit.
 | `BASELINE_DIRECT_ENV_ACCESS` | `0` |
 
 **Tests**: `test_no_direct_env_access_outside_settings`, `test_audit_recognises_documented_access_shapes`, `test_file_allowlist_entries_actually_correspond_to_real_files`
+
+## Shell injection <a id="shell-injection"></a>
+_File:_ `apps/api/tests/test_shell_injection_audit.py`
+
+Shell-injection guard audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_SHELL_INJECTIONS` | `0` |
+
+**Tests**: `test_no_shell_injection_call_sites`, `test_audit_recognises_documented_shapes`, `test_allowlist_entries_actually_correspond_to_real_calls`
 
 ## Tenant predicate <a id="tenant-predicate"></a>
 _File:_ `apps/api/tests/test_tenant_predicate_audit.py`
