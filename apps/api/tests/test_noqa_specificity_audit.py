@@ -61,10 +61,17 @@ _SCAN_ROOTS: list[Path] = [
 BASELINE_BARE_NOQA = 0
 
 
-# Match `# noqa` NOT immediately followed by `:`. Tolerates
+# Match a bare-noqa marker (the literal six-letter word `noqa`
+# preceded by a `#`) NOT immediately followed by `:`. Tolerates
 # trailing whitespace + end-of-line + a free-text comment.
 # The (?!\s*:) negative lookahead allows whitespace-then-colon
-# (which would be `# noqa : E501` — rare but valid ruff syntax).
+# (the rare `noqa : E501` form — valid ruff syntax with a space).
+#
+# (We deliberately don't write the literal `# n` + `oqa` token in
+# this comment because ruff's own pre-commit hook tries to parse
+# anything matching that shape as a directive and warns on it.
+# Splitting the word here keeps the prose explanatory but invisible
+# to that parser.)
 _BARE_NOQA_RE = re.compile(r"#\s*noqa(?!\s*:)\b")
 
 
