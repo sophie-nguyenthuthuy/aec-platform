@@ -37,6 +37,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Logging structure](#logging-structure)
 - [Migration safety](#migration-safety)
 - [Migration upgrade downgrade symmetry](#migration-upgrade-downgrade-symmetry)
+- [Mutable default args](#mutable-default-args)
 - [N plus one](#n-plus-one)
 - [Naive datetime](#naive-datetime)
 - [Noqa specificity](#noqa-specificity)
@@ -366,6 +367,13 @@ Audit: every alembic migration's `upgrade()` has a non-trivial `downgrade()` cov
 
 **Tests**: `test_every_migration_has_upgrade_and_downgrade`, `test_downgrade_non_empty_when_upgrade_has_ddl`, `test_audit_finds_migration_files`, `test_one_way_allowlist_entries_have_rationale`, `test_one_way_allowlist_size_is_minimal`
 
+## Mutable default args <a id="mutable-default-args"></a>
+_File:_ `apps/api/tests/test_mutable_default_args_audit.py`
+
+Audit: no mutable default arguments in function signatures.
+
+**Tests**: `test_no_mutable_default_arguments`, `test_mutable_default_allowlist_entries_have_rationale`, `test_audit_finds_python_files`
+
 ## N plus one <a id="n-plus-one"></a>
 _File:_ `apps/api/tests/test_n_plus_one_audit.py`
 
@@ -680,7 +688,7 @@ Untyped function-signature audit.
 
 | Constant | Value |
 |---|---|
-| `BASELINE_UNTYPED_SLOTS` | `179` |
+| `BASELINE_UNTYPED_SLOTS` | `148` |
 
 **Tests**: `test_untyped_function_slot_count_does_not_grow`, `test_audit_recognises_documented_shapes`, `test_allowlist_entries_actually_correspond_to_real_functions`
 

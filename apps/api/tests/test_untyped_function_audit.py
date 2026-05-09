@@ -74,9 +74,7 @@ _SCAN_DIRS = [_API_ROOT / "routers", _API_ROOT / "services"]
 
 
 # Today's baseline. Filled in on first run.
-BASELINE_UNTYPED_SLOTS = (
-    179  # 2026-05: 204 → 179 after typing 25 handlers in routers/costpulse.py with `-> dict[str, Any]`
-)
+BASELINE_UNTYPED_SLOTS = 148  # 2026-05: 204 → 148 after typing handlers in costpulse (25) + handover (19) + changeorder (13) with `-> dict[str, Any]`
 
 
 # Per-(relative_path, function_name) allowlist. Each entry needs
