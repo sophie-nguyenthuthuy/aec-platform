@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "../primitives/button";
 import { Dialog } from "../primitives/dialog";
 import { Input } from "../primitives/input";
@@ -19,20 +19,34 @@ export function ClientEmailModal({ open, onOpenChange, defaultSubject = "", onSe
   const [message, setMessage] = useState("");
   const [cc, setCc] = useState("");
 
+  const subjectId = useId();
+  const messageId = useId();
+  const ccId = useId();
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title="Send proposal">
       <div className="space-y-4">
         <div className="space-y-1">
-          <Label>Subject</Label>
-          <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
+          <Label htmlFor={subjectId}>Subject</Label>
+          <Input id={subjectId} value={subject} onChange={(e) => setSubject(e.target.value)} />
         </div>
         <div className="space-y-1">
-          <Label>Message</Label>
-          <Textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)} />
+          <Label htmlFor={messageId}>Message</Label>
+          <Textarea
+            id={messageId}
+            rows={5}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
         </div>
         <div className="space-y-1">
-          <Label>CC (comma-separated)</Label>
-          <Input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="ops@firm.com, lead@firm.com" />
+          <Label htmlFor={ccId}>CC (comma-separated)</Label>
+          <Input
+            id={ccId}
+            value={cc}
+            onChange={(e) => setCc(e.target.value)}
+            placeholder="ops@firm.com, lead@firm.com"
+          />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={sending}>

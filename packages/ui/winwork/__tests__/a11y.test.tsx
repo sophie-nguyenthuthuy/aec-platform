@@ -3,10 +3,15 @@ import { describe, expect, test } from "vitest";
 import { axe } from "vitest-axe";
 
 import { AIConfidenceBadge } from "../AIConfidenceBadge";
+import { ClientEmailModal } from "../ClientEmailModal";
 import { FeeBreakdownTable } from "../FeeBreakdownTable";
+import { FeeCalculator } from "../FeeCalculator";
 import { ProposalCard } from "../ProposalCard";
+import { ProposalEditor } from "../ProposalEditor";
+import { ProposalWizard } from "../ProposalWizard";
+import { ScopeBuilder } from "../ScopeBuilder";
 import { WinLossTag } from "../WinLossTag";
-import type { FeeBreakdown, Proposal } from "@aec/types/winwork";
+import type { FeeBreakdown, Proposal, ScopeItem } from "@aec/types/winwork";
 
 /**
  * Component-level a11y for `packages/ui/winwork/*`.
@@ -134,6 +139,88 @@ describe("FeeBreakdownTable / a11y", () => {
       <FeeBreakdownTable
         value={makeBreakdown()}
         onChange={() => undefined}
+      />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe("ProposalEditor / a11y", () => {
+  test("draft renders without violations", async () => {
+    // Title <Input> has aria-label, Client section pairs Label/Input via
+    // htmlFor/id, Notes <Textarea> uses aria-labelledby on the section
+    // CardTitle. axe will surface a regression on any of those.
+    const { container } = render(
+      <ProposalEditor
+        proposal={makeProposal()}
+        onSave={() => undefined}
+        onSendClick={() => undefined}
+        onMarkWon={() => undefined}
+        onMarkLost={() => undefined}
+      />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe("ScopeBuilder / a11y", () => {
+  function makeItems(): ScopeItem[] {
+    return [
+      { id: "scope-1", phase: "Concept", title: "Site analysis", deliverables: ["Diagrams"] },
+      { id: "scope-2", phase: "Schematic", title: "Massing study", deliverables: [] },
+    ];
+  }
+
+  test("two-row editable list renders without violations", async () => {
+    // Per-row select (phase), title <Input>, description <Textarea>, and
+    // a deliverables <Textarea> linked via htmlFor — covers both unique
+    // and per-row id collision risk.
+    const { container } = render(
+      <ScopeBuilder items={makeItems()} onChange={() => undefined} />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  test("empty list renders without violations", async () => {
+    const { container } = render(
+      <ScopeBuilder items={[]} onChange={() => undefined} />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe("FeeCalculator / a11y", () => {
+  test("renders without violations", async () => {
+    // Four Label/control pairs, all linked via htmlFor/id. axe will
+    // surface any unlinked or duplicate id regression.
+    const { container } = render(
+      <FeeCalculator onEstimate={async () => ({} as never)} />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe("ClientEmailModal / a11y", () => {
+  test("open modal renders without violations", async () => {
+    const { container } = render(
+      <ClientEmailModal
+        open
+        onOpenChange={() => undefined}
+        onSend={() => undefined}
+      />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe("ProposalWizard / a11y", () => {
+  test("brief step renders without violations", async () => {
+    // The brief step is the most-loaded — six Label/control pairs in one
+    // grid. axe catches any of them losing the htmlFor/id linkage.
+    const { container } = render(
+      <ProposalWizard
+        onGenerate={async () => ({ id: "p1" })}
+        onCreated={() => undefined}
       />,
     );
     expect(await axe(container)).toHaveNoViolations();

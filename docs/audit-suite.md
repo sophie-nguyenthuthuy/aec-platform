@@ -27,6 +27,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Fixture duplication](#fixture-duplication)
 - [Fk index coverage](#fk-index-coverage)
 - [Fk ondelete](#fk-ondelete)
+- [Fromtimestamp naive](#fromtimestamp-naive)
 - [Frontend bundle composition](#frontend-bundle-composition)
 - [Future annotations import](#future-annotations-import)
 - [Http status constants](#http-status-constants)
@@ -254,6 +255,19 @@ Foreign-key ON DELETE behaviour audit.
 | `BASELINE_FK_NO_ONDELETE` | `0` |
 
 **Tests**: `test_every_foreign_key_has_explicit_ondelete`, `test_audit_recognises_documented_fk_call_shapes`
+
+## Fromtimestamp naive <a id="fromtimestamp-naive"></a>
+_File:_ `apps/api/tests/test_fromtimestamp_naive_audit.py`
+
+`datetime.fromtimestamp(x)` without `tz=` audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_NAIVE_FROMTIMESTAMP` | `0` |
+
+**Tests**: `test_no_naive_fromtimestamp_calls`, `test_audit_recognises_documented_shapes`
 
 ## Frontend bundle composition <a id="frontend-bundle-composition"></a>
 _File:_ `apps/api/tests/test_frontend_bundle_composition_audit.py`
