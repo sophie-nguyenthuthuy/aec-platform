@@ -168,27 +168,17 @@ def test_no_assert_statements_in_production_code():
 def test_audit_recognises_documented_shapes():
     """Defensive: positive + negative fixtures."""
     # Positive: plain assert.
-    pos = ast.parse(
-        "def f(x):\n"
-        "    assert x > 0\n"
-    )
+    pos = ast.parse("def f(x):\n    assert x > 0\n")
     asserts = [n for n in ast.walk(pos) if isinstance(n, ast.Assert)]
     assert len(asserts) == 1
 
     # Positive: assert with message.
-    pos2 = ast.parse(
-        "def g(x):\n"
-        "    assert x > 0, 'x must be positive'\n"
-    )
+    pos2 = ast.parse("def g(x):\n    assert x > 0, 'x must be positive'\n")
     asserts = [n for n in ast.walk(pos2) if isinstance(n, ast.Assert)]
     assert len(asserts) == 1
 
     # Negative: `if … raise …` is fine.
-    neg = ast.parse(
-        "def h(x):\n"
-        "    if x <= 0:\n"
-        "        raise ValueError('bad')\n"
-    )
+    neg = ast.parse("def h(x):\n    if x <= 0:\n        raise ValueError('bad')\n")
     asserts = [n for n in ast.walk(neg) if isinstance(n, ast.Assert)]
     assert asserts == []
 

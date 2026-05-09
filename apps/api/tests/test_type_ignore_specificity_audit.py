@@ -148,6 +148,4 @@ def test_audit_recognises_documented_shapes():
         "x = 1  # type: ignore[arg-type, return-value]",
         "x = 1  # type:ignore[union-attr]",
     ]:
-        assert not _BARE_IGNORE_RE.search(src), (
-            f"Audit false-positively flagged a specific form: {src!r}"
-        )
+        assert not _BARE_IGNORE_RE.search(src), f"Audit false-positively flagged a specific form: {src!r}"

@@ -122,9 +122,7 @@ _QUERY_METHODS: frozenset[str] = frozenset(
 # call inside a loop only flags when `<name>` is one of these.
 # Keeps the audit narrow: `subprocess.execute(...)` or a generic
 # `client.execute(...)` in a webhook caller doesn't false-match.
-_SESSION_NAMES: frozenset[str] = frozenset(
-    {"db", "session", "s", "conn", "connection", "tx"}
-)
+_SESSION_NAMES: frozenset[str] = frozenset({"db", "session", "s", "conn", "connection", "tx"})
 
 
 def _walk_python_files() -> list[Path]:
@@ -154,13 +152,7 @@ def _suppressed_lines(text: str) -> set[int]:
 def _is_loop_or_comp(node: ast.AST) -> bool:
     return isinstance(
         node,
-        ast.For
-        | ast.AsyncFor
-        | ast.While
-        | ast.ListComp
-        | ast.SetComp
-        | ast.DictComp
-        | ast.GeneratorExp,
+        ast.For | ast.AsyncFor | ast.While | ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp,
     )
 
 
@@ -322,8 +314,7 @@ def test_no_db_query_inside_loop_body():
         )
     if n < BASELINE_N_PLUS_ONE_CALLS:
         pytest.fail(
-            f"N+1 count dropped from {BASELINE_N_PLUS_ONE_CALLS} "
-            f"to {n}. 🎉 Update `BASELINE_N_PLUS_ONE_CALLS` to {n}."
+            f"N+1 count dropped from {BASELINE_N_PLUS_ONE_CALLS} to {n}. 🎉 Update `BASELINE_N_PLUS_ONE_CALLS` to {n}."
         )
 
 
@@ -332,31 +323,21 @@ def test_audit_recognises_documented_patterns():
     in the walker would silently let N+1 patterns through.
     """
     # Positive: `for x in xs: await db.execute(...)` — flagged.
-    pos = ast.parse(
-        "async def f(db, xs):\n"
-        "    for x in xs:\n"
-        "        await db.execute(x)\n"
-    )
+    pos = ast.parse("async def f(db, xs):\n    for x in xs:\n        await db.execute(x)\n")
     fn = pos.body[0]
     assert isinstance(fn, ast.AsyncFunctionDef)
     findings = _audit_one_function(fn, suppressed=set(), rel="x.py")
     assert len(findings) == 1, f"Expected 1 finding, got {findings}"
 
     # Positive: list comprehension N+1.
-    pos_comp = ast.parse(
-        "def g(db, xs):\n"
-        "    return [db.scalar(x) for x in xs]\n"
-    )
+    pos_comp = ast.parse("def g(db, xs):\n    return [db.scalar(x) for x in xs]\n")
     fn = pos_comp.body[0]
     assert isinstance(fn, ast.FunctionDef)
     findings = _audit_one_function(fn, suppressed=set(), rel="x.py")
     assert len(findings) == 1, f"Expected 1 finding (list-comp), got {findings}"
 
     # Positive: dict comprehension — both key and value bodies scan.
-    pos_dict = ast.parse(
-        "def h(db, xs):\n"
-        "    return {x: db.scalar(x) for x in xs}\n"
-    )
+    pos_dict = ast.parse("def h(db, xs):\n    return {x: db.scalar(x) for x in xs}\n")
     fn = pos_dict.body[0]
     assert isinstance(fn, ast.FunctionDef)
     findings = _audit_one_function(fn, suppressed=set(), rel="x.py")
@@ -385,11 +366,7 @@ def test_audit_recognises_documented_patterns():
     assert findings == [], f"False positive: {findings}"
 
     # Negative: `subprocess.execute(...)` — receiver not session-like.
-    neg_recv = ast.parse(
-        "def m(xs):\n"
-        "    for x in xs:\n"
-        "        subprocess.execute(x)\n"
-    )
+    neg_recv = ast.parse("def m(xs):\n    for x in xs:\n        subprocess.execute(x)\n")
     fn = neg_recv.body[0]
     assert isinstance(fn, ast.FunctionDef)
     findings = _audit_one_function(fn, suppressed=set(), rel="x.py")
@@ -401,14 +378,8 @@ def test_audit_recognises_documented_patterns():
     # audit DOES flag it — the fix is the suppression marker, not
     # changing the audit. We assert the flag fires here so the
     # suppression contract is documented.
-    gather = ast.parse(
-        "import asyncio\n"
-        "async def n(db, xs):\n"
-        "    await asyncio.gather(*[db.execute(x) for x in xs])\n"
-    )
+    gather = ast.parse("import asyncio\nasync def n(db, xs):\n    await asyncio.gather(*[db.execute(x) for x in xs])\n")
     fn = gather.body[1]
     assert isinstance(fn, ast.AsyncFunctionDef)
     findings = _audit_one_function(fn, suppressed=set(), rel="x.py")
-    assert len(findings) == 1, (
-        f"Gather pattern should flag (suppress with `# n+1:`), got {findings}"
-    )
+    assert len(findings) == 1, f"Gather pattern should flag (suppress with `# n+1:`), got {findings}"

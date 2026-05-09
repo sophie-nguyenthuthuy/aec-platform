@@ -128,10 +128,7 @@ def test_no_bare_noqa_comments():
             "line — the next refactor's regression goes invisible."
         )
     if n < BASELINE_BARE_NOQA:
-        pytest.fail(
-            f"Bare-noqa count dropped from {BASELINE_BARE_NOQA} "
-            f"to {n}. 🎉 Update `BASELINE_BARE_NOQA` to {n}."
-        )
+        pytest.fail(f"Bare-noqa count dropped from {BASELINE_BARE_NOQA} to {n}. 🎉 Update `BASELINE_BARE_NOQA` to {n}.")
 
 
 def test_audit_recognises_documented_shapes():
@@ -151,9 +148,7 @@ def test_audit_recognises_documented_shapes():
         "x = 1  #noqa:F401",
         "x = 1  # noqa : E501",  # whitespace before colon
     ]:
-        assert not _BARE_NOQA_RE.search(src), (
-            f"Audit false-positively flagged a specific form: {src!r}"
-        )
+        assert not _BARE_NOQA_RE.search(src), f"Audit false-positively flagged a specific form: {src!r}"
 
     # Negative: word `noqa` inside text where there's no `#` prefix
     # — shouldn't match.
@@ -161,6 +156,4 @@ def test_audit_recognises_documented_shapes():
         "x = 'noqa'",
         "noqa_helper = lambda: None",
     ]:
-        assert not _BARE_NOQA_RE.search(src), (
-            f"Audit false-positively matched a non-comment: {src!r}"
-        )
+        assert not _BARE_NOQA_RE.search(src), f"Audit false-positively matched a non-comment: {src!r}"

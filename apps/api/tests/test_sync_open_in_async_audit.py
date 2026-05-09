@@ -204,21 +204,14 @@ def test_no_sync_open_in_async_function():
 def test_audit_recognises_documented_patterns():
     """Defensive: positive + negative AST fixtures."""
     # Positive: `with open(...)` inside async def.
-    pos = ast.parse(
-        "async def f(path):\n"
-        "    with open(path) as fh:\n"
-        "        return fh.read()\n"
-    )
+    pos = ast.parse("async def f(path):\n    with open(path) as fh:\n        return fh.read()\n")
     fn = pos.body[0]
     assert isinstance(fn, ast.AsyncFunctionDef)
     lines = _collect_sync_opens_in_async_function(fn)
     assert len(lines) == 1, f"Expected 1, got {lines}"
 
     # Positive: `open(path).read()` inline.
-    pos2 = ast.parse(
-        "async def g(path):\n"
-        "    return open(path).read()\n"
-    )
+    pos2 = ast.parse("async def g(path):\n    return open(path).read()\n")
     fn = pos2.body[0]
     assert isinstance(fn, ast.AsyncFunctionDef)
     lines = _collect_sync_opens_in_async_function(fn)
@@ -237,10 +230,7 @@ def test_audit_recognises_documented_patterns():
     assert lines == []
 
     # Negative: `open()` in sync `def` — out of scope.
-    neg2 = ast.parse(
-        "def k(path):\n"
-        "    return open(path).read()\n"
-    )
+    neg2 = ast.parse("def k(path):\n    return open(path).read()\n")
     # We don't pass sync-def into the helper; the audit's caller
     # filters by AsyncFunctionDef. Just confirm the scan-loop
     # only walks AsyncFunctionDef.
@@ -249,12 +239,7 @@ def test_audit_recognises_documented_patterns():
 
     # Negative: nested function — `open()` inside an inner sync
     # `def` shouldn't be counted against the outer `async def`.
-    nested = ast.parse(
-        "async def outer():\n"
-        "    def inner(path):\n"
-        "        return open(path).read()\n"
-        "    return inner\n"
-    )
+    nested = ast.parse("async def outer():\n    def inner(path):\n        return open(path).read()\n    return inner\n")
     fn = nested.body[0]
     assert isinstance(fn, ast.AsyncFunctionDef)
     lines = _collect_sync_opens_in_async_function(fn)

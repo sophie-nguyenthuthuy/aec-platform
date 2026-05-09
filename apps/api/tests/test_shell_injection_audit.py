@@ -226,42 +226,27 @@ def test_no_shell_injection_call_sites():
 def test_audit_recognises_documented_shapes():
     """Defensive: positive + negative AST fixtures."""
     # Positive: subprocess.run with shell=True.
-    pos1 = ast.parse(
-        "import subprocess\n"
-        "subprocess.run('ls', shell=True)\n"
-    )
+    pos1 = ast.parse("import subprocess\nsubprocess.run('ls', shell=True)\n")
     calls = [n for n in ast.walk(pos1) if isinstance(n, ast.Call) and _is_subprocess_shell_true(n)]
     assert len(calls) == 1
 
     # Positive: os.system.
-    pos2 = ast.parse(
-        "import os\n"
-        "os.system('ls')\n"
-    )
+    pos2 = ast.parse("import os\nos.system('ls')\n")
     calls = [n for n in ast.walk(pos2) if isinstance(n, ast.Call) and _is_os_system(n)]
     assert len(calls) == 1
 
     # Positive: subprocess.Popen with shell=True.
-    pos3 = ast.parse(
-        "import subprocess\n"
-        "subprocess.Popen(['x'], shell=True)\n"
-    )
+    pos3 = ast.parse("import subprocess\nsubprocess.Popen(['x'], shell=True)\n")
     calls = [n for n in ast.walk(pos3) if isinstance(n, ast.Call) and _is_subprocess_shell_true(n)]
     assert len(calls) == 1
 
     # Negative: list-arg, no shell=True.
-    neg1 = ast.parse(
-        "import subprocess\n"
-        "subprocess.run(['ls', '-la'])\n"
-    )
+    neg1 = ast.parse("import subprocess\nsubprocess.run(['ls', '-la'])\n")
     calls = [n for n in ast.walk(neg1) if isinstance(n, ast.Call) and _is_subprocess_shell_true(n)]
     assert calls == []
 
     # Negative: shell=False explicit.
-    neg2 = ast.parse(
-        "import subprocess\n"
-        "subprocess.run('ls', shell=False)\n"
-    )
+    neg2 = ast.parse("import subprocess\nsubprocess.run('ls', shell=False)\n")
     calls = [n for n in ast.walk(neg2) if isinstance(n, ast.Call) and _is_subprocess_shell_true(n)]
     assert calls == []
 
