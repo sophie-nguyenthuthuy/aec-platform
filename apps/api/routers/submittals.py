@@ -55,7 +55,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
 async def create_submittal(
     payload: SubmittalCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Create a submittal package + its first revision.
 
     If `package_number` is omitted, auto-assign the next sequential number
@@ -129,7 +129,7 @@ async def list_submittals(
     csi_division: str | None = None,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-):
+) -> dict[str, Any]:
     where = ["organization_id = :org"]
     params: dict[str, Any] = {"org": str(auth.organization_id)}
     if project_id:
@@ -175,7 +175,7 @@ async def list_submittals(
 async def get_submittal(
     submittal_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         sub = (
             await session.execute(
@@ -210,7 +210,7 @@ async def update_submittal(
     submittal_id: UUID,
     payload: SubmittalUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     fields = payload.model_dump(exclude_none=True)
     if not fields:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
@@ -245,7 +245,7 @@ async def create_revision(
     submittal_id: UUID,
     payload: SubmittalRevisionCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Add a new revision (e.g. after a "revise & resubmit" cycle).
 
     Bumps `submittals.current_revision`, resets status to pending_review,
@@ -309,7 +309,7 @@ async def review_revision(
     payload: SubmittalRevisionReview,
     auth: Annotated[AuthContext, Depends(require_auth)],
     request: Request,
-):
+) -> dict[str, Any]:
     """Designer files a review verdict on a specific revision.
 
     Side effect: the parent submittal's `status` and `ball_in_court` move
@@ -430,7 +430,7 @@ async def find_similar_rfis_endpoint(
     rfi_id: UUID,
     payload: RfiSimilarRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Search for past RFIs whose embedding is close to this one.
 
     Lazy-imports the pipeline so test fixtures can stub `ml.pipelines.rfi`
@@ -482,7 +482,7 @@ async def find_similar_rfis_endpoint(
 async def embed_rfi_endpoint(
     rfi_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Compute and persist the embedding for an RFI.
 
     Idempotent — the underlying pipeline upserts on (rfi_id) so this is
@@ -517,7 +517,7 @@ async def draft_rfi_response_endpoint(
     rfi_id: UUID,
     payload: RfiDraftRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Generate a grounded draft response. Cached for `cache_minutes`."""
     from ml.pipelines.rfi import draft_rfi_response
 
@@ -587,7 +587,7 @@ async def accept_draft(
     draft_id: UUID,
     payload: AcceptDraftRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Promote a draft to the RFI's `response` column and stamp accepted_at."""
     async with TenantAwareSession(auth.organization_id) as session:
         draft = (

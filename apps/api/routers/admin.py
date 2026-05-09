@@ -38,7 +38,7 @@ async def list_scraper_runs(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
     slug: str | None = Query(default=None, description="Filter to one scraper slug"),
     limit: int = Query(default=20, ge=1, le=200),
-):
+) -> dict[str, Any]:
     """Most-recent N runs, optionally for a single slug.
 
     Index-friendly: the `(slug, started_at DESC)` index from migration
@@ -58,7 +58,7 @@ async def list_scraper_runs(
 async def scraper_runs_summary(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
     days: int = Query(default=30, ge=1, le=365),
-):
+) -> dict[str, Any]:
     """Per-slug aggregate over the last `days` days. Drives the
     `/admin/scrapers` summary table + drift sparkline.
 
@@ -143,7 +143,7 @@ async def scraper_runs_summary(
 @router.get("/normalizer-rules")
 async def list_normalizer_rules(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> dict[str, Any]:
     """All rules (enabled + disabled), sorted by priority ASC."""
     from models.core import NormalizerRule
     from schemas.admin import NormalizerRuleOut
@@ -168,7 +168,7 @@ async def list_normalizer_rules(
 async def create_normalizer_rule(
     payload: NormalizerRuleCreate,
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> dict[str, Any]:
     """Add a new rule. Returns the persisted row.
 
     The pattern is validated as a Python regex BEFORE the row is
@@ -243,7 +243,7 @@ async def update_normalizer_rule(
     rule_id: UUID,
     payload: NormalizerRuleUpdate,
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> dict[str, Any]:
     """Partial update. Only fields present in the body get written.
 
     `pattern` is regex-validated when it changes — same 400 behaviour
@@ -386,7 +386,7 @@ async def delete_normalizer_rule(
 @router.get("/retention/status")
 async def retention_status(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> dict[str, Any]:
     """Per-table retention metrics: row count, oldest row age, TTL,
     and how many rows the next nightly cron run will prune.
 
@@ -407,7 +407,7 @@ async def retention_status(
 @router.post("/retention/run", status_code=202)
 async def retention_run_now(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> dict[str, Any]:
     """On-demand prune. Same job as the nightly cron, fired manually.
 
     Useful for: (1) initial cleanup after deploying retention to a
@@ -436,7 +436,7 @@ async def admin_top_api_keys(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
     hours: Annotated[int, Query(ge=1, le=24 * 30)] = 24,
     limit: Annotated[int, Query(ge=1, le=200)] = 20,
-):
+) -> dict[str, Any]:
     """Cross-org top API keys by call volume in the last N hours.
     Used by `/admin/api-usage` for capacity planning + incident
     triage. Includes revoked keys so historical activity stays
@@ -453,7 +453,7 @@ async def admin_api_key_usage(
     key_id: UUID,
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
     hours: Annotated[int, Query(ge=1, le=24 * 30)] = 24,
-):
+) -> dict[str, Any]:
     """Per-key usage detail — totals + hour-bucketed sparkline data.
     Drilldown off the `/api-keys/top` leaderboard."""
     from services.api_keys import usage_for_key
