@@ -57,7 +57,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
 async def create_list(
     payload: PunchListCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
             await session.execute(
@@ -95,7 +95,7 @@ async def list_lists(
     status_filter: PunchListStatus | None = Query(default=None, alias="status"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-):
+) -> dict[str, Any]:
     where = ["organization_id = :org"]
     params: dict[str, Any] = {"org": str(auth.organization_id)}
     if project_id:
@@ -144,7 +144,7 @@ async def list_lists(
 async def get_list(
     list_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         head = (
             await session.execute(
@@ -192,7 +192,7 @@ async def update_list(
     list_id: UUID,
     payload: PunchListUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     fields = payload.model_dump(exclude_none=True)
     if not fields:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
@@ -221,7 +221,7 @@ async def sign_off(
     payload: SignOffRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
     request: Request,
-):
+) -> dict[str, Any]:
     """Owner signs off a punch list. All items must be `verified` or
     `waived` — open/in-progress/fixed items block sign-off so a partial
     completion doesn't accidentally close the package."""
@@ -301,7 +301,7 @@ async def add_item(
     list_id: UUID,
     payload: PunchItemCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         # Auto-number per list. Race with concurrent inserts is caught by
         # the unique (list_id, item_number) constraint — the second writer
@@ -354,7 +354,7 @@ async def update_item(
     item_id: UUID,
     payload: PunchItemUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Update a punch item. Status transitions auto-stamp the corresponding
     timestamp:
       * status='fixed' sets `fixed_at = NOW()` (if null)
@@ -420,7 +420,7 @@ async def photo_hints(
     auth: Annotated[AuthContext, Depends(require_auth)],
     window_days: int = Query(default=2, ge=0, le=14),
     limit: int = Query(default=12, ge=1, le=50),
-):
+) -> dict[str, Any]:
     """SiteEye photos taken on the project around the walkthrough date.
 
     The supervisor uses these as candidates to attach to new punch items —

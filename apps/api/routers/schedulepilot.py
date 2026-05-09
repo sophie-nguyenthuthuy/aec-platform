@@ -43,7 +43,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
 async def create_schedule(
     payload: ScheduleCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
             await session.execute(
@@ -77,7 +77,7 @@ async def list_schedules(
     status_filter: ScheduleStatus | None = Query(default=None, alias="status"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-):
+) -> dict[str, Any]:
     where = ["organization_id = :org"]
     params: dict[str, Any] = {"org": str(auth.organization_id)}
     if project_id is not None:
@@ -139,7 +139,7 @@ async def list_schedules(
 async def get_schedule(
     schedule_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         sched = (
             await session.execute(
@@ -223,7 +223,7 @@ async def update_schedule(
     schedule_id: UUID,
     payload: ScheduleUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     fields = payload.model_dump(exclude_none=True)
     if not fields:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
@@ -255,7 +255,7 @@ async def baseline_schedule(
     schedule_id: UUID,
     payload: BaselineRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Snapshot planned_* into baseline_*, mark schedule as `baselined`.
 
     Idempotent only by intent — calling twice will overwrite the previous
@@ -315,7 +315,7 @@ async def create_activity(
     schedule_id: UUID,
     payload: ActivityCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         sched = (
             await session.execute(
@@ -364,7 +364,7 @@ async def update_activity(
     activity_id: UUID,
     payload: ActivityUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     fields = payload.model_dump(exclude_none=True)
     if not fields:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
@@ -416,7 +416,7 @@ async def delete_activity(
 async def create_dependency(
     payload: DependencyCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     if payload.predecessor_id == payload.successor_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Predecessor and successor must differ")
 
@@ -476,7 +476,7 @@ async def run_risk_assessment(
     schedule_id: UUID,
     payload: RiskAssessmentCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Compute CPM critical path + delegate top-N risk narration to the LLM.
 
     Inline-pipeline pattern (matches HANDOVER): the heavy lifting lives in
@@ -560,7 +560,7 @@ async def list_risk_assessments(
     schedule_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     limit: int = Query(default=10, ge=1, le=50),
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         rows = (
             await session.execute(

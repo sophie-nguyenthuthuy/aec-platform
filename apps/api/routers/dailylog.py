@@ -42,7 +42,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
 async def create_log(
     payload: DailyLogCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Create a daily log + nested manpower/equipment in one transaction.
 
     If `auto_extract=True` and the narrative is non-empty, the inline
@@ -135,7 +135,7 @@ async def list_logs(
     date_to: date | None = None,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-):
+) -> dict[str, Any]:
     where = ["organization_id = :org"]
     params: dict[str, Any] = {"org": str(auth.organization_id)}
     if project_id:
@@ -184,7 +184,7 @@ async def list_logs(
 async def get_log(
     log_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         log = (
             await session.execute(
@@ -250,7 +250,7 @@ async def update_log(
     log_id: UUID,
     payload: DailyLogUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Update narrative/weather/status. Manpower/equipment lists, if
     provided, are full replacements (delete + reinsert)."""
     fields = payload.model_dump(exclude_none=True, exclude={"manpower", "equipment"})
@@ -296,7 +296,7 @@ async def trigger_extract(
     log_id: UUID,
     payload: ExtractRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """(Re-)run the LLM extraction over an existing log's narrative."""
     from ml.pipelines.dailylog import extract_observations
 
@@ -404,7 +404,7 @@ async def create_observation(
     log_id: UUID,
     payload: ObservationCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
             await session.execute(
@@ -439,7 +439,7 @@ async def update_observation(
     obs_id: UUID,
     payload: ObservationUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     fields = payload.model_dump(exclude_none=True)
     if not fields:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
@@ -473,7 +473,7 @@ async def get_patterns(
     auth: Annotated[AuthContext, Depends(require_auth)],
     date_from: date,
     date_to: date,
-):
+) -> dict[str, Any]:
     """Aggregate observations + headcount + weather over a date range."""
     from ml.pipelines.dailylog import aggregate_patterns
 

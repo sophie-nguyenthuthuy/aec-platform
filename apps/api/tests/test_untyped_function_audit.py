@@ -74,13 +74,22 @@ _SCAN_DIRS = [_API_ROOT / "routers", _API_ROOT / "services"]
 
 
 # Today's baseline. Filled in on first run.
-BASELINE_UNTYPED_SLOTS = 148  # 2026-05: 204 → 148 after typing handlers in costpulse (25) + handover (19) + changeorder (13) with `-> dict[str, Any]`
+BASELINE_UNTYPED_SLOTS = 119  # 2026-05: 148 → 119 after a further 29 slots were typed in parallel-session work
 
 
 # Per-(relative_path, function_name) allowlist. Each entry needs
 # a stated reason. An empty rationale silences the gate.
 ALLOWLIST: dict[tuple[str, str], str] = {
-    # No entries today.
+    # FastAPI 204 routes: a `-> None` annotation makes FastAPI infer
+    # `response_model = NoneType`, which trips the runtime check
+    # `assert is_body_allowed_for_status_code(...)` at app startup
+    # ("Status code 204 must not have a response body"). The handlers
+    # genuinely return None, but we can't say so in source. Move out
+    # of the allowlist if we adopt `response_class=Response` on these
+    # decorators (which suppresses the response-model inference).
+    ("routers/punchlist.py", "delete_item"): "FastAPI 204 startup-check rejects -> None annotation",
+    ("routers/schedulepilot.py", "delete_activity"): "FastAPI 204 startup-check rejects -> None annotation",
+    ("routers/schedulepilot.py", "delete_dependency"): "FastAPI 204 startup-check rejects -> None annotation",
 }
 
 
