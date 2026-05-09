@@ -8,9 +8,6 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 
 ## Index
 
-- [Admin routes role gate](#admin-routes-role-gate)
-- [Admin session factory usage](#admin-session-factory-usage)
-- [Alembic chain integrity](#alembic-chain-integrity)
 - [Assert in production](#assert-in-production)
 - [Audit action callsite](#audit-action-callsite)
 - [Audit completeness](#audit-completeness)
@@ -22,21 +19,17 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Cron mutex](#cron-mutex)
 - [Dep parity](#dep-parity)
 - [Dependency direction](#dependency-direction)
-- [Dunder all consistency](#dunder-all-consistency)
-- [Every router mounted in main](#every-router-mounted-in-main)
 - [Fixture duplication](#fixture-duplication)
 - [Fk index coverage](#fk-index-coverage)
 - [Fk ondelete](#fk-ondelete)
 - [Fromtimestamp naive](#fromtimestamp-naive)
 - [Frontend bundle composition](#frontend-bundle-composition)
-- [Future annotations import](#future-annotations-import)
 - [Http status constants](#http-status-constants)
 - [Idempotency contract](#idempotency-contract)
 - [Input schemas no organization id](#input-schemas-no-organization-id)
 - [Logger exception outside except](#logger-exception-outside-except)
 - [Logging structure](#logging-structure)
 - [Migration safety](#migration-safety)
-- [Migration upgrade downgrade symmetry](#migration-upgrade-downgrade-symmetry)
 - [N plus one](#n-plus-one)
 - [Naive datetime](#naive-datetime)
 - [Noqa specificity](#noqa-specificity)
@@ -49,40 +42,18 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Pydantic field constraint](#pydantic-field-constraint)
 - [Pydantic strictness](#pydantic-strictness)
 - [Rate limit](#rate-limit)
-- [Rls policy coverage](#rls-policy-coverage)
 - [Router commit](#router-commit)
 - [Router docstring](#router-docstring)
-- [Router handlers are async](#router-handlers-are-async)
 - [Secret access](#secret-access)
 - [Shell injection](#shell-injection)
 - [Singleton comparison](#singleton-comparison)
+- [Stale init export](#stale-init-export)
 - [Sync open in async](#sync-open-in-async)
 - [Sync requests in async](#sync-requests-in-async)
 - [Tenant predicate](#tenant-predicate)
 - [Todo aging](#todo-aging)
 - [Type ignore specificity](#type-ignore-specificity)
 - [Worker retry policy](#worker-retry-policy)
-
-## Admin routes role gate <a id="admin-routes-role-gate"></a>
-_File:_ `apps/api/tests/test_admin_routes_role_gate_audit.py`
-
-Audit: every `/api/v1/admin/*` route MUST have an admin-role dep in its dependency tree.
-
-**Tests**: `test_every_admin_route_has_admin_role_gate`, `test_admin_route_audit_catches_at_least_one_route`, `test_public_admin_allowlist_is_minimal`
-
-## Admin session factory usage <a id="admin-session-factory-usage"></a>
-_File:_ `apps/api/tests/test_admin_session_factory_usage_audit.py`
-
-Audit: `AdminSessionFactory` (BYPASSRLS) MUST only be used by the curated allowlist of routers that have a legitimate cross-tenant reason for it.
-
-**Tests**: `test_routers_using_admin_session_factory_match_allowlist`, `test_allowlist_entries_have_rationale`, `test_allowlist_size_does_not_grow_silently`
-
-## Alembic chain integrity <a id="alembic-chain-integrity"></a>
-_File:_ `apps/api/tests/test_alembic_chain_integrity_audit.py`
-
-Audit: alembic migration chain integrity.
-
-**Tests**: `test_audit_finds_migration_files`, `test_revision_ids_are_unique`, `test_down_revisions_resolve_to_known_revisions`, `test_exactly_one_root_revision`, `test_at_most_one_head_revision_or_explicit_multi_head`, `test_no_cycle_in_migration_chain`, `test_filename_prefix_matches_revision_id`
 
 ## Assert in production <a id="assert-in-production"></a>
 _File:_ `apps/api/tests/test_assert_in_production_audit.py`
@@ -210,20 +181,6 @@ Dependency-direction audit (layered-architecture pin).
 
 **Tests**: `test_no_upward_layer_imports`, `test_allowlist_entries_correspond_to_real_files`, `test_layer_lookup_is_consistent`, `test_audit_recognises_documented_import_shapes`
 
-## Dunder all consistency <a id="dunder-all-consistency"></a>
-_File:_ `apps/api/tests/test_dunder_all_consistency_audit.py`
-
-Audit: every name in a module's `__all__` MUST exist as a top-level symbol in that module.
-
-**Tests**: `test_every_name_in_dunder_all_resolves_to_a_top_level_symbol`, `test_no_underscore_names_in_dunder_all`, `test_audit_finds_at_least_one_dunder_all`
-
-## Every router mounted in main <a id="every-router-mounted-in-main"></a>
-_File:_ `apps/api/tests/test_every_router_mounted_in_main_audit.py`
-
-Audit: every router module under `apps/api/routers/` is imported AND mounted by `main.py::create_app()`.
-
-**Tests**: `test_every_router_module_is_imported_in_main`, `test_every_imported_router_is_mounted`, `test_audit_finds_at_least_one_router`, `test_deliberately_unmounted_allowlist_entries_have_rationale`, `test_deliberately_unmounted_allowlist_is_minimal`
-
 ## Fixture duplication <a id="fixture-duplication"></a>
 _File:_ `apps/api/tests/test_fixture_duplication_audit.py`
 
@@ -276,13 +233,6 @@ _File:_ `apps/api/tests/test_frontend_bundle_composition_audit.py`
 Frontend bundle composition tracker.
 
 **Tests**: `test_no_unreviewed_packages_enter_the_bundle`, `test_no_server_only_imports_in_client_source`, `test_allowlist_entries_correspond_to_real_files`, `test_audit_recognises_documented_import_shapes`
-
-## Future annotations import <a id="future-annotations-import"></a>
-_File:_ `apps/api/tests/test_future_annotations_import_audit.py`
-
-Audit: every Python file under `apps/api/` has `from __future__ import annotations` near the top.
-
-**Tests**: `test_every_python_file_has_future_annotations`, `test_audit_finds_python_files`
 
 ## Http status constants <a id="http-status-constants"></a>
 _File:_ `apps/api/tests/test_http_status_constants_audit.py`
@@ -356,13 +306,6 @@ Alembic migration safety audit.
 | `BASELINE_UNSAFE_NOT_NULL` | `0` |
 
 **Tests**: `test_no_locking_index_creation_on_pre_existing_tables`, `test_no_set_not_null_without_backfill_annotation`, `test_audit_recognises_documented_safety_patterns`
-
-## Migration upgrade downgrade symmetry <a id="migration-upgrade-downgrade-symmetry"></a>
-_File:_ `apps/api/tests/test_migration_upgrade_downgrade_symmetry_audit.py`
-
-Audit: every alembic migration's `upgrade()` has a non-trivial `downgrade()` covering the same DDL (or is explicitly allowlisted as one-way).
-
-**Tests**: `test_every_migration_has_upgrade_and_downgrade`, `test_downgrade_non_empty_when_upgrade_has_ddl`, `test_audit_finds_migration_files`, `test_one_way_allowlist_entries_have_rationale`, `test_one_way_allowlist_size_is_minimal`
 
 ## N plus one <a id="n-plus-one"></a>
 _File:_ `apps/api/tests/test_n_plus_one_audit.py`
@@ -510,13 +453,6 @@ Per-tenant rate-limit audit.
 
 **Tests**: `test_every_expensive_route_has_a_rate_limit`, `test_allowlist_entries_actually_match_routes`, `test_expensive_path_patterns_match_at_least_one_route_each`
 
-## Rls policy coverage <a id="rls-policy-coverage"></a>
-_File:_ `apps/api/tests/test_rls_policy_coverage_audit.py`
-
-Audit: every tenant-bearing ORM table has at least one `CREATE POLICY` declared in the alembic migrations.
-
-**Tests**: `test_every_tenant_bearing_table_has_an_rls_policy`, `test_audit_finds_tenant_bearing_tables`, `test_audit_finds_create_policy_statements`, `test_allowlist_entries_have_rationale`, `test_allowlist_size_is_minimal`
-
 ## Router commit <a id="router-commit"></a>
 _File:_ `apps/api/tests/test_router_commit_audit.py`
 
@@ -543,13 +479,6 @@ Per-router docstring completeness audit.
 | `BASELINE_HANDLERS_NO_DOCSTRING` | `133` |
 
 **Tests**: `test_every_router_module_has_a_docstring`, `test_every_router_handler_has_a_docstring`, `test_audit_recognises_router_decorator_shapes`
-
-## Router handlers are async <a id="router-handlers-are-async"></a>
-_File:_ `apps/api/tests/test_router_handlers_are_async_audit.py`
-
-Audit: every FastAPI route handler is `async def`, not `def`.
-
-**Tests**: `test_every_router_handler_is_async`, `test_audit_finds_router_handlers`, `test_legitimate_sync_handler_allowlist_is_minimal`, `test_legitimate_sync_handler_entries_have_rationale`
 
 ## Secret access <a id="secret-access"></a>
 _File:_ `apps/api/tests/test_secret_access_audit.py`
@@ -589,6 +518,19 @@ _File:_ `apps/api/tests/test_singleton_comparison_audit.py`
 | `BASELINE_SINGLETON_EQ` | `0` |
 
 **Tests**: `test_no_eq_against_singletons`, `test_audit_recognises_documented_shapes`
+
+## Stale init export <a id="stale-init-export"></a>
+_File:_ `apps/api/tests/test_stale_init_export_audit.py`
+
+Stale `__init__.py` re-export audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_STALE_INIT_EXPORTS` | `0` |
+
+**Tests**: `test_no_stale_init_reexports`, `test_audit_recognises_documented_shapes`, `test_allowlist_entries_actually_correspond_to_real_imports`
 
 ## Sync open in async <a id="sync-open-in-async"></a>
 _File:_ `apps/api/tests/test_sync_open_in_async_audit.py`
