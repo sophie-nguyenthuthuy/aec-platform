@@ -372,6 +372,90 @@ def sign_payload_with_timestamp(secret: str, body: bytes, ts: int) -> str:
     return hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()
 
 
+def verify_payload_with_trace(
+    secret: str,
+    body: bytes,
+    ts: int,
+    signature: str,
+    *,
+    now: int,
+    max_skew_seconds: int = 300,
+) -> dict:
+    """Structured-diagnosis variant of `verify_payload` (cycle Q2).
+
+    Returns a dict with:
+      * `verified` — bool, the same answer `verify_payload` returns.
+      * `expected_signature` — the hex digest the receiver SHOULD
+        have computed under the supplied secret + body + ts.
+      * `provided_signature` — the supplied signature with any
+        `sha256=` prefix stripped, mirroring what the verifier
+        compared against.
+      * `skew_seconds` — `now - ts` (signed). Surfaces "your clock
+        is ahead by 7 seconds" vs. "your clock is behind by 7
+        seconds" — different diagnostic stories.
+      * `reason` — None on success; one of the closed reason codes
+        on failure: `timestamp_skew_exceeded` |
+        `signature_mismatch` | `invalid_signature_format`.
+
+    Powers the partner-facing webhook signature verification
+    playground at `/docs/webhooks/verify`. The structured shape lets
+    the UI render a focused diagnosis ("clock skew 720s — re-sync
+    your receiver's clock") instead of just "didn't match" — closes
+    the most common partner support inquiry.
+
+    The legacy boolean `verify_payload` (below) is preserved
+    unchanged — receivers in production verify with that and a
+    behaviour change there would be a wire breaking change.
+    """
+    skew = now - ts
+    if abs(skew) > max_skew_seconds:
+        # We still compute the expected signature so the partner can
+        # eyeball it — useful when both clock skew AND signature
+        # mismatch happen at once (otherwise the partner fixes the
+        # clock and discovers a separate signature bug after).
+        expected = sign_payload_with_timestamp(secret, body, ts)
+        return {
+            "verified": False,
+            "expected_signature": expected,
+            "provided_signature": _strip_prefix(signature),
+            "skew_seconds": skew,
+            "reason": "timestamp_skew_exceeded",
+        }
+
+    expected = sign_payload_with_timestamp(secret, body, ts)
+    provided = _strip_prefix(signature)
+    try:
+        match = hmac.compare_digest(expected, provided)
+    except (TypeError, ValueError):
+        return {
+            "verified": False,
+            "expected_signature": expected,
+            "provided_signature": provided,
+            "skew_seconds": skew,
+            "reason": "invalid_signature_format",
+        }
+
+    return {
+        "verified": match,
+        "expected_signature": expected,
+        "provided_signature": provided,
+        "skew_seconds": skew,
+        "reason": None if match else "signature_mismatch",
+    }
+
+
+def _strip_prefix(signature: str) -> str:
+    """Helper: drop the `sha256=` prefix the wire format includes.
+
+    Pulled out as a function so the legacy `verify_payload` AND the
+    new `verify_payload_with_trace` use the same parse rule. A
+    receiver that includes the prefix and one that doesn't both
+    work via this helper."""
+    if signature.startswith("sha256="):
+        return signature[len("sha256=") :]
+    return signature
+
+
 def verify_payload(
     secret: str,
     body: bytes,

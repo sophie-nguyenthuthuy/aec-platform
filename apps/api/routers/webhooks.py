@@ -59,6 +59,79 @@ router = APIRouter(
 # ---------- Event catalog (public docs) ----------
 
 
+# ---------- Signature verification playground (cycle Q2) ----------
+#
+# Closes the #1 partner support inquiry: "I'm receiving webhooks but
+# my receiver rejects every signature." The endpoint takes the same
+# inputs the receiver sees (secret, raw body, timestamp, signature
+# header) and returns a structured diagnosis — clock skew, signature
+# mismatch, malformed format — rather than just "didn't match."
+#
+# Public on purpose — partners debug their integration BEFORE getting
+# an API key. The endpoint is read-only: it computes HMAC over user-
+# supplied bytes and returns the answer. No persistence; no rate
+# limit beyond the platform's standard middleware.
+#
+# Why a debug endpoint vs. just publishing the verification recipe:
+# partners DO read the docs, but a misplaced byte (CRLF vs. LF in
+# the body, integer-vs-string timestamp parse) is invisible until
+# they have a side-by-side comparison. This gives them that.
+
+
+from pydantic import BaseModel as _PdBaseModel  # noqa: E402
+
+
+class _VerifySignatureRequest(_PdBaseModel):
+    """Wire-shape for `POST /verify-signature`."""
+
+    secret: str
+    body: str  # raw receiver body — can contain newlines, JSON, etc.
+    timestamp: int  # `X-AEC-Timestamp` value the receiver saw
+    signature: str  # `X-AEC-Signature` value (with or without `sha256=`)
+    # Optional: override the freshness skew window. Default matches
+    # `verify_payload_with_trace`'s 300s. Lets partners diagnose
+    # "would this verify if we accept up to 1h skew?" without changing
+    # their production policy.
+    max_skew_seconds: int = 300
+
+
+@router.post("/verify-signature")
+async def verify_signature(payload: _VerifySignatureRequest):
+    """Diagnose a receiver-side signature verification.
+
+    Returns the same dict shape `services.webhooks.verify_payload_with_trace`
+    produces — verified bool, expected vs provided signature,
+    clock-skew seconds, structured reason code on failure.
+
+    No auth: partners debug their integration BEFORE getting a key.
+    The endpoint computes HMAC over user-supplied bytes — there's
+    nothing tenant-scoped to leak (the secret is supplied by the
+    caller, not looked up).
+
+    The frontend `/docs/webhooks/verify` UI plays this back inline:
+    paste your secret, body, timestamp, and signature; see whether
+    it would verify, plus the side-by-side digest comparison so a
+    one-byte diff is immediately visible.
+    """
+    import time as _time
+
+    from services.webhooks import verify_payload_with_trace
+
+    # `now` is server-side wall-clock — partners debugging late at
+    # night may have a stale `ts` because the integration is paused.
+    # Pin to current server time so the skew measurement is honest
+    # (not "compute against a time the partner picked").
+    trace = verify_payload_with_trace(
+        payload.secret,
+        payload.body.encode("utf-8"),
+        payload.timestamp,
+        payload.signature,
+        now=int(_time.time()),
+        max_skew_seconds=payload.max_skew_seconds,
+    )
+    return ok(trace)
+
+
 @router.get("/event-types")
 async def list_event_types():
     """Public catalog of every webhook event type the platform emits,

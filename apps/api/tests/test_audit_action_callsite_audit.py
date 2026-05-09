@@ -55,7 +55,6 @@ from typing import get_args
 
 from services.audit import AuditAction
 
-
 # Function names that resolve to `services.audit.record`. The
 # handler `record(...)` form (bare `record` after a `from
 # services.audit import record` line) is also matched, with a
