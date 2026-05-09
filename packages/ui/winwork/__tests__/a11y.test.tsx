@@ -125,12 +125,7 @@ describe("FeeBreakdownTable / a11y", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
-  // FIXME(a11y): editable mode renders unlabeled phase/label/amount
-  // <Input>s and an icon-only remove button — axe rule `label` and
-  // `button-name` flag both. Fix belongs in FeeBreakdownTable.tsx
-  // (aria-label per row-input); skipping here so the typecheck/vitest
-  // gates can land. Tracked as a follow-up task.
-  test.skip("editable mode renders without violations", async () => {
+  test("editable mode renders without violations", async () => {
     // The editable path renders <Input>s and a Remove button per row
     // plus an Add button — all need accessible names. axe surfaces
     // any unlabeled form control here, just like it caught the

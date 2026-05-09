@@ -121,12 +121,7 @@ describe("FindingItem / a11y", () => {
   });
 });
 
-// FIXME(a11y): ChecklistItem's `<input type="checkbox">` and status
-// `<select>` are missing visible labels / aria-label, so axe rule
-// `label` flags every render. The fix belongs in ChecklistItem.tsx
-// (associate `<label htmlFor>` with the inputs); skipping here so the
-// typecheck/vitest gates can land. Tracked as a follow-up task.
-describe.skip("ChecklistItem / a11y", () => {
+describe("ChecklistItem / a11y", () => {
   test("required + pending renders without violations", async () => {
     const { container } = render(
       <ChecklistItem
