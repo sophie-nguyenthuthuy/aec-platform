@@ -221,13 +221,14 @@ describe("AecClientCore", () => {
     const fetchMock = vi.fn().mockResolvedValue(errorResponse(500, "server_error"));
     const client = new AecClientCore({ apiKey: "k", fetch: fetchMock, maxRetries: 2 });
 
-    const promise = client.request("GET", "/api/v1/projects").catch((e) => e);
+    const promise = client.request("GET", "/api/v1/projects").catch((e: unknown) => e);
     // 3 attempts (initial + 2 retries) with backoff. Drain enough time.
     await vi.advanceTimersByTimeAsync(60_000);
     const err = await promise;
 
     expect(err).toBeInstanceOf(AecApiError);
-    expect((err as AecApiError).status).toBe(500);
+    if (!(err instanceof AecApiError)) throw new Error("expected AecApiError");
+    expect(err.status).toBe(500);
     expect(fetchMock).toHaveBeenCalledTimes(3); // initial + 2 retries
   });
 
