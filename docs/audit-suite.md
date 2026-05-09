@@ -38,6 +38,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Openapi tags](#openapi-tags)
 - [Orm tables organization id](#orm-tables-organization-id)
 - [Output schemas no secret fields](#output-schemas-no-secret-fields)
+- [Print in production](#print-in-production)
 - [Pydantic field constraint](#pydantic-field-constraint)
 - [Pydantic strictness](#pydantic-strictness)
 - [Rate limit](#rate-limit)
@@ -365,6 +366,19 @@ _File:_ `apps/api/tests/test_output_schemas_no_secret_fields_audit.py`
 Audit: Pydantic *output* schemas (Out / Detail / Response / Read / Summary / Row / View / Returned) MUST NOT carry secret-shaped fields.
 
 **Tests**: `test_no_output_schema_carries_secret_field`, `test_audit_actually_walks_output_schemas`, `test_classifier_exempts_create_response_shapes`, `test_secret_field_name_set_is_conservative`, `test_output_schemas_with_secret_allowlist_is_minimal`
+
+## Print in production <a id="print-in-production"></a>
+_File:_ `apps/api/tests/test_print_in_production_audit.py`
+
+`print(...)` in production code audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_PRODUCTION_PRINTS` | `4` |
+
+**Tests**: `test_no_print_calls_in_production_code`, `test_audit_recognises_documented_shapes`, `test_allowlist_entries_actually_correspond_to_real_prints`
 
 ## Pydantic field constraint <a id="pydantic-field-constraint"></a>
 _File:_ `apps/api/tests/test_pydantic_field_constraint_audit.py`
