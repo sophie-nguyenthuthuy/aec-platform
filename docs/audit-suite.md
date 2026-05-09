@@ -11,6 +11,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Admin routes role gate](#admin-routes-role-gate)
 - [Admin session factory usage](#admin-session-factory-usage)
 - [Alembic chain integrity](#alembic-chain-integrity)
+- [Assert in production](#assert-in-production)
 - [Audit action callsite](#audit-action-callsite)
 - [Audit completeness](#audit-completeness)
 - [Audit index freshness](#audit-index-freshness)
@@ -43,6 +44,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Rls policy coverage](#rls-policy-coverage)
 - [Router commit](#router-commit)
 - [Router docstring](#router-docstring)
+- [Router handlers are async](#router-handlers-are-async)
 - [Secret access](#secret-access)
 - [Tenant predicate](#tenant-predicate)
 - [Todo aging](#todo-aging)
@@ -69,6 +71,19 @@ _File:_ `apps/api/tests/test_alembic_chain_integrity_audit.py`
 Audit: alembic migration chain integrity.
 
 **Tests**: `test_audit_finds_migration_files`, `test_revision_ids_are_unique`, `test_down_revisions_resolve_to_known_revisions`, `test_exactly_one_root_revision`, `test_at_most_one_head_revision_or_explicit_multi_head`, `test_no_cycle_in_migration_chain`, `test_filename_prefix_matches_revision_id`
+
+## Assert in production <a id="assert-in-production"></a>
+_File:_ `apps/api/tests/test_assert_in_production_audit.py`
+
+`assert` in production code audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_PRODUCTION_ASSERTS` | `8` |
+
+**Tests**: `test_no_assert_statements_in_production_code`, `test_audit_recognises_documented_shapes`, `test_allowlist_entries_actually_correspond_to_real_asserts`
 
 ## Audit action callsite <a id="audit-action-callsite"></a>
 _File:_ `apps/api/tests/test_audit_action_callsite_audit.py`
@@ -424,6 +439,13 @@ Per-router docstring completeness audit.
 | `BASELINE_HANDLERS_NO_DOCSTRING` | `133` |
 
 **Tests**: `test_every_router_module_has_a_docstring`, `test_every_router_handler_has_a_docstring`, `test_audit_recognises_router_decorator_shapes`
+
+## Router handlers are async <a id="router-handlers-are-async"></a>
+_File:_ `apps/api/tests/test_router_handlers_are_async_audit.py`
+
+Audit: every FastAPI route handler is `async def`, not `def`.
+
+**Tests**: `test_every_router_handler_is_async`, `test_audit_finds_router_handlers`, `test_legitimate_sync_handler_allowlist_is_minimal`, `test_legitimate_sync_handler_entries_have_rationale`
 
 ## Secret access <a id="secret-access"></a>
 _File:_ `apps/api/tests/test_secret_access_audit.py`
