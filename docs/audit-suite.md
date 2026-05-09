@@ -42,6 +42,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Noqa specificity](#noqa-specificity)
 - [Openapi route docs](#openapi-route-docs)
 - [Openapi tags](#openapi-tags)
+- [Optional without default](#optional-without-default)
 - [Orm tables organization id](#orm-tables-organization-id)
 - [Output schemas no secret fields](#output-schemas-no-secret-fields)
 - [Print in production](#print-in-production)
@@ -428,6 +429,19 @@ Per-route OpenAPI tags audit.
 | `BASELINE_UNTAGGED_ROUTES` | `0` |
 
 **Tests**: `test_every_route_has_at_least_one_tag`, `test_allowlist_entries_actually_match_routes`
+
+## Optional without default <a id="optional-without-default"></a>
+_File:_ `apps/api/tests/test_optional_without_default_audit.py`
+
+`Optional` field without `= None` default audit (Pydantic).
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_OPTIONAL_NO_DEFAULT` | `30` |
+
+**Tests**: `test_every_optional_pydantic_field_has_a_none_default`, `test_allowlist_entries_actually_correspond_to_real_fields`
 
 ## Orm tables organization id <a id="orm-tables-organization-id"></a>
 _File:_ `apps/api/tests/test_orm_tables_organization_id_audit.py`
