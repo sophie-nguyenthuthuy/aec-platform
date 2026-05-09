@@ -88,6 +88,13 @@ export default function WebhookDetailPage(
         )}
       </div>
 
+      {/* ---------- Rotation grace banner (cycle P1) ---------- */}
+      {sub?.secret_previous_active && (
+        <RotationGraceBanner
+          secondsRemaining={sub.secret_previous_grace_seconds_remaining}
+        />
+      )}
+
       {/* ---------- Secret rotation ---------- */}
       <RotateSecretPanel subscriptionId={id} />
 
@@ -163,6 +170,68 @@ export default function WebhookDetailPage(
 
 
 // ---------- Sub-components ----------
+
+
+/**
+ * Amber banner shown above the rotate panel when the subscription is
+ * currently in its 24h post-rotation grace window. Mirrors the same
+ * decision rule the dispatcher uses (`_previous_secret_active`) so
+ * the partner sees exactly what the wire is doing.
+ *
+ * Distinct from the inline list-row badge: the list shows just the
+ * "grace 14h" pill, the detail page shows the full explanation +
+ * remaining time + receiver guidance. Both render off the same
+ * boolean so a refactor that drops the schema field hides both at
+ * once (visible regression).
+ */
+function RotationGraceBanner({
+  secondsRemaining,
+}: {
+  secondsRemaining: number;
+}) {
+  return (
+    <div className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4">
+      <div className="flex items-start gap-2">
+        <KeyRound size={14} className="mt-0.5 shrink-0 text-amber-700" />
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-amber-900">
+            Đang trong cửa sổ chuyển đổi secret
+            <span className="ml-2 font-mono text-xs text-amber-800">
+              ends in {formatGraceWindow(secondsRemaining)}
+            </span>
+          </p>
+          <p className="text-xs text-amber-800">
+            Mỗi delivery được ký bởi cả secret mới và secret cũ. Receiver
+            có thể verify một trong hai chữ ký:{" "}
+            <code className="font-mono">X-AEC-Signature</code> (mới) hoặc{" "}
+            <code className="font-mono">X-AEC-Signature-Previous</code>{" "}
+            (cũ). Sau khi cửa sổ này hết hạn, dispatcher chỉ gửi chữ ký
+            mới — đảm bảo receiver đã chuyển sang secret mới trước đó.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * Format the remaining seconds into a human label for the banner.
+ * The list-row badge uses a tighter formatter (`formatGrace` in
+ * /settings/webhooks/page.tsx); this version is more verbose because
+ * the banner has the space.
+ */
+function formatGraceWindow(seconds: number): string {
+  if (seconds <= 0) return "expired";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds % 3600) / 60);
+  if (hours >= 1) {
+    if (minutes === 0) return `${hours}h`;
+    return `${hours}h ${minutes}m`;
+  }
+  if (seconds >= 60) return `${Math.round(seconds / 60)}m`;
+  return `${seconds}s`;
+}
 
 
 /**

@@ -199,7 +199,13 @@ def test_webhook_delivery_status_is_text_not_enum():
 def test_webhook_subscription_columns_pinned():
     """The parent `webhook_subscriptions` table — referenced via FK
     from every delivery row. Same revert-tripwire role as the
-    delivery pin."""
+    delivery pin.
+
+    Updated cycle O1: dual-secret rotation added two columns
+    (`secret_previous`, `secret_previous_expires_at`) per migration
+    0043_webhook_secret_rotation. Both are part of the test set
+    going forward — a revert that drops them would break the
+    dispatcher's grace-window emit + the rotate_secret() helper."""
     from models.webhooks import WebhookSubscription
 
     cols = {c.name for c in WebhookSubscription.__table__.columns}
@@ -208,6 +214,12 @@ def test_webhook_subscription_columns_pinned():
         "organization_id",
         "url",
         "secret",
+        # Dual-secret rotation (cycle O1, migration 0043).
+        # `secret_previous` carries the prior secret; the dispatcher
+        # uses it to emit a second `X-AEC-Signature-Previous` header
+        # during the rotation grace window. NULL outside a grace.
+        "secret_previous",
+        "secret_previous_expires_at",
         "event_types",
         "enabled",
         "last_delivery_at",

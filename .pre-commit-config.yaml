@@ -118,7 +118,7 @@ repos:
         language: system
         entry: bash -c 'cd apps/api && pytest tests/test_integrator_surface_snapshot.py -q'
         pass_filenames: false
-        files: ^apps/api/(routers/(api_keys|ops|webhooks|admin|audit|slack_deliveries|webhook_deliveries_admin|cron_admin)\.py|services/api_keys\.py|middleware/(auth|api_key_auth)\.py|core/config\.py|schemas/(webhooks|audit|webhook_deliveries)\.py|main\.py|tests/test_integrator_surface_snapshot\.py)$
+        files: ^apps/api/(routers/(api_keys|ops|webhooks|admin|audit|slack_deliveries|webhook_deliveries_admin|cron_admin)\.py|services/(api_keys|webhooks|retention|cron_alerts|cron_telemetry)\.py|middleware/(auth|api_key_auth|idempotency_route)\.py|core/(config|metrics)\.py|schemas/(webhooks|audit|webhook_deliveries)\.py|workers/queue\.py|main\.py|tests/test_integrator_surface_snapshot\.py)$
 
       # ---------- Ratchet audit suite ----------
       # Runs every `tests/test_*_audit.py` in one pass (~5s). These are

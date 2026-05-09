@@ -21,6 +21,17 @@ export interface WebhookSubscription {
   last_delivery_at: ISODate | null;
   failure_count: number;
   created_at: ISODate;
+  /** Cycle P1 — rotation grace status. True iff the subscription is
+   *  currently in the 24h post-rotation grace window AND the
+   *  dispatcher is emitting `X-AEC-Signature-Previous` alongside the
+   *  primary signature. Computed server-side from
+   *  `secret_previous_expires_at`; never persists. False on a
+   *  subscription that has never rotated. */
+  secret_previous_active: boolean;
+  /** Seconds remaining until the rotation grace expires. 0 when not
+   *  in a grace. Frontend formats as "Xh left" / "Xm left" depending
+   *  on magnitude. */
+  secret_previous_grace_seconds_remaining: number;
 }
 
 export interface WebhookCreated extends WebhookSubscription {

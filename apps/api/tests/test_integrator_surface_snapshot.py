@@ -748,6 +748,72 @@ def test_event_types_route_registered():
     )
 
 
+def test_retention_admin_surface():
+    """Pin the retention dashboard backend (cycle O3):
+
+    * `GET /api/v1/admin/retention/status` is the read endpoint
+      the `/admin/retention` page calls. Frontend's
+      `useRetentionStatus()` hook breaks if it disappears.
+    * `POST /api/v1/admin/retention/run` is the on-demand prune
+      button. Removing it leaves the button rendering but every
+      click 404s with no obvious cause.
+    * `services.retention.collect_stats(session)` is the
+      per-table stats helper. The router calls this; pin the
+      callable so a refactor that renames it surfaces here.
+    * `services.retention.RETENTION_POLICIES` is the registry
+      the dashboard table is keyed off. Empty registry would
+      render an empty table without any indication of why.
+    """
+    from main import app
+    from services.retention import RETENTION_POLICIES, collect_stats, run_retention_cron
+
+    paths = {route.path for route in app.routes}
+    for required in (
+        "/api/v1/admin/retention/status",
+        "/api/v1/admin/retention/run",
+    ):
+        assert required in paths, (
+            f"FastAPI app is missing route {required!r}. The /admin/retention dashboard 404s if the route disappears."
+        )
+
+    assert callable(collect_stats), (
+        "services.retention.collect_stats rolled back. The "
+        "/admin/retention/status endpoint depends on this helper "
+        "to project per-table TTL + overdue counts."
+    )
+    assert callable(run_retention_cron), (
+        "services.retention.run_retention_cron rolled back. The "
+        "/admin/retention/run endpoint depends on this to fire "
+        "the prune synchronously."
+    )
+
+    assert len(RETENTION_POLICIES) > 0, (
+        "services.retention.RETENTION_POLICIES is empty. The "
+        "dashboard renders an empty table; nightly cron prunes "
+        "nothing — every managed table grows unbounded."
+    )
+    # Pin the table set: a refactor that drops a policy makes that
+    # table grow unbounded silently. Each entry's presence is also
+    # safety-net'd by the per-table assertions in the cron tests
+    # but the set here is the cheapest signal-of-shrink.
+    expected_tables = {
+        "audit_events",
+        "webhook_deliveries",
+        "search_queries",
+        "import_jobs",
+        "api_key_calls",
+        "codeguard_quota_audit_log",
+        "cron_runs",
+    }
+    actual_tables = {p.table for p in RETENTION_POLICIES}
+    missing = expected_tables - actual_tables
+    assert not missing, (
+        f"RETENTION_POLICIES dropped these tables: {sorted(missing)}. "
+        "The cron will stop pruning them and storage will grow "
+        "unbounded. Re-apply the RetentionPolicy entries."
+    )
+
+
 def test_cron_run_now_surface():
     """Pin the manual-run-cron surface (cycle O2):
 

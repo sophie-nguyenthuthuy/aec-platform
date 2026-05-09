@@ -192,6 +192,12 @@ def _due_row(**overrides: Any) -> dict[str, Any]:
         "url": "https://example.com/hook",
         "secret": "abc" * 22 + "ab",  # 64 chars
         "failure_count": 0,
+        # Dual-secret rotation columns (cycle O1, migration 0043).
+        # The drain SELECT pulls these into every row; tests that
+        # don't care about rotation pass None/None to mirror a
+        # subscription that's never been rotated.
+        "secret_previous": None,
+        "secret_previous_expires_at": None,
     }
     base.update(overrides)
     return base

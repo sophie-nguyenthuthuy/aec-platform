@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Copy,
   ExternalLink,
+  KeyRound,
   Plug,
   Send,
   Trash2,
@@ -365,6 +366,19 @@ function SubscriptionRow({ sub }: { sub: WebhookSubscription }) {
               {sub.failure_count} lỗi liên tiếp
             </span>
           )}
+          {sub.secret_previous_active && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+              title={
+                "Subscription đang trong cửa sổ chuyển đổi secret. " +
+                "Mỗi delivery mang đồng thời X-AEC-Signature (secret mới) và " +
+                "X-AEC-Signature-Previous (secret cũ). Receiver verify khớp một trong hai."
+              }
+            >
+              <KeyRound size={10} />
+              grace {formatGrace(sub.secret_previous_grace_seconds_remaining)}
+            </span>
+          )}
         </button>
         <div className="flex items-center gap-2">
           <Link
@@ -476,6 +490,27 @@ function DeliveryRow({ delivery }: { delivery: WebhookDelivery }) {
       </div>
     </li>
   );
+}
+
+
+// ---------- Pure helpers ----------
+
+
+/**
+ * Format the rotation grace seconds remaining into a compact label
+ * the badge can carry alongside an icon. The thresholds (hours vs.
+ * minutes) match the granularity a partner is reasoning about during
+ * the rollover — "23h" is fine for the morning-after view; "8m" is
+ * what they want in the last hour before the dispatcher stops
+ * emitting the previous signature.
+ */
+function formatGrace(seconds: number): string {
+  if (seconds <= 0) return "expired";
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60 * 60) return `${Math.round(seconds / 60)}m`;
+  // Round down to the hour so "23h 59m left" doesn't show as "24h"
+  // — the partner expects the badge to monotonically decrease.
+  return `${Math.floor(seconds / 3600)}h`;
 }
 
 

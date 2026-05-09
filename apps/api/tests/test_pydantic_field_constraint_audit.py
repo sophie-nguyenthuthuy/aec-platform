@@ -52,7 +52,7 @@ _SCHEMAS_DIR = _API_ROOT / "schemas"
 
 # Today's baselines. Filled in on first run.
 BASELINE_UNCONSTRAINED_STR = 506
-BASELINE_UNCONSTRAINED_NUMERIC = 264
+BASELINE_UNCONSTRAINED_NUMERIC = 266
 
 
 # Per-(module, class, field) allowlist for legitimate cases.

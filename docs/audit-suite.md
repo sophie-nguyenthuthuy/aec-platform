@@ -245,7 +245,7 @@ Pydantic field-level constraint audit.
 | Constant | Value |
 |---|---|
 | `BASELINE_UNCONSTRAINED_STR` | `506` |
-| `BASELINE_UNCONSTRAINED_NUMERIC` | `264` |
+| `BASELINE_UNCONSTRAINED_NUMERIC` | `266` |
 
 **Tests**: `test_every_str_field_has_a_length_constraint`, `test_every_numeric_field_has_a_range_constraint`, `test_allowlist_entries_actually_correspond_to_real_fields`
 
