@@ -15,6 +15,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Audit action callsite](#audit-action-callsite)
 - [Audit completeness](#audit-completeness)
 - [Audit index freshness](#audit-index-freshness)
+- [Bare except](#bare-except)
 - [Ci precommit drift](#ci-precommit-drift)
 - [Complexity budget](#complexity-budget)
 - [Concurrency safety](#concurrency-safety)
@@ -119,6 +120,19 @@ _File:_ `apps/api/tests/test_audit_index_freshness_audit.py`
 Audit-index freshness audit.
 
 **Tests**: `test_audit_index_doc_matches_generator_output`
+
+## Bare except <a id="bare-except"></a>
+_File:_ `apps/api/tests/test_bare_except_audit.py`
+
+Bare `except:` audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_BARE_EXCEPT` | `0` |
+
+**Tests**: `test_no_bare_except_clauses`, `test_audit_recognises_documented_shapes`
 
 ## Ci precommit drift <a id="ci-precommit-drift"></a>
 _File:_ `apps/api/tests/test_ci_precommit_drift_audit.py`
