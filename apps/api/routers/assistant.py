@@ -75,7 +75,7 @@ async def ask_about_project(
     payload: AskRequest,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.MEMBER))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Answer a natural-language question about one of the caller's projects.
 
     Threads:
@@ -162,7 +162,7 @@ async def list_threads(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(default=30, ge=1, le=100),
-):
+) -> dict[str, Any]:
     """Recent threads for the calling user on this project, ordered by
     `last_message_at DESC` so the most recently active conversation is
     on top."""
@@ -194,7 +194,7 @@ async def get_thread(
     thread_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Full thread transcript. Cross-tenant or cross-user → 404 (existence
     is hidden across orgs)."""
     thread = (

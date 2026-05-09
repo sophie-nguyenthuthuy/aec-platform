@@ -74,7 +74,7 @@ _SCAN_DIRS = [_API_ROOT / "routers", _API_ROOT / "services"]
 
 
 # Today's baseline. Filled in on first run.
-BASELINE_UNTYPED_SLOTS = 78  # 2026-05: 97 → 78 after typing 9 admin + 10 submittals handlers
+BASELINE_UNTYPED_SLOTS = 59  # 2026-05: 78 → 59 after typing handlers in assistant/notifications/api_keys/org/projects/sandbox
 
 
 # Per-(relative_path, function_name) allowlist. Each entry needs

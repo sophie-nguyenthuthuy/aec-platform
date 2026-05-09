@@ -13,7 +13,7 @@ trends from the B.2 telemetry table to the dashboard.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query

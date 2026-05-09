@@ -39,7 +39,7 @@ router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 async def list_my_watches(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Return every project the calling user has subscribed to. Joined to
     `projects` so the UI shows the project name without a second fetch."""
     rows = (
@@ -79,7 +79,7 @@ async def create_watch(
     payload: ProjectWatchCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Subscribe the caller to a project's daily digest.
 
     Idempotent: re-watching an already-watched project returns the
@@ -185,7 +185,7 @@ _KNOWN_PREF_KEYS: tuple[str, ...] = (
 async def list_preferences(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Return the caller's preferences in the current org.
 
     Pre-fills every key in `_KNOWN_PREF_KEYS` with `email_enabled=False`,
@@ -236,7 +236,7 @@ async def upsert_preference(
     payload: NotificationPreferenceUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Idempotent upsert of one preference row.
 
     Both channel flags are optional in the body: omitting one leaves

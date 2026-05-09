@@ -80,7 +80,7 @@ async def list_projects(
     q: str | None = None,
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=20, ge=1, le=100),
-):
+) -> dict[str, Any]:
     """List projects for the caller's org with cheap per-card counters.
 
     The counters (`open_tasks`, `open_change_orders`, `document_count`) are

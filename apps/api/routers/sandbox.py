@@ -42,7 +42,7 @@ router = APIRouter(prefix="/api/v1/sandbox", tags=["sandbox"])
 @router.get("/projects")
 async def list_sandbox_projects(
     auth: Annotated[AuthContext, Depends(require_user_or_api_key)],
-):
+) -> dict[str, Any]:
     """Three sample projects spanning planning / construction /
     completed. IDs are pinned literals so partner integration tests
     can hardcode them."""
@@ -52,7 +52,7 @@ async def list_sandbox_projects(
 @router.get("/defects")
 async def list_sandbox_defects(
     auth: Annotated[AuthContext, Depends(require_user_or_api_key)],
-):
+) -> dict[str, Any]:
     """Two sample defects on the construction-stage project."""
     return ok(sample_defects())
 
@@ -60,12 +60,12 @@ async def list_sandbox_defects(
 @router.get("/rfis")
 async def list_sandbox_rfis(
     auth: Annotated[AuthContext, Depends(require_user_or_api_key)],
-):
+) -> dict[str, Any]:
     return ok(sample_rfis())
 
 
 @router.get("/suppliers")
 async def list_sandbox_suppliers(
     auth: Annotated[AuthContext, Depends(require_user_or_api_key)],
-):
+) -> dict[str, Any]:
     return ok(sample_suppliers())

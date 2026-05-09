@@ -47,7 +47,7 @@ router = APIRouter(prefix="/api/v1/org", tags=["org"])
 async def list_members(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Return every member of the caller's org. Visible to all roles —
     even viewers need to see who's in the team."""
     rows = (
@@ -85,7 +85,7 @@ async def invite_member(
     payload: InviteMemberRequest,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Invite a user (by email) to the org with a given role.
 
     Idempotent: if the email already corresponds to a member, returns
@@ -176,7 +176,7 @@ async def update_member_role(
     payload: UpdateMemberRoleRequest,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Change a member's role. Cannot demote the last owner."""
     if payload.role != Role.OWNER:
         await _ensure_not_last_owner(db, auth.organization_id, user_id)

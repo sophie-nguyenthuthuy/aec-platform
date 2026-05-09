@@ -67,7 +67,7 @@ class ApiKeyCreate(BaseModel):
 @router.get("/scopes")
 async def list_scopes(
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
-):
+) -> dict[str, Any]:
     """Canonical scope vocabulary — drives the create-form checkboxes
     on `/settings/api-keys`. Returned sorted so the UI renders them
     deterministically."""
@@ -78,7 +78,7 @@ async def list_scopes(
 async def create_api_key(
     payload: ApiKeyCreate,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
-):
+) -> dict[str, Any]:
     """Mint a new key. The plaintext is in the response body — flag
     it loudly to the user that THIS is the only time they see it.
 
@@ -129,7 +129,7 @@ async def create_api_key(
 @router.get("")
 async def list_api_keys(
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
-):
+) -> dict[str, Any]:
     """All keys for the calling org (active + revoked), newest first.
     Returns metadata only — no plaintext, no hash. The `prefix` is
     enough for users to identify a row."""
@@ -176,7 +176,7 @@ async def list_api_keys(
 async def revoke_api_key(
     key_id: UUID,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
-):
+) -> dict[str, Any]:
     """Soft-delete: set `revoked_at = NOW()`. Idempotent — calling
     twice on an already-revoked key returns the existing
     `revoked_at` instead of bumping it.
