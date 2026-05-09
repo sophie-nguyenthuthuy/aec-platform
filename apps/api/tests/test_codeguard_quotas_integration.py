@@ -800,12 +800,15 @@ async def by_route_test_org(session: AsyncSession):
         text("INSERT INTO organizations (id, name, slug) VALUES (:org, 'By-Route Test Org', :slug)"),
         {"org": str(org_id), "slug": f"by-route-test-{org_id}"},
     )
+    # `users` is a global identity table — no `organization_id` column.
+    # Org membership is modelled via `org_members`; for these
+    # quota-attribution tests we don't need the membership row, just a
+    # User PK that the codeguard_user_usage_by_route FK can reference.
     await session.execute(
-        text("INSERT INTO users (id, email, organization_id) VALUES (:uid, :email, :org)"),
+        text("INSERT INTO users (id, email) VALUES (:uid, :email)"),
         {
             "uid": str(user_id),
             "email": f"by-route-test-{user_id}@example.com",
-            "org": str(org_id),
         },
     )
     await session.commit()
@@ -1032,11 +1035,10 @@ async def test_record_user_usage_by_route_does_not_leak_across_orgs(session: Asy
         {"org": str(org_b), "slug": f"by-route-iso-b-{org_b}"},
     )
     await session.execute(
-        text("INSERT INTO users (id, email, organization_id) VALUES (:uid, :email, :org)"),
+        text("INSERT INTO users (id, email) VALUES (:uid, :email)"),
         {
             "uid": str(user_b),
             "email": f"iso-b-{user_b}@example.com",
-            "org": str(org_b),
         },
     )
     await session.commit()
