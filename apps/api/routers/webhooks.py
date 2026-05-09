@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.envelope import ok
 from db.deps import get_db
 from middleware.auth import AuthContext
+from middleware.idempotency_route import IdempotentRoute
 from middleware.rbac import Role, require_min_role
 from models.webhooks import WebhookDelivery, WebhookSubscription
 from schemas.webhooks import (
@@ -32,9 +33,60 @@ from schemas.webhooks import (
     WebhookSubscriptionOut,
     WebhookSubscriptionUpdate,
 )
-from services.webhooks import enqueue_event, generate_secret
+from services.webhooks import (
+    DEFAULT_ROTATION_GRACE_SECONDS,
+    EVENT_CATALOG,
+    enqueue_event,
+    generate_secret,
+    rotate_secret,
+)
 
-router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
+# Idempotency on POST/PATCH/DELETE — `/docs/api#idempotency`.
+# Two write paths benefit most:
+#   * `POST /webhooks` (subscription create) — partner CI retries
+#     should NOT register two subscribers receiving duplicate events.
+#   * `POST /webhooks/{id}/test` — flaky network on the test-fire
+#     should not double-fire test events to the partner's receiver.
+# `POST /webhooks/deliveries/{id}/redeliver` is also covered as a
+# bonus — operator double-clicks shouldn't enqueue two re-deliveries.
+router = APIRouter(
+    prefix="/api/v1/webhooks",
+    tags=["webhooks"],
+    route_class=IdempotentRoute,
+)
+
+
+# ---------- Event catalog (public docs) ----------
+
+
+@router.get("/event-types")
+async def list_event_types():
+    """Public catalog of every webhook event type the platform emits,
+    each with a human description and a payload sample. Drives the
+    `/docs/webhooks/events` partner-docs page.
+
+    Public on purpose — partners evaluating the platform read this
+    BEFORE getting an API key. No auth dependency. The data is
+    documentation, not tenant-scoped.
+
+    Returned as a sorted list of `{event_type, description,
+    payload_sample}` so the frontend can render alphabetically without
+    re-sorting in JS. Pinned by the integrator-surface snapshot — a
+    revert that drops the route or shrinks the catalog goes red on
+    the next commit.
+    """
+    items = sorted(
+        (
+            {
+                "event_type": event_type,
+                "description": meta["description"],
+                "payload_sample": meta["payload_sample"],
+            }
+            for event_type, meta in EVENT_CATALOG.items()
+        ),
+        key=lambda x: x["event_type"],
+    )
+    return ok(items)
 
 
 # ---------- Create ----------
@@ -168,6 +220,97 @@ async def delete_webhook(
     return None
 
 
+# ---------- Secret rotation ----------
+
+
+@router.post("/{webhook_id}/rotate-secret")
+async def rotate_webhook_secret(
+    webhook_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Issue a NEW HMAC secret for this webhook, retaining the old one
+    for a 24h grace window.
+
+    During the grace, the dispatcher emits TWO signature headers per
+    delivery:
+
+      * `X-AEC-Signature` — signed with the new secret.
+      * `X-AEC-Signature-Previous` — signed with the old secret.
+
+    Receivers verify whichever matches. This lets the customer roll
+    their receiver to the new secret without a flag-day deploy: ship
+    the new-secret config, smoke-test, then retire the old. Same shape
+    as Stripe's webhook rollover.
+
+    Like creation, the new secret is returned in the response body
+    EXACTLY ONCE — there's no "show secret" endpoint. If the customer
+    loses it before pasting into their receiver, the path forward is
+    another rotation.
+
+    Idempotency contract:
+      * `Idempotency-Key` (via `IdempotentRoute`) replays the cached
+        202 within the 24h dedup window. Two clicks in quick succession
+        with the same key get the SAME new secret rather than burning
+        through two rotations.
+      * Without the header, two rapid rotations DO produce two new
+        secrets — the second discards the first as `secret_previous`.
+        Receivers running on the original old secret may stop verifying
+        sooner than expected. We document this in the response note.
+
+    Audit: writes `webhooks.subscription.rotate_secret` so admins
+    answering "did someone rotate this in the last incident?" have a
+    durable record. Secret material is NOT logged (before/after empty).
+    """
+    new_secret = await rotate_secret(
+        db,
+        subscription_id=webhook_id,
+        organization_id=auth.organization_id,
+    )
+    if new_secret is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Webhook not found")
+
+    # Audit AFTER the commit inside rotate_secret — a partial write
+    # would leave an audit row pointing at a rotation that didn't
+    # happen. The audit's own commit is in `db.commit()` below; the
+    # rotation is already durable, so a failure here doesn't unwind
+    # the secret swap (the customer would still see the new secret
+    # in their response). That's the safer asymmetry — losing an
+    # audit row is recoverable from app logs; losing the rotation
+    # would mean the customer's receiver and our DB diverge.
+    from services.audit import record as audit_record
+
+    await audit_record(
+        db,
+        organization_id=auth.organization_id,
+        auth=auth,
+        action="webhooks.subscription.rotate_secret",
+        resource_type="webhook_subscription",
+        resource_id=webhook_id,
+        # Empty before/after — secret material is never persisted to
+        # the audit log even in hashed form. The row is the timestamp
+        # + actor; the durable "secret rotated to ..." artefact is the
+        # one-shot HTTP response the admin captures.
+        before={},
+        after={"grace_seconds": DEFAULT_ROTATION_GRACE_SECONDS},
+    )
+    await db.commit()
+
+    return ok(
+        {
+            "id": str(webhook_id),
+            "secret": new_secret,
+            "grace_seconds": DEFAULT_ROTATION_GRACE_SECONDS,
+            "note": (
+                "Save this secret immediately — it will not be shown "
+                "again. The previous secret keeps verifying for "
+                f"{DEFAULT_ROTATION_GRACE_SECONDS // 3600} hours so "
+                "receivers can roll forward without downtime."
+            ),
+        }
+    )
+
+
 # ---------- Test fire ----------
 
 
@@ -294,6 +437,35 @@ async def deliveries_histogram(
         bucket = by_day.setdefault(key, {"day": key, "delivered": 0, "failed": 0, "pending": 0})
         bucket[r["status"]] = int(r["count"])
     return ok(list(by_day.values()))
+
+
+@router.get("/deliveries/dead-letter")
+async def list_dead_letter(
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    since_days: Annotated[int, Query(ge=1, le=90)] = 7,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+):
+    """Cross-subscription dead-letter feed (status='failed') for the
+    calling org. Pinned by tests/test_integrator_surface_snapshot.py
+    — do not remove without updating that test."""
+    rows = (
+        (
+            await db.execute(
+                select(WebhookDelivery)
+                .where(
+                    WebhookDelivery.organization_id == auth.organization_id,
+                    WebhookDelivery.status == "failed",
+                    WebhookDelivery.created_at >= datetime.now(UTC) - timedelta(days=since_days),
+                )
+                .order_by(WebhookDelivery.created_at.desc())
+                .limit(min(limit, 200))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return ok([WebhookDeliveryOut.model_validate(r).model_dump(mode="json") for r in rows])
 
 
 @router.post("/deliveries/{delivery_id}/redeliver", status_code=status.HTTP_202_ACCEPTED)

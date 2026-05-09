@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
-from core.config import get_settings
-from core.envelope import http_exception_handler, unhandled_exception_handler
+from core.config import get_settings, validate_prod_settings
+from core.envelope import (
+    http_exception_handler,
+    unhandled_exception_handler,
+    validation_exception_handler,
+)
 from core.observability import setup_observability
 
 # Register every ORM model up-front so SQLAlchemy can sort FK deps at flush time.
@@ -48,19 +53,34 @@ from routers import (  # noqa: E402
     webhooks,
     winwork,
 )
+from routers import activity_stream as activity_stream_router  # noqa: E402
 from routers import api_keys as api_keys_router  # noqa: E402
+from routers import cron_admin as cron_admin_router  # noqa: E402
 from routers import exports as exports_router  # noqa: E402
 from routers import imports as imports_router  # noqa: E402
+from routers import ops as ops_router  # noqa: E402
+from routers import slack_deliveries as slack_deliveries_router  # noqa: E402
+from routers import webhook_deliveries_admin as webhook_deliveries_admin_router  # noqa: E402
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
 
-    # Fail fast if a prod deploy ever boots with dev defaults — these would
-    # otherwise let any caller mint a valid JWT against the well-known dev
-    # secret. Restricted to AEC_ENV=production so local/staging keep booting.
-    if settings.environment == "production" and settings.supabase_jwt_secret == "dev-secret-change-me":
-        raise RuntimeError("AEC_ENV=production but SUPABASE_JWT_SECRET is the dev default — refusing to start")
+    # Fail fast if a prod deploy ever boots with dev defaults. The full
+    # rule list (JWT secret, CORS, web URLs, metrics token, Ray Serve
+    # endpoint) lives in `core.config.validate_prod_settings` so each
+    # rule is unit-testable in isolation. We list ALL issues in one
+    # error rather than failing on the first — operators triaging a
+    # boot failure can then fix everything in one redeploy instead of
+    # "fix one, redeploy, fix the next, redeploy."
+    issues = validate_prod_settings(settings)
+    if issues:
+        bullet_list = "\n  - ".join(issues)
+        raise RuntimeError(
+            "AEC_ENV=production but the following dev defaults / unsafe "
+            f"settings would ship — refusing to start:\n  - {bullet_list}\n"
+            "Fix all of the above in your env / manifest, then redeploy."
+        )
 
     app = FastAPI(title="AEC Platform API", version="0.1.0")
 
@@ -73,6 +93,12 @@ def create_app() -> FastAPI:
     )
 
     app.add_exception_handler(HTTPException, http_exception_handler)
+    # 422 envelope shape: TS client unwraps `errors[].field` for form-
+    # field-level highlighting. Without this, FastAPI's default 422
+    # body (`{"detail": [...]}`) doesn't match the envelope contract
+    # and every form submission with a validation error lands in the
+    # generic-error toast bucket.
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
 
     # Structured logging, request-ID middleware, slow-query detection,
@@ -87,6 +113,10 @@ def create_app() -> FastAPI:
     app.include_router(invitations.router)
     app.include_router(projects.router)
     app.include_router(activity.router)
+    # SSE activity stream — separate router (not part of `routers/activity.py`)
+    # so the GET /api/v1/activity/stream endpoint's ticket-based auth
+    # doesn't bleed into the polled feed's Bearer-only contract.
+    app.include_router(activity_stream_router.router)
     app.include_router(notifications.router)
     app.include_router(assistant.router)
     app.include_router(audit.router)
@@ -112,32 +142,32 @@ def create_app() -> FastAPI:
     app.include_router(files.router)
     # Cross-module admin / ops endpoints (gated by `admin` role).
     app.include_router(admin.router)
+    # Slack-deliveries admin surface — separate router so the
+    # `routers/admin.py` revert pattern doesn't take it offline.
+    app.include_router(slack_deliveries_router.router)
+    # Webhook-deliveries admin surface — same revert-avoidance
+    # rationale; cross-tenant view of `webhook_deliveries` for the
+    # platform admin dashboard.
+    app.include_router(webhook_deliveries_admin_router.router)
+    # Cron-job registry — `/admin/crons`. In-process read of
+    # `WorkerSettings.cron_jobs`; no DB needed.
+    app.include_router(cron_admin_router.router)
     # Public (no-auth) routers — token in the request *is* the auth.
     # Mounted last so any global middleware that runs `require_auth`
     # by default can be selectively bypassed by path prefix.
     app.include_router(public_rfq.router)
+    # Ops surface — /healthz, /readyz, /metrics. Concatenates
+    # core.metrics.render() with DB-driven gauges in one scrape.
+    app.include_router(ops_router.router)
 
     @app.get("/health")
     async def health() -> dict:
-        """Liveness probe — process is up. Cheap, never touches DB/Redis."""
+        """Liveness probe — process is up. Cheap, never touches DB/Redis.
+        A duplicate `/healthz` lives in routers/ops.py for k8s-style
+        probe path conventions."""
         return {"data": {"status": "ok"}, "meta": None, "errors": None}
 
-    @app.get("/metrics")
-    async def metrics():
-        """Prometheus exposition. Public endpoint by convention —
-        scrapers run without auth and require network-level allowlisting
-        at the LB. The arq queue-depth gauge is sampled lazily on each
-        scrape so the value reflects the moment of read, not a stale
-        cron snapshot."""
-        from fastapi.responses import PlainTextResponse
-
-        from core.metrics import _sample_queue_depth, render
-
-        await _sample_queue_depth()
-        return PlainTextResponse(
-            render(),
-            media_type="text/plain; version=0.0.4; charset=utf-8",
-        )
+    # `/metrics` lives in routers/ops.py — single scrape, both surfaces.
 
     @app.get("/health/ready")
     async def health_ready():

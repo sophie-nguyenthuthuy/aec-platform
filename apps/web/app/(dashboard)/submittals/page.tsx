@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ClipboardList, Plus } from "lucide-react";
 
+import { EmptyState } from "@/components/EmptyState";
 import { useCreateSubmittal, useSubmittals } from "@/hooks/submittals";
 import type { SubmittalListFilters } from "@/hooks/submittals";
 
@@ -114,10 +115,17 @@ export default function SubmittalsPage() {
       ) : isError ? (
         <p className="text-sm text-red-600">Không thể tải danh sách submittals.</p>
       ) : !data?.data.length ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-12 text-center">
-          <ClipboardList size={32} className="mx-auto mb-3 text-slate-400" aria-hidden />
-          <p className="text-sm text-slate-500">Chưa có submittal nào.</p>
-        </div>
+        <EmptyState
+          icon={ClipboardList}
+          title="Chưa có submittal nào"
+          body={
+            <>
+              Submittals là quy trình duyệt vật tư, mẫu, và biên bản nghiệm
+              thu giữa nhà thầu và tư vấn giám sát. Mỗi submittal theo dõi
+              từ "đệ trình" tới "duyệt" với lịch sử trao đổi đầy đủ.
+            </>
+          }
+        />
       ) : (
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-sm">

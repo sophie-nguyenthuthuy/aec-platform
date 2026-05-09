@@ -1,0 +1,5 @@
+{
+  "//": "Test runtime budget baseline. Counts unit-lane tests whose `call` duration exceeds 0.5s. Captured by `node scripts/check-test-runtime-budget.mjs --update`. Reductions ratchet down (drop the count when a previously-slow test gets faster); additions red-gate. Update worst_offenders alongside the count when bumping intentionally — it surfaces what got slower for the next reviewer.",
+  "over_budget_count": 0,
+  "worst_offenders": []
+}

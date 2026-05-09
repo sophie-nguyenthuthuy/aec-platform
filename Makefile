@@ -1,4 +1,4 @@
-.PHONY: seed-codeguard seed-demo eval-codeguard test test-cov test-api test-api-cov test-api-integration test-api-integration-up test-ml test-ml-cov test-ui test-ui-cov test-web test-web-unit test-web-unit-cov hooks lint backfill-rfi-embeddings backfill-dailylog
+.PHONY: seed-codeguard seed-demo eval-codeguard test test-cov test-api test-api-cov test-api-integration test-api-integration-up test-ml test-ml-cov test-ui test-ui-cov test-web test-web-unit test-web-unit-cov hooks lint ci-local backfill-rfi-embeddings backfill-dailylog audit audit-index
 
 # Install local pre-commit hooks. Run once per clone. After this, every
 # `git commit` runs ruff check + ruff format + basic hygiene checks on
@@ -87,6 +87,58 @@ test-cov: test-api-cov test-ml-cov test-ui-cov test-web-unit-cov
 test-api:
 	cd apps/api && pytest -q
 
+# Run every ratchet-style audit in `apps/api/tests/test_*_audit.py` in
+# one pass. ~5s end-to-end. These are the audits that pin invariants
+# across the codebase (cron mutexes, tenant predicates, Pydantic
+# strictness, dependency direction, complexity budget, bundle
+# composition, etc.) and ratchet a numeric baseline so regressions
+# fail loudly and reductions force a baseline bump-down.
+#
+# Run before pushing if you've touched:
+#   * routers / services / schemas / models  (most audits scan these)
+#   * workers/queue.py                       (cron mutex audit)
+#   * apps/web/{app,components,hooks,lib}    (bundle composition audit)
+#
+# CI runs the full pytest suite so this target is a *fast* local
+# preview — same gates, runs in 1/30th the time of `make test-api`.
+#
+# Failure messages tell you what to do:
+#   • "N new offenders": fix or refresh the allowlist
+#   • "count dropped from X to Y": bump the baseline constant down
+audit:
+	cd apps/api && pytest tests/test_*_audit.py -q --no-header
+
+# Regenerate `docs/audit-suite.md` — the single index that aggregates
+# every `tests/test_*_audit.py` audit's docstring + baselines into
+# one scannable page. Rerun whenever a new audit lands or a baseline
+# ratchets, then commit the regenerated doc alongside.
+#
+# The script is hermetic (no FastAPI/SQLAlchemy load) — pure AST
+# walk over each audit file. ~50ms.
+audit-index:
+	cd apps/api && python -m scripts.generate_audit_index
+
+# Mirror of the canonical CI gate. Run BEFORE pushing if you've touched:
+#   * api routes / schemas (pytest + OpenAPI snapshot)
+#   * web hooks / pages (tsc + vitest)
+#   * env-shaped settings (the metrics_token / api_key_mode rollback class)
+#
+# `-p no:randomly` matches the deterministic order CI uses, so a green
+# locally = a green PR. Without it, pytest-randomly's per-run seed can
+# produce a different pass/fail outcome each invocation.
+#
+# Doesn't run Playwright (~2 min) or coverage (~1.5x slower) — those
+# lanes have their own targets (`test-web`, `test-cov`). The point is
+# fast feedback on the gates that flip first.
+ci-local:
+	cd apps/api && pytest -q -p no:randomly
+	pnpm -r typecheck
+	pnpm --filter @aec/web test
+	pnpm --filter @aec/ui test
+	@echo ""
+	@echo "✓ Local CI gate green — push at will."
+	@echo "  Skipped: Playwright (run \`make test-web\`), coverage (run \`make test-cov\`)."
+
 # apps/ml — codeguard pipeline + scan + retrieval + winwork pipeline
 # unit tests. Self-contained: mocks LLMs + DB at the public-import
 # boundary. Excludes the Tier 4 quality eval that burns real OpenAI/
@@ -154,6 +206,20 @@ test-web-unit-cov:
 test-web:
 	pnpm --filter @aec/web exec playwright install chromium
 	pnpm --filter @aec/web test:e2e
+
+# Test runtime budget — fails when a unit test exceeds the 0.5s budget
+# beyond the baseline count. Catches the slow-creep bug where an
+# integration test mistakenly lands in the unit lane (or a fixture
+# gains a real-DB call). Baseline in `test-runtime-baseline.json`.
+test-api-runtime-budget:
+	node scripts/check-test-runtime-budget.mjs
+
+# Cross-stack security advisory ratchet. Runs `pnpm audit` over the
+# JS workspace + `pip-audit` over `apps/api/requirements.txt`. New
+# critical/high CVEs red-gate the PR; moderate/low accumulate up to
+# baseline. Baseline in `security-advisories-baseline.json`.
+security-audit:
+	node scripts/check-security-advisories.mjs
 
 # Integration lane: spins up Postgres + Redis, waits for both to be healthy,
 # applies migrations, and runs the `--integration`-tagged tests against them.

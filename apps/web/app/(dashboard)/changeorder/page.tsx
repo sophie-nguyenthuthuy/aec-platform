@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Plus, Sparkles } from "lucide-react";
+import { FileEdit, Plus, Sparkles } from "lucide-react";
 
+import { EmptyState } from "@/components/EmptyState";
 import {
   useAcceptCandidate,
   useChangeOrders,
@@ -106,9 +107,24 @@ export default function ChangeOrderPage() {
       ) : isError ? (
         <p className="text-sm text-red-600">Không thể tải danh sách CO.</p>
       ) : !data?.data.length ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-12 text-center text-sm text-slate-500">
-          Chưa có change order nào.
-        </div>
+        <EmptyState
+          icon={FileEdit}
+          title="Chưa có change order nào"
+          body={
+            <>
+              Change orders ghi nhận yêu cầu thay đổi trong quá trình thi công
+              kèm tác động chi phí + tiến độ. Trợ lý AI có thể tự động trích
+              xuất từ RFI hoặc nhật ký công trường — hoặc bạn tạo thủ công.
+            </>
+          }
+          hint={
+            <>
+              Mẹo: bấm nút <em>“AI extract”</em> ở phía trên để quét các nguồn
+              hiện có và đề xuất CO ứng viên — không tạo CO trực tiếp, bạn
+              vẫn duyệt từng cái.
+            </>
+          }
+        />
       ) : (
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-sm">

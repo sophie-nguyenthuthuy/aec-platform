@@ -54,6 +54,10 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=500]
+        # The OpenAPI snapshot is intentionally large (it's the whole
+        # API surface as JSON). It's a generated artefact pinned by
+        # `tests/test_openapi_snapshot.py`; not source.
+        exclude: ^apps/api/tests/openapi\.snapshot\.json$
       - id: detect-private-key
 
   # ---------- Codeguard surface contract --------------------------------
@@ -114,4 +118,50 @@ repos:
         language: system
         entry: bash -c 'cd apps/api && pytest tests/test_integrator_surface_snapshot.py -q'
         pass_filenames: false
-        files: ^apps/api/(routers/(api_keys|ops|webhooks|admin)\.py|services/api_keys\.py|middleware/(auth|api_key_auth)\.py|core/config\.py|schemas/webhooks\.py|main\.py|tests/test_integrator_surface_snapshot\.py)$
+        files: ^apps/api/(routers/(api_keys|ops|webhooks|admin|audit|slack_deliveries|webhook_deliveries_admin|cron_admin)\.py|services/api_keys\.py|middleware/(auth|api_key_auth)\.py|core/config\.py|schemas/(webhooks|audit|webhook_deliveries)\.py|main\.py|tests/test_integrator_surface_snapshot\.py)$
+
+      # ---------- Ratchet audit suite ----------
+      # Runs every `tests/test_*_audit.py` in one pass (~5s). These are
+      # the audits that pin numeric baselines across the codebase
+      # (cron mutexes, tenant predicates, Pydantic strictness,
+      # dependency direction, complexity budget, bundle composition,
+      # etc.) — adding a new offender red-gates the commit, removing
+      # one prompts a baseline bump-down.
+      #
+      # Why pre-commit (not just CI): the audits' failure messages
+      # tell you exactly what to add (or which ALLOWLIST entry to
+      # delete). Catching at `git commit` time means the operator sees
+      # the message in the same window they wrote the code; catching
+      # at CI time means a context switch to a different tab to read
+      # the same message. Same gate, faster feedback.
+      #
+      # `language: system` reuses the active venv — the audits import
+      # FastAPI / Pydantic / SQLAlchemy and reinstalling those under
+      # a pre-commit-owned virtualenv would add ~30s to every commit.
+      #
+      # `files:` regex covers everything any audit currently scans:
+      #   * apps/api/{core,db,middleware,models,routers,schemas,services,workers}
+      #   * apps/api/tests/test_*_audit.py    (refactor of an audit)
+      #   * apps/api/workers/queue.py         (cron mutex)
+      #   * apps/worker/tasks.py              (Celery max_retries)
+      #   * apps/web/{app,components,hooks,lib} (bundle composition)
+      #   * alembic migrations                (migration safety audit)
+      - id: ratchet-audits
+        name: Ratchet audit suite (cron, tenant, schema, complexity, …)
+        language: system
+        # Explicit glob (`tests/test_*_audit.py`) instead of `-k audit`
+        # filtering. `-k` deselects AFTER pytest collects every test
+        # file — so an unrelated test with a broken import error in
+        # collection fails the audit run before it starts. Glob path
+        # bypasses collection of non-audit files entirely.
+        entry: bash -c 'cd apps/api && pytest tests/test_*_audit.py -q --no-header'
+        pass_filenames: false
+        files: |
+          (?x)^(
+            apps/api/(core|db|middleware|models|routers|schemas|services|workers)/.+\.py|
+            apps/api/tests/test_.+_audit\.py|
+            apps/api/main\.py|
+            apps/api/alembic/versions/.+\.py|
+            apps/worker/tasks\.py|
+            apps/web/(app|components|hooks|lib)/.+\.(ts|tsx|js|jsx|mjs)
+          )$

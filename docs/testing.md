@@ -67,6 +67,10 @@ CI runs the full suite (`--integration -q --cov`) on every PR; coverage XML is u
 
 Pin `--cov-fail-under=78` in `[tool.coverage.report]` once the three 0%-covered services have test coverage. Doing it today would gate on a baseline that already includes 0%-covered files; the floor would just match where we are.
 
+### Runtime budget (`make test-api-runtime-budget`)
+
+`make test-api-runtime-budget` runs `scripts/check-test-runtime-budget.mjs` against the per-test timings recorded in `test-runtime-baseline.json`. It fails when any unit test exceeds the 0.5s budget beyond the baseline count — catching the slow-creep bug where an integration test mistakenly lands in the unit lane (or a fixture gains a real-DB call). Run before merging if you've added test fixtures that touch I/O.
+
 ## API integration lane (`make test-api-integration`)
 
 The 12 tests that hit a live Postgres + Redis. Covers:

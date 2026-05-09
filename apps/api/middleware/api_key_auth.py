@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -137,11 +138,21 @@ async def _api_key_auth(request: Request, raw: str) -> AuthContext:
     request.state.api_key_scopes = list(row["scopes"])
     request.state.api_key_id = row["id"]
 
+    # `project_ids` round-trips as a list of UUIDs from asyncpg. Coerce
+    # to a tuple of UUID instances for the AuthContext field — the
+    # dataclass declares tuple, and `has_project_access` accepts either
+    # UUID or str so downstream gates don't care about the type.
+    raw_project_ids = row.get("project_ids") or []
+    project_ids_tuple: tuple[UUID, ...] = tuple(p if isinstance(p, UUID) else UUID(str(p)) for p in raw_project_ids)
+
     return AuthContext(
         user_id=row["id"],  # api_key id stands in for the actor uuid
         organization_id=row["organization_id"],
         role="api_key",
         email="",
+        api_key_mode=row.get("mode") or "live",
+        api_key_id=row["id"],
+        api_key_project_ids=project_ids_tuple,
     )
 
 
@@ -182,6 +193,65 @@ def require_scope(scope: str):
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
                 f"missing_scope: {scope}",
+            )
+        return
+
+    return _dep
+
+
+def require_project_scope(project_id_param: str = "project_id"):
+    """Gate a handler on the api-key's per-project allowlist.
+
+    Use on any route that takes a project id as a path or query param
+    AND is reachable by api-key callers:
+
+        @router.get("/projects/{project_id}/defects")
+        async def list_defects(
+            project_id: UUID,
+            auth: Annotated[AuthContext, Depends(require_user_or_api_key)],
+            _proj = Depends(require_project_scope()),
+        ):
+            ...
+
+    No-op for user-JWT callers — their access is gated by org-level
+    RBAC + RLS on the data layer. Api-key callers with an empty
+    `api_key_project_ids` allowlist also pass (back-compat: empty =
+    "all projects"). Only api-key callers with a non-empty allowlist
+    get gated, and only against the path/query param named
+    `project_id_param` (defaults to "project_id" — the convention
+    everywhere in this codebase).
+
+    Raises 403 with `project_not_in_key_allowlist` so a partner
+    debugging an integration sees "this key isn't scoped to that
+    project" rather than a generic forbidden.
+    """
+    from services.api_keys import has_project_access
+
+    async def _dep(
+        request: Request,
+        auth: AuthContext = Depends(require_user_or_api_key),
+    ) -> None:
+        if auth.role != "api_key":
+            return  # users have implicit access via org-level RBAC
+        if not auth.api_key_project_ids:
+            return  # empty allowlist = all projects
+        # Pull the param value from the resolved path/query state.
+        # FastAPI populates `request.path_params` for path params and
+        # `request.query_params` for ?... params. Check both so the
+        # dependency works without the caller having to specify which.
+        raw = request.path_params.get(project_id_param) or request.query_params.get(project_id_param)
+        if raw is None:
+            # Misuse: route doesn't actually have the param. Fail
+            # closed — better to 403 than silently allow. The router
+            # author needs to fix the param name.
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                f"missing_project_id_param: {project_id_param}",
+            )
+        if not has_project_access(list(auth.api_key_project_ids), str(raw)):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "project_not_in_key_allowlist",
             )
         return
 

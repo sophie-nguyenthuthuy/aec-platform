@@ -1,0 +1,12 @@
+SUBJECT: CODEGUARD: Sắp đạt hạn mức tháng — output ở 95.0%
+---TEXT---
+Sắp đạt hạn mức output tháng này
+
+Tổ chức của bạn đã sử dụng 95.0% hạn mức token output trong tháng này (475.000 / 500.000). Yêu cầu tiếp theo có thể bị chặn (HTTP 429).
+
+Lưu ý: các yêu cầu /scan tính 5× và /permit-checklist tính 2× so với /query để phản ánh chi phí compute thực tế.
+
+Xem chi tiết: https://app.aec.local/codeguard/quota
+
+---HTML---
+<div style="font-family:system-ui,sans-serif;color:#222;max-width:560px"><h2 style="margin:0 0 8px;font-size:16px">Sắp đạt hạn mức output tháng này</h2><p style="font-size:13px;line-height:1.5">Tổ chức của bạn đã sử dụng 95.0% hạn mức token output trong tháng này (475.000 / 500.000). Yêu cầu tiếp theo có thể bị chặn (HTTP 429).</p><p style="font-size:12px;line-height:1.5;color:#555">Lưu ý: các yêu cầu /scan tính 5× và /permit-checklist tính 2× so với /query để phản ánh chi phí compute thực tế.</p><p style="margin-top:16px;font-size:13px"><a href="https://app.aec.local/codeguard/quota">Xem hạn mức chi tiết</a></p></div>

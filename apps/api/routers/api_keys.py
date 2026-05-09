@@ -31,10 +31,21 @@ from sqlalchemy import text
 from core.envelope import ok
 from db.session import TenantAwareSession
 from middleware.auth import AuthContext
+from middleware.idempotency_route import IdempotentRoute
 from middleware.rbac import Role, require_min_role
 from services.api_keys import SCOPES, mint_key
 
-router = APIRouter(prefix="/api/v1/api-keys", tags=["api-keys"])
+# `route_class=IdempotentRoute` opts every POST/PATCH/DELETE on this
+# router into the `Idempotency-Key` header contract. Documented in
+# `/docs/api#idempotency`. The api-keys mint endpoint is the highest-
+# value retry-safety target on the platform: a partner whose CI tries
+# to provision a key, times out, retries — without idempotency, gets
+# two keys, one of which leaks the secret without ever being consumed.
+router = APIRouter(
+    prefix="/api/v1/api-keys",
+    tags=["api-keys"],
+    route_class=IdempotentRoute,
+)
 
 
 class ApiKeyCreate(BaseModel):
@@ -45,6 +56,12 @@ class ApiKeyCreate(BaseModel):
     rate_limit_per_minute: int | None = Field(default=None, ge=1, le=10_000)
     # ISO-8601 timestamp; None = never expires.
     expires_at: datetime | None = None
+    mode: str = Field(default="live", pattern="^(live|test)$")
+    # Per-project allowlist. Empty list (default) = "all projects" —
+    # the back-compat shape that pre-0039 keys had. A non-empty list
+    # is a closed allowlist; the key gets 403 on any project outside
+    # it via `require_project_scope` on tagged routes.
+    project_ids: list[UUID] = Field(default_factory=list)
 
 
 @router.get("/scopes")
@@ -80,6 +97,8 @@ async def create_api_key(
                 scopes=payload.scopes,
                 rate_limit_per_minute=payload.rate_limit_per_minute,
                 expires_at=payload.expires_at,
+                mode=payload.mode,
+                project_ids=payload.project_ids,
             )
             await session.commit()
     except ValueError as exc:
@@ -99,6 +118,8 @@ async def create_api_key(
             "last_used_at": None,
             "revoked_at": None,
             "created_at": row["created_at"].isoformat(),
+            "mode": row.get("mode", "live"),
+            "project_ids": [str(p) for p in (row.get("project_ids") or [])],
             # The plaintext — shown once.
             "key": raw,
         }
@@ -120,7 +141,7 @@ async def list_api_keys(
                         """
                         SELECT id, name, prefix, scopes, rate_limit_per_minute,
                                last_used_at, last_used_ip, revoked_at,
-                               expires_at, created_at
+                               expires_at, created_at, mode, project_ids
                         FROM api_keys
                         ORDER BY created_at DESC
                         """
@@ -143,6 +164,8 @@ async def list_api_keys(
                 "revoked_at": r["revoked_at"].isoformat() if r["revoked_at"] else None,
                 "expires_at": r["expires_at"].isoformat() if r["expires_at"] else None,
                 "created_at": r["created_at"].isoformat(),
+                "mode": r.get("mode") or "live",
+                "project_ids": [str(p) for p in (r.get("project_ids") or [])],
             }
             for r in rows
         ]

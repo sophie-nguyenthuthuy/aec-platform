@@ -46,7 +46,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -158,6 +158,18 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
         default_days=730,
         extra_where=None,
         archive=True,
+    ),
+    # Cron-job invocation telemetry (`/admin/crons` dashboard).
+    # 30d is long enough to see the trend on a weekly cron (4-5
+    # samples) without the table growing unbounded — `webhook_drain`
+    # alone fires every minute = 1.4k rows/day, so 30d ≈ 42k rows.
+    # No archive: invocation history is observability, not compliance.
+    RetentionPolicy(
+        table="cron_runs",
+        age_column="started_at",
+        default_days=30,
+        extra_where=None,
+        archive=False,
     ),
 )
 
@@ -312,7 +324,11 @@ async def _archive_to_s3(*, table: str, rows: list[dict[str, Any]]) -> str | Non
 
     import aioboto3  # lazy: only used by the cron path
 
-    stamp = datetime.utcnow().strftime("%Y-%m-%d-%H%M%S")
+    # Timezone-aware UTC — `datetime.utcnow()` is deprecated in Python
+    # 3.12 (removed in 3.14) and returns a naive datetime that
+    # mis-compares with the tz-aware datetimes the rest of the codebase
+    # produces. The `.strftime()` output is identical in both forms.
+    stamp = datetime.now(UTC).strftime("%Y-%m-%d-%H%M%S")
     key = f"retention/{table}/{stamp}.jsonl"
     body = "\n".join(json.dumps(r, default=str) for r in rows).encode("utf-8")
 

@@ -12,9 +12,14 @@ export interface AuditEvent {
   organization_id: UUID;
   actor_user_id: UUID | null;
   actor_api_key_id: UUID | null;
-  // For human actors this is `users.email`; for api-key actors it's
-  // `api_key:<name>` (server-side COALESCE). NULL on cron / system rows.
+  // Populated only for human actors (actor_user_id non-null). For
+  // api-key actors this is null and `actor_api_key_name` carries
+  // the label instead. The UI uses the presence of one or the other
+  // to pick rendering: avatar vs key icon.
   actor_email: string | null;
+  // Populated only for api-key actors. Mutually exclusive with
+  // `actor_email` — at most one is non-null on a given row.
+  actor_api_key_name: string | null;
   action: string;
   resource_type: string;
   resource_id: UUID | null;
@@ -29,6 +34,8 @@ export interface AuditFilters {
   resource_type?: string;
   resource_id?: UUID;
   action?: string;
+  /** "user" / "api_key" / "system" — narrows the actor kind. */
+  actor_kind?: "user" | "api_key" | "system";
   limit?: number;
   offset?: number;
 }
@@ -50,6 +57,7 @@ export function useAuditEvents(filters: AuditFilters = {}) {
           resource_type: filters.resource_type,
           resource_id: filters.resource_id,
           action: filters.action,
+          actor_kind: filters.actor_kind,
           limit: filters.limit ?? 50,
           offset: filters.offset ?? 0,
         },

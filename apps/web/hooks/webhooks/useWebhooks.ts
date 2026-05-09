@@ -30,6 +30,11 @@ export interface WebhookCreated extends WebhookSubscription {
 
 export interface WebhookDelivery {
   id: UUID;
+  // The subscription this delivery belongs to. Per-subscription
+  // listings already have it in the URL — but the dead-letter
+  // dashboard shows failures across every subscription, so each row
+  // needs to link back somewhere.
+  subscription_id: UUID;
   event_type: string;
   status: "pending" | "in_flight" | "delivered" | "failed";
   attempt_count: number;
@@ -255,6 +260,119 @@ export function useRedeliverWebhook(
       setTimeout(() => {
         qc.invalidateQueries({ queryKey: KEY.deliveries(subscriptionId) });
         qc.invalidateQueries({ queryKey: ["webhooks", "histogram", subscriptionId] });
+      }, 1500);
+    },
+  });
+}
+
+
+// ---------- Secret rotation ----------
+
+
+export interface RotateSecretResponse {
+  id: UUID;
+  /** The NEW secret, returned exactly once. The list endpoint never echoes it. */
+  secret: string;
+  grace_seconds: number;
+  note: string;
+}
+
+
+/**
+ * Rotate a webhook subscription's HMAC secret. Returns the NEW secret
+ * exactly once (same one-shot disclosure shape as creation).
+ *
+ * The previous secret keeps verifying on the receiver side for a 24h
+ * grace window — see `services.webhooks.rotate_secret` and the
+ * dispatcher's dual-signature emit (`X-AEC-Signature` +
+ * `X-AEC-Signature-Previous`). Customers should:
+ *
+ *   1. Click rotate → capture the new secret from the response.
+ *   2. Deploy receiver config with the NEW secret.
+ *   3. Smoke-test deliveries.
+ *   4. Within 24h, retire the old secret on the receiver side.
+ */
+export function useRotateWebhookSecret(): UseMutationResult<
+  RotateSecretResponse,
+  Error,
+  UUID
+> {
+  const { token, orgId } = useSession();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id) => {
+      const res = await apiFetch<RotateSecretResponse>(
+        `/api/v1/webhooks/${id}/rotate-secret`,
+        { method: "POST", token, orgId },
+      );
+      return res.data as RotateSecretResponse;
+    },
+    onSuccess: () => {
+      // The list view doesn't show the secret but it does show
+      // last_delivery_at — invalidate so any subsequent delivery
+      // refetches reflect the rotation event.
+      qc.invalidateQueries({ queryKey: KEY.list });
+    },
+  });
+}
+
+
+// ---------- Dead-letter dashboard ----------
+
+
+export interface DeadLetterFilters {
+  since_days?: number;
+  limit?: number;
+}
+
+
+const DEAD_LETTER_KEY = ["webhooks", "dead-letter"] as const;
+
+
+export function useDeadLetterDeliveries(
+  filters: DeadLetterFilters = {},
+): UseQueryResult<WebhookDelivery[]> {
+  const { token, orgId } = useSession();
+  return useQuery({
+    queryKey: [...DEAD_LETTER_KEY, filters] as const,
+    queryFn: async () => {
+      const res = await apiFetch<WebhookDelivery[]>(
+        "/api/v1/webhooks/deliveries/dead-letter",
+        {
+          method: "GET",
+          token,
+          orgId,
+          query: {
+            since_days: filters.since_days ?? 7,
+            limit: filters.limit ?? 100,
+          },
+        },
+      );
+      return (res.data ?? []) as WebhookDelivery[];
+    },
+  });
+}
+
+
+export function useRedeliverFromDeadLetter(): UseMutationResult<
+  { id: UUID; subscription_id: UUID },
+  Error,
+  UUID
+> {
+  const { token, orgId } = useSession();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (deliveryId) => {
+      const res = await apiFetch<{ id: UUID; subscription_id: UUID }>(
+        `/api/v1/webhooks/deliveries/${deliveryId}/redeliver`,
+        { method: "POST", token, orgId },
+      );
+      return res.data as { id: UUID; subscription_id: UUID };
+    },
+    onSuccess: (data) => {
+      setTimeout(() => {
+        qc.invalidateQueries({ queryKey: DEAD_LETTER_KEY });
+        qc.invalidateQueries({ queryKey: KEY.deliveries(data.subscription_id) });
       }, 1500);
     },
   });

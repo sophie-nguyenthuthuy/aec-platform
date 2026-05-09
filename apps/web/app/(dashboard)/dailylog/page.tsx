@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Cloud, ClipboardList, Plus, Users } from "lucide-react";
+import { Cloud, ClipboardList, NotebookPen, Plus, Users } from "lucide-react";
 
+import { EmptyState } from "@/components/EmptyState";
 import { useCreateDailyLog, useDailyLogs } from "@/hooks/dailylog";
 import type { DailyLogListFilters } from "@/hooks/dailylog";
 
@@ -79,10 +80,19 @@ export default function DailyLogPage() {
       ) : isError ? (
         <p className="text-sm text-red-600">Không thể tải danh sách nhật ký.</p>
       ) : !data?.data.length ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-12 text-center">
-          <ClipboardList size={32} className="mx-auto mb-3 text-slate-400" aria-hidden />
-          <p className="text-sm text-slate-500">Chưa có nhật ký công trường nào.</p>
-        </div>
+        <EmptyState
+          icon={NotebookPen}
+          title="Chưa có nhật ký công trường nào"
+          body={
+            <>
+              DailyLog ghi nhận hoạt động hàng ngày trên công trường — thời
+              tiết, nhân lực, công việc đã làm, sự cố. Có thể nhập tay hoặc
+              tự sinh từ ảnh + GPS check-in của giám sát viên trên app
+              di động.
+            </>
+          }
+          hint={<>Mẹo: gắn ảnh + GPS để xuất PDF báo cáo cuối tuần một bấm.</>}
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {data.data.map((l) => (

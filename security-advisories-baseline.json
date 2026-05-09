@@ -1,0 +1,7 @@
+{
+  "//": "Security-advisory baseline. Per-severity counts across `pnpm audit` (JS workspace) + `pip-audit` (apps/api/requirements.txt). Critical/high RED-GATE on any new advisory — those are runtime-impactful CVEs the team must address before merge. Moderate/low accept up to baseline (loose gate; the firehose of low-severity transitive advisories would otherwise drown out signal). Captured by `node scripts/check-security-advisories.mjs --update` — first real CI run populates the live numbers.",
+  "critical": 0,
+  "high": 0,
+  "moderate": 0,
+  "low": 0
+}

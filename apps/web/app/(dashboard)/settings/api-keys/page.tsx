@@ -22,6 +22,8 @@ import {
   useCreateApiKey,
   useRevokeApiKey,
 } from "@/hooks/apiKeys";
+import { useProjects } from "@/hooks/projects";
+import type { ProjectSummary } from "@aec/types/projects";
 
 
 // Group scopes by domain for the create-form checkbox grid. Splitting
@@ -122,8 +124,11 @@ export default function ApiKeysPage() {
       ) : !keys || keys.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-sm">
+        // overflow-x-auto so the 7-col table scrolls horizontally on
+        // mobile within the rounded card; min-width keeps columns
+        // readable at desktop.
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <table className="w-full min-w-[800px] text-sm">
             <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-2">Tên</th>
@@ -215,7 +220,32 @@ function KeyRow({ k }: { k: ApiKeyRow }) {
   return (
     <tr className={isRevoked || isExpired ? "bg-slate-50/40 text-slate-500" : ""}>
       <td className="px-4 py-3">
-        <p className="font-medium">{k.name}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-medium">{k.name}</p>
+          {/* Test-mode badge — only render when non-default. Live keys
+              don't get a badge because that's the assumed state and a
+              "Live" tag on every row is visual noise. */}
+          {k.mode === "test" && (
+            <span
+              className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-800"
+              title="Sandbox key — routes to fixture data"
+            >
+              test
+            </span>
+          )}
+          {/* Per-project scope badge — only render when scoped. An
+              "all-projects" key gets nothing (default state, no
+              point in noise). The number is more informative than
+              listing names; hover for the full list. */}
+          {k.project_ids.length > 0 && (
+            <span
+              className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-blue-800"
+              title={`Scoped to projects: ${k.project_ids.join(", ")}`}
+            >
+              {k.project_ids.length} proj
+            </span>
+          )}
+        </div>
         <p className="text-[10px] text-slate-400">
           tạo {formatRelative(k.created_at)}
         </p>
@@ -312,6 +342,16 @@ function CreateModal({
   const [name, setName] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rl, setRl] = useState<string>("");
+  // `live` routes traffic to real org data; `test` routes to the
+  // synthetic-data layer in `services.sandbox`. Default `live` matches
+  // the backend's mint_key default — picking test is an explicit opt-in.
+  const [mode, setMode] = useState<"live" | "test">("live");
+  // Per-project allowlist. Empty set = "all projects" (default —
+  // back-compat with pre-0039 keys). Picking specific projects opts
+  // into closed-allowlist mode where `require_project_scope` 403s
+  // any request for a project outside the set.
+  const [projectIds, setProjectIds] = useState<Set<string>>(new Set());
+  const projectsQuery = useProjects({ per_page: 100 });
   const create = useCreateApiKey();
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -351,6 +391,12 @@ function CreateModal({
         name: name.trim(),
         scopes: Array.from(selected),
         rate_limit_per_minute: rl ? Number(rl) : null,
+        mode,
+        // Empty array signals "all projects" to the backend. Sending
+        // an empty array (rather than omitting) is fine — the
+        // backend's pydantic field defaults to `[]` either way, and
+        // being explicit makes the wire payload self-describing.
+        project_ids: Array.from(projectIds),
       },
       {
         onSuccess: onCreated,
@@ -358,6 +404,15 @@ function CreateModal({
           setSubmitError(err instanceof Error ? err.message : "Tạo thất bại."),
       },
     );
+  };
+
+  const toggleProject = (id: string) => {
+    setProjectIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   return (
@@ -384,6 +439,44 @@ function CreateModal({
             placeholder="VD: CRM tích hợp · Production"
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
           />
+        </div>
+
+        {/* ---------- Mode (live vs test sandbox) ---------- */}
+        <div>
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Chế độ
+          </label>
+          {/* Two-card radio group rather than a vanilla dropdown — the
+              consequence of "test" mode (no DB writes, fixture data only)
+              is significant enough that we want the choice visually
+              prominent, not buried in a select. */}
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <ModeCard
+              checked={mode === "live"}
+              onSelect={() => setMode("live")}
+              label="Live"
+              description="Truy cập dữ liệu thật của tổ chức. Mặc định cho mọi tích hợp production."
+              tone="slate"
+            />
+            <ModeCard
+              checked={mode === "test"}
+              onSelect={() => setMode("test")}
+              label="Test (sandbox)"
+              description="Routing tới fixture dữ liệu mẫu. Mutations trả 202 mà không ghi DB — đối tác có thể test end-to-end mà không làm bẩn dữ liệu thật."
+              tone="amber"
+            />
+          </div>
+          {mode === "test" && (
+            <p className="mt-2 rounded bg-amber-50 px-3 py-1.5 text-[11px] leading-relaxed text-amber-800">
+              ⚠ Test-mode key sẽ KHÔNG truy cập dữ liệu thật. Mọi GET trả về
+              fixture (cùng UUID đối tác có thể hardcode). Mọi POST/PATCH/DELETE
+              trả 202 với{" "}
+              <code className="rounded bg-amber-100 px-1">
+                status=accepted_test_mode
+              </code>
+              . Đổi sang Live khi sẵn sàng đẩy vào production.
+            </p>
+          )}
         </div>
 
         <div>
@@ -442,6 +535,24 @@ function CreateModal({
               </label>
             )}
           </div>
+        </div>
+
+        {/* ---------- Per-project allowlist ---------- */}
+        <div>
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Phạm vi dự án
+          </label>
+          <ProjectScopePicker
+            isLoading={projectsQuery.isLoading}
+            isError={projectsQuery.isError}
+            // The hook returns `{ data: ProjectSummary[], meta }` — pass
+            // the inner array. `?? []` handles the loading/error cases
+            // so the picker still renders without crashing.
+            projects={projectsQuery.data?.data ?? []}
+            selected={projectIds}
+            onToggle={toggleProject}
+            onClear={() => setProjectIds(new Set())}
+          />
         </div>
 
         <div>
@@ -506,6 +617,191 @@ function EmptyState() {
         Tạo key đầu tiên để hệ thống của khách hàng có thể gọi API. Chỉ
         admin mới tạo được.
       </p>
+    </div>
+  );
+}
+
+
+/**
+ * One radio card in the live/test mode picker. Visually larger than a
+ * vanilla `<input type="radio">` because the consequence of picking
+ * "test" (no DB writes, sandbox fixtures) deserves more than a
+ * 16px circle. `tone` swaps the active border colour so the test
+ * card reads as "different territory" even before reading the label.
+ */
+function ModeCard({
+  checked,
+  onSelect,
+  label,
+  description,
+  tone,
+}: {
+  checked: boolean;
+  onSelect: () => void;
+  label: string;
+  description: string;
+  tone: "slate" | "amber";
+}) {
+  const palette: Record<typeof tone, { active: string; dot: string }> = {
+    slate: {
+      active: "border-slate-700 bg-slate-50 ring-1 ring-slate-200",
+      dot: "bg-slate-700",
+    },
+    amber: {
+      active: "border-amber-500 bg-amber-50 ring-1 ring-amber-200",
+      dot: "bg-amber-600",
+    },
+  };
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      role="radio"
+      aria-checked={checked}
+      className={`flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition ${
+        checked
+          ? palette[tone].active
+          : "border-slate-200 bg-white hover:border-slate-300"
+      }`}
+    >
+      <span
+        aria-hidden
+        className={`mt-1 inline-flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full border ${
+          checked ? "border-transparent" : "border-slate-400"
+        } ${checked ? palette[tone].dot : ""}`}
+      >
+        {checked ? (
+          <span className="h-1.5 w-1.5 rounded-full bg-white" />
+        ) : null}
+      </span>
+      <span className="flex-1">
+        <span className="text-sm font-semibold text-slate-900">{label}</span>
+        <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-600">
+          {description}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+
+/**
+ * Project allowlist picker for the api-key create modal.
+ *
+ * Empty selection = "all projects" (the back-compat default that
+ * pre-0039 keys had). Picking specific projects flips the key into
+ * closed-allowlist mode where `require_project_scope` 403s any
+ * request for a project outside the set.
+ *
+ * Why a checkbox grid (not a multi-combobox): partners typically
+ * scope to 1-3 projects, so the all-options-visible affordance fits
+ * the common case. For 50+ projects we'd want type-ahead, but
+ * `useProjects({ per_page: 100 })` caps the picker at the first
+ * page and the "Tất cả" sentinel makes scoping to "everything"
+ * a single click anyway.
+ */
+function ProjectScopePicker({
+  isLoading,
+  isError,
+  projects,
+  selected,
+  onToggle,
+  onClear,
+}: {
+  isLoading: boolean;
+  isError: boolean;
+  projects: ProjectSummary[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  onClear: () => void;
+}) {
+  if (isLoading) {
+    return (
+      <div className="mt-2 rounded-lg border border-slate-200 p-3 text-xs text-slate-500">
+        Đang tải danh sách dự án…
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+        Không thể tải dự án — key sẽ áp dụng cho TẤT CẢ dự án trong tổ chức.
+      </div>
+    );
+  }
+
+  const allSelected = selected.size === 0;
+
+  return (
+    <div className="mt-2 rounded-lg border border-slate-200 p-3">
+      {/* "All projects" sentinel — visually distinct so partners
+          recognise it as the default-permissive state. Clicking it
+          clears the per-project selection rather than toggling its
+          own checkbox; the checkbox is just visual feedback. */}
+      <button
+        type="button"
+        onClick={onClear}
+        className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-xs ${
+          allSelected
+            ? "border-slate-700 bg-slate-50 ring-1 ring-slate-200"
+            : "border-slate-200 hover:bg-slate-50"
+        }`}
+      >
+        <span
+          aria-hidden
+          className={`inline-flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded border ${
+            allSelected ? "border-transparent bg-slate-700" : "border-slate-400"
+          }`}
+        >
+          {allSelected ? <span className="h-1.5 w-1.5 bg-white" /> : null}
+        </span>
+        <span className="font-semibold">Tất cả dự án</span>
+        <span className="text-[10px] text-slate-500">
+          (mặc định — khuyến nghị cho key tích hợp tổ chức)
+        </span>
+      </button>
+
+      {projects.length === 0 ? (
+        <p className="mt-2 text-[11px] text-slate-500">
+          Tổ chức chưa có dự án nào — key sẽ tự động áp dụng cho mọi dự án
+          được tạo trong tương lai (vì danh sách trống).
+        </p>
+      ) : (
+        <>
+          <p className="mt-3 mb-1.5 text-[11px] text-slate-500">
+            Hoặc chỉ giới hạn cho các dự án cụ thể:
+          </p>
+          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+            {projects.map((p) => {
+              const isOn = selected.has(p.id);
+              return (
+                <label
+                  key={p.id}
+                  className={`inline-flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs ${
+                    isOn
+                      ? "border-blue-500 bg-blue-50 text-blue-900"
+                      : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isOn}
+                    onChange={() => onToggle(p.id)}
+                    className="h-3 w-3"
+                  />
+                  <span className="truncate">{p.name}</span>
+                </label>
+              );
+            })}
+          </div>
+          {!allSelected && (
+            <p className="mt-2 rounded bg-blue-50 px-2 py-1 text-[10px] text-blue-800">
+              Key sẽ chỉ truy cập được {selected.size} dự án ở trên. Mọi
+              request tới dự án khác sẽ trả 403.
+            </p>
+          )}
+        </>
+      )}
     </div>
   );
 }

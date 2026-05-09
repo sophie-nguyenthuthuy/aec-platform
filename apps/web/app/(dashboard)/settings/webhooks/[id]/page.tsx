@@ -9,6 +9,8 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  Copy,
+  KeyRound,
   Loader2,
   RefreshCw,
   ShieldAlert,
@@ -18,9 +20,11 @@ import {
 import {
   type DeliveriesFilters,
   type DeliveriesHistogramBucket,
+  type RotateSecretResponse,
   type WebhookDelivery,
   useDeliveriesHistogram,
   useRedeliverWebhook,
+  useRotateWebhookSecret,
   useWebhookDeliveries,
   useWebhooks,
 } from "@/hooks/webhooks";
@@ -83,6 +87,10 @@ export default function WebhookDetailPage(
           </p>
         )}
       </div>
+
+      {/* ---------- Secret rotation ---------- */}
+      <RotateSecretPanel subscriptionId={id} />
+
 
       {/* ---------- Window toggle ---------- */}
       <div className="flex flex-wrap items-center gap-3">
@@ -155,6 +163,132 @@ export default function WebhookDetailPage(
 
 
 // ---------- Sub-components ----------
+
+
+/**
+ * "Rotate secret" panel.
+ *
+ * Two states:
+ *
+ *   1. **Idle.** Inline button + a one-line note explaining the 24h
+ *      grace. A confirm() guards the click — accidental rotation
+ *      forces the customer to redeploy their receiver, so a friction
+ *      step here is the right tradeoff vs. a one-click footgun.
+ *
+ *   2. **Just rotated.** Emerald banner with the new secret + copy
+ *      button. The secret stays in component state until the user
+ *      dismisses the banner — refreshing the page wipes it (matching
+ *      the "shown exactly once" contract).
+ *
+ * The banner intentionally doesn't auto-dismiss on a timer: customers
+ * paste the secret into a 1Password / receiver config and we don't
+ * want to yank it mid-paste. They click "Done" when they've stored
+ * it.
+ */
+function RotateSecretPanel({ subscriptionId }: { subscriptionId: string }) {
+  const rotate = useRotateWebhookSecret();
+  const [revealed, setRevealed] = useState<RotateSecretResponse | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  if (revealed) {
+    async function copy() {
+      await navigator.clipboard.writeText(revealed!.secret);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+    return (
+      <div className="space-y-3 rounded-xl border border-emerald-300 bg-emerald-50 p-5">
+        <div className="flex items-start gap-2">
+          <CheckCircle2
+            size={16}
+            className="mt-0.5 shrink-0 text-emerald-700"
+          />
+          <div>
+            <p className="font-semibold text-emerald-900">
+              Secret mới đã được tạo
+            </p>
+            <p className="mt-1 text-sm text-emerald-800">
+              {revealed.note}
+            </p>
+          </div>
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-medium text-emerald-900">
+            Secret mới
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 break-all rounded bg-white px-3 py-1.5 font-mono text-xs">
+              {revealed.secret}
+            </code>
+            <button
+              type="button"
+              onClick={copy}
+              className="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-1.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-300 hover:bg-emerald-100"
+            >
+              <Copy size={12} />
+              {copied ? "Đã copy" : "Copy"}
+            </button>
+          </div>
+        </div>
+        <p className="rounded bg-white px-3 py-2 text-xs text-slate-700">
+          <strong>Trong 24 giờ tới</strong>, deliveries mang đồng thời 2 chữ
+          ký:{" "}
+          <code className="font-mono">X-AEC-Signature</code> (secret mới) và{" "}
+          <code className="font-mono">X-AEC-Signature-Previous</code>{" "}
+          (secret cũ). Receiver chỉ cần verify khớp một trong hai. Sau 24h,
+          chữ ký phụ ngừng được gửi — hãy hoàn tất rollout receiver-side
+          trước đó.
+        </p>
+        <button
+          type="button"
+          onClick={() => setRevealed(null)}
+          className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+        >
+          Xong
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-5 py-3">
+      <div className="flex items-start gap-2">
+        <KeyRound size={14} className="mt-0.5 shrink-0 text-slate-500" />
+        <div>
+          <p className="text-sm font-medium text-slate-800">Xoay secret</p>
+          <p className="text-xs text-slate-600">
+            Tạo secret HMAC mới, giữ lại secret cũ trong 24h để receiver có
+            thời gian deploy config mới mà không downtime.
+          </p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          if (
+            !confirm(
+              "Xoay secret cho webhook này? Bạn có 24h để deploy config mới ở receiver — sau đó secret cũ sẽ ngưng được verify.",
+            )
+          ) {
+            return;
+          }
+          rotate.mutate(subscriptionId, {
+            onSuccess: (data) => setRevealed(data),
+          });
+        }}
+        disabled={rotate.isPending}
+        className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+      >
+        {rotate.isPending ? (
+          <Loader2 size={12} className="animate-spin" />
+        ) : (
+          <KeyRound size={12} />
+        )}
+        Xoay secret
+      </button>
+    </div>
+  );
+}
 
 
 function Histogram({

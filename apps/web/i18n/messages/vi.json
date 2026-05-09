@@ -75,6 +75,69 @@
     "non_admin_message": "Đo lường scraper chỉ dành cho admin. Yêu cầu admin tổ chức cấp quyền để truy cập.",
     "link_normalizer_rules": "Sửa luật chuẩn hoá →"
   },
+  "admin_slack_deliveries": {
+    "title": "Đo lường gửi Slack",
+    "description": "Tình trạng webhook Slack theo từng loại. Thẻ màu đỏ nghĩa là tất cả lần gửi trong khoảng đều thất bại — gọi on-call ngay.",
+    "window_1": "24 giờ",
+    "window_7": "7 ngày",
+    "window_30": "30 ngày",
+    "loading": "Đang tải…",
+    "empty_state": "Chưa có lần gửi Slack nào trong khoảng. Cron drift có thể chưa chạy.",
+    "non_admin_message": "Đo lường gửi Slack chỉ dành cho admin. Yêu cầu admin tổ chức cấp quyền để truy cập.",
+    "no_attempts_in_window": "chưa có lần gửi",
+    "rate_pct": "{pct}% thành công",
+    "col_attempts": "Lần gửi",
+    "col_delivered": "Thành công",
+    "col_failed": "Thất bại",
+    "last_failure": "Lỗi gần nhất",
+    "table_heading": "Lần gửi gần đây",
+    "table_empty": "Không có lần gửi nào khớp bộ lọc hiện tại.",
+    "failures_only_toggle": "Chỉ hiện lỗi",
+    "col_when": "Thời điểm",
+    "col_kind": "Loại",
+    "col_outcome": "Kết quả",
+    "col_status": "HTTP",
+    "col_reason": "Lý do",
+    "col_preview": "Nội dung",
+    "outcome_delivered": "đã gửi",
+    "outcome_failed": "lỗi"
+  },
+  "admin_webhook_deliveries": {
+    "title": "Đo lường gửi webhook",
+    "description": "Tình trạng webhook gửi ra theo loại sự kiện, tổng hợp toàn nền tảng. Thẻ màu đỏ nghĩa là tất cả lần gửi trong khoảng đều thất bại — gọi on-call ngay.",
+    "window_1": "24 giờ",
+    "window_7": "7 ngày",
+    "window_30": "30 ngày",
+    "loading": "Đang tải…",
+    "empty_state": "Chưa có lần gửi webhook nào trong khoảng. Cron dispatcher có thể chưa chạy.",
+    "non_admin_message": "Đo lường gửi webhook chỉ dành cho admin. Yêu cầu admin tổ chức cấp quyền để truy cập.",
+    "no_attempts_in_window": "chưa có lần gửi",
+    "rate_pct": "{pct}% thành công",
+    "col_attempts": "Lần gửi",
+    "col_delivered": "Thành công",
+    "col_failed": "Thất bại",
+    "pending_backlog": "{count} đang chờ",
+    "distinct_orgs": "{count} tổ chức",
+    "platform_wide_chip": "toàn nền tảng",
+    "last_failure": "Lỗi gần nhất",
+    "table_heading": "Lần gửi gần đây",
+    "table_empty": "Không có lần gửi nào khớp bộ lọc hiện tại.",
+    "filter_all": "Tất cả",
+    "filter_pending": "Đang chờ",
+    "filter_in_flight": "Đang gửi",
+    "filter_delivered": "Thành công",
+    "filter_failed": "Lỗi",
+    "col_when": "Thời điểm",
+    "col_event_type": "Sự kiện",
+    "col_status": "Trạng thái",
+    "col_attempts_short": "Lần #",
+    "col_response": "HTTP",
+    "col_error": "Lỗi / phản hồi",
+    "status_pending": "đang chờ",
+    "status_in_flight": "đang gửi",
+    "status_delivered": "thành công",
+    "status_failed": "lỗi"
+  },
   "admin_normalizer_rules": {
     "title": "Luật chuẩn hoá vật tư",
     "description": "Các luật regex được áp lên trên bộ chuẩn hoá vật tư trong mã nguồn. Luật mới có hiệu lực ngay từ lần scrape tiếp theo — không cần triển khai lại.",
@@ -142,6 +205,164 @@
       "weekly_digest_email": {
         "title": "Bản tin tuần",
         "description": "Tóm tắt hoạt động tuần qua các dự án bạn đang theo dõi."
+      }
+    }
+  },
+  "marketing": {
+    "nav": {
+      "pricing": "Bảng giá",
+      "docs": "Tài liệu",
+      "about": "Giới thiệu",
+      "login": "Đăng nhập",
+      "signup": "Dùng thử"
+    },
+    "footer": {
+      "tagline": "Nền tảng AEC dành cho thị trường Việt Nam.",
+      "webhooks": "Webhook"
+    },
+    "hero": {
+      "eyebrow": "Phần mềm AEC dành cho Việt Nam",
+      "title": "Quản lý dự án xây dựng từ đề xuất tới bàn giao — trên một nền tảng.",
+      "subtitle": "AEC Platform gom 14 mô-đun chuyên biệt cho ngành kiến trúc – kỹ thuật – xây dựng vào một nơi: đề xuất, đấu thầu, công trường, an toàn, bàn giao và hơn thế nữa. Tích hợp AI, hỗ trợ song ngữ, sẵn sàng cho đơn vị tại Việt Nam.",
+      "cta_primary": "Tạo tài khoản dùng thử",
+      "cta_secondary": "Xem bảng giá"
+    },
+    "modules": {
+      "title": "14 mô-đun, một nền tảng",
+      "subtitle": "Tổ chức theo vòng đời dự án — chọn mô-đun phù hợp giai đoạn của đội bạn.",
+      "bucket": {
+        "pre": { "title": "Trước thi công", "subtitle": "Từ tìm cơ hội tới chốt hợp đồng." },
+        "live": { "title": "Đang thi công", "subtitle": "Theo dõi công trường, tiến độ, an toàn theo thời gian thực." },
+        "close": { "title": "Bàn giao & vận hành", "subtitle": "Chốt sổ, kiểm tra, phát sinh và quy chuẩn." }
+      },
+      "winwork": { "name": "WinWork", "tagline": "Đề xuất, báo giá và phân tích tỷ lệ thắng thầu." },
+      "bidradar": { "name": "BidRadar", "tagline": "Theo dõi đấu thầu công và cơ hội mới mỗi ngày." },
+      "costpulse": { "name": "CostPulse", "tagline": "Bảng giá vật tư động, cảnh báo biến động và dự toán nhanh." },
+      "drawbridge": { "name": "Drawbridge", "tagline": "Quản lý bản vẽ, RFI và phối hợp giữa các bộ môn." },
+      "pulse": { "name": "Pulse", "tagline": "Tổng quan dự án — nhịp tiến độ, ngân sách, rủi ro." },
+      "siteeye": { "name": "SiteEye", "tagline": "Camera AI giám sát PPE và an toàn lao động." },
+      "schedulepilot": { "name": "SchedulePilot", "tagline": "Lập tiến độ, đường găng và mô phỏng kịch bản trễ hạn." },
+      "submittals": { "name": "Submittals", "tagline": "Quy trình duyệt vật tư, mẫu và biên bản nghiệm thu." },
+      "dailylog": { "name": "DailyLog", "tagline": "Nhật ký công trường có ảnh, định vị và xuất PDF." },
+      "handover": { "name": "Handover", "tagline": "Hồ sơ bàn giao, bảo hành và tài liệu vận hành." },
+      "punchlist": { "name": "Punchlist", "tagline": "Danh mục lỗi, theo dõi xử lý cho tới khi đóng." },
+      "changeorder": { "name": "ChangeOrder", "tagline": "Quản lý phát sinh, phê duyệt và tác động chi phí." },
+      "codeguard": { "name": "CodeGuard", "tagline": "Trợ lý AI tra cứu QCVN/TCVN ngay trong thiết kế." }
+    },
+    "why": {
+      "title": "Vì sao chọn AEC Platform",
+      "local": { "title": "Sinh ra cho Việt Nam", "body": "Quy trình QCVN/TCVN, định dạng hồ sơ tiếng Việt, hỗ trợ VND và phân quyền dự án." },
+      "ai": { "title": "AI là trợ lý, không phải tính năng phụ", "body": "Trợ lý AI có ngữ cảnh toàn dự án giúp soạn báo giá, kiểm tra QCVN, phân loại lỗi từ ảnh hiện trường." },
+      "open": { "title": "Mở và có thể tích hợp", "body": "API, webhook và xuất dữ liệu chuẩn hoá giúp kết nối với phần mềm kế toán, ERP và BIM hiện có." }
+    },
+    "cta": {
+      "title": "Sẵn sàng thử với một dự án thật?",
+      "subtitle": "Tạo tài khoản miễn phí trong 2 phút. Không cần thẻ tín dụng. Hủy bất cứ lúc nào.",
+      "primary": "Bắt đầu dùng thử",
+      "secondary": "Liên hệ tư vấn"
+    },
+    "pricing": {
+      "title": "Bảng giá đơn giản, theo người dùng",
+      "subtitle": "Thanh toán theo tháng, không ràng buộc dài hạn. Mọi gói đều bao gồm 14 mô-đun.",
+      "popular": "Phổ biến",
+      "per_user_month": " /người/tháng",
+      "tier": {
+        "starter": { "name": "Starter", "tagline": "Đội nhỏ, dự án đầu tiên.", "price": "490.000 ₫", "cta": "Dùng thử miễn phí" },
+        "growth": { "name": "Growth", "tagline": "Doanh nghiệp đang mở rộng.", "price": "890.000 ₫", "cta": "Bắt đầu Growth" },
+        "scale": { "name": "Scale", "tagline": "Tổng thầu, doanh nghiệp lớn.", "price": "Liên hệ", "cta": "Liên hệ kinh doanh" }
+      },
+      "feature": {
+        "modules_all": "Đủ 14 mô-đun",
+        "users_5": "Tối đa 5 người dùng",
+        "users_25": "Tối đa 25 người dùng",
+        "users_unlimited": "Không giới hạn người dùng",
+        "ai_assistant": "Trợ lý AI",
+        "api_keys": "Khóa API tích hợp",
+        "webhooks": "Webhook sự kiện",
+        "audit_export": "Xuất nhật ký kiểm toán",
+        "sla_8h": "SLA hỗ trợ 8 giờ",
+        "sla_2h": "SLA hỗ trợ 2 giờ",
+        "dedicated_csm": "Quản lý khách hàng riêng"
+      },
+      "footer_note": "Đơn vị nhà nước hoặc đặc thù? <contact>Liên hệ kinh doanh</contact> để có gói phù hợp."
+    },
+    "about": {
+      "title": "Chúng tôi là ai",
+      "subtitle": "Một nhóm nhỏ tin rằng phần mềm xây dựng cho thị trường Việt phải được làm từ Việt Nam.",
+      "story": {
+        "p1": "AEC Platform khởi đầu từ một câu hỏi đơn giản: vì sao đội xây dựng tại Việt Nam vẫn phải chắp vá Excel, Zalo và 5 phần mềm rời rạc để chạy một dự án?",
+        "p2": "Chúng tôi xây 14 mô-đun trên một nền tảng, kết nối với nhau bằng dữ liệu chung và một trợ lý AI hiểu ngữ cảnh dự án.",
+        "p3": "Sản phẩm còn ở giai đoạn đầu, nhưng triết lý thì rõ: ưu tiên người dùng Việt Nam, mở để tích hợp, để AI làm phần lặp lại."
+      },
+      "numbers": {
+        "modules": "Mô-đun đã ra mắt",
+        "languages": "Ngôn ngữ",
+        "regions": "Thị trường",
+        "version": "Phiên bản"
+      },
+      "contact": {
+        "title": "Liên hệ",
+        "body": "Câu hỏi, phản hồi, hợp tác — gửi email cho chúng tôi.",
+        "email_label": "Chung",
+        "sales_label": "Kinh doanh"
+      }
+    },
+    "docs": {
+      "hub": {
+        "title": "Tài liệu cho lập trình viên",
+        "intro": "Tài liệu tham khảo cho tích hợp đối tác: REST API, webhook, ops surface. Công khai có chủ ý — đọc trước khi đăng ký để đánh giá nền tảng có phù hợp với stack của bạn không.",
+        "manage_keys_hint": "Đã có API key? Quản lý tại <link>/settings/api-keys</link> (chỉ admin). Cho typed client, SDK TypeScript tự sinh nằm tại <code>@aec/sdk</code>.",
+        "pages": {
+          "api": {
+            "title": "Tham chiếu API",
+            "description": "Xác thực qua API key, gửi request đã xác thực, xử lý rate limit và lỗi. Code samples trong curl + Python + TypeScript. Bao gồm hướng dẫn sandbox-mode."
+          },
+          "webhooks": {
+            "title": "Webhook",
+            "description": "Đăng ký nhận sự kiện nền tảng. Ký HMAC-SHA256, lịch retry, chống replay, xử lý dead-letter."
+          },
+          "events": {
+            "title": "Danh mục sự kiện",
+            "description": "Mọi sự kiện webhook nền tảng phát ra, nhóm theo module nguồn. Mỗi sự kiện có mô tả và payload mẫu minh hoạ."
+          },
+          "ops": {
+            "title": "Vận hành",
+            "description": "Health probe (/healthz, /readyz), cấu hình Prometheus scrape (/metrics), manifest k8s mẫu, alert rules."
+          }
+        }
+      },
+      "events": {
+        "back_link": "Tổng quan webhook",
+        "title": "Danh mục sự kiện",
+        "intro": "Mọi sự kiện webhook nền tảng phát ra, nhóm theo module nguồn. Mỗi card liệt kê tên sự kiện, khi nào fire, và payload mẫu.",
+        "count": "{events} sự kiện trên {modules} module. Payload mẫu chỉ ra các trường bạn có thể tin cậy; trường khác có thể xuất hiện (best-effort) và có thể thay đổi giữa các bản phát hành.",
+        "event_count": "{n} sự kiện",
+        "unreachable": "Catalog hiện không truy cập được. Danh sách đầy đủ nằm tại <code>services/webhooks.py::EVENT_CATALOG</code> trên repo source.",
+        "payload_sample_label": "Payload mẫu"
+      },
+      "translation_notice": {
+        "title": "Bản dịch tiếng Anh đang được cập nhật",
+        "body": "Trang này hiện có nội dung gốc bằng tiếng Việt. Bản dịch EN đang trong quá trình cập nhật — các phần header và side-text đã được dịch, nhưng nội dung chính vẫn ở dạng VI gốc. Liên hệ hello@aec-platform.vn nếu bạn cần tài liệu tham khảo bằng tiếng Anh đầy đủ."
+      }
+    },
+    "auth": {
+      "email_label": "Email",
+      "login": {
+        "subtitle": "Đăng nhập để tiếp tục",
+        "submit": "Đăng nhập",
+        "submitting": "Đang đăng nhập…"
+      },
+      "signup": {
+        "subtitle": "Đăng ký tài khoản miễn phí",
+        "password_label": "Mật khẩu (≥ 8 ký tự)",
+        "submit": "Đăng ký",
+        "submitting": "Đang đăng ký…",
+        "have_account": "Đã có tài khoản? <link>Đăng nhập</link>"
+      },
+      "confirm": {
+        "title": "Kiểm tra email",
+        "body": "Chúng tôi vừa gửi một liên kết xác nhận đến <email></email>. Mở liên kết và quay lại đây để đăng nhập.",
+        "back_to_login": "Quay lại đăng nhập"
       }
     }
   }

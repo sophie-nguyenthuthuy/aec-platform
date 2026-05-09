@@ -90,6 +90,18 @@ AuditAction = Literal[
     "admin.normalizer_rule.create",
     "admin.normalizer_rule.update",
     "admin.normalizer_rule.delete",
+    # Webhook secret rotation. Auditable because rotation invalidates
+    # the customer's receiver-side config — if a partner reports
+    # "deliveries stopped working at 14:23", the audit trail tells
+    # them which admin pressed the button. Body intentionally carries
+    # NO secret material (before/after diff is empty); the row is the
+    # event timestamp + actor only.
+    "webhooks.subscription.rotate_secret",
+    # Operator-triggered manual cron run (cycle O2). Pairs with the
+    # `cron_runs` row the worker writes — this audit row tells you
+    # WHO clicked, the cron_runs row tells you WHAT happened.
+    # Cross-referenced via timestamp during incident retros.
+    "admin.cron.run_now",
 ]
 
 

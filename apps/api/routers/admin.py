@@ -421,3 +421,43 @@ async def retention_run_now(
     async with AdminSessionFactory() as session:
         summaries = await run_retention_cron(session)
     return ok({"tables": summaries})
+
+
+# ---------- API-key usage telemetry --------------------------------
+#
+# Pinned by tests/test_integrator_surface_snapshot.py — do not remove
+# without updating that test. The frontend's `/admin/api-usage` page
+# breaks the moment either route disappears (useTopApiKeys +
+# useApiKeyUsage hooks 404 silently).
+
+
+@router.get("/api-keys/top")
+async def admin_top_api_keys(
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+    hours: Annotated[int, Query(ge=1, le=24 * 30)] = 24,
+    limit: Annotated[int, Query(ge=1, le=200)] = 20,
+):
+    """Cross-org top API keys by call volume in the last N hours.
+    Used by `/admin/api-usage` for capacity planning + incident
+    triage. Includes revoked keys so historical activity stays
+    visible after a key is turned off."""
+    from services.api_keys import usage_top_keys
+
+    async with AdminSessionFactory() as session:
+        rows = await usage_top_keys(session, hours=hours, limit=limit)
+    return ok(rows)
+
+
+@router.get("/api-keys/{key_id}/usage")
+async def admin_api_key_usage(
+    key_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+    hours: Annotated[int, Query(ge=1, le=24 * 30)] = 24,
+):
+    """Per-key usage detail — totals + hour-bucketed sparkline data.
+    Drilldown off the `/api-keys/top` leaderboard."""
+    from services.api_keys import usage_for_key
+
+    async with AdminSessionFactory() as session:
+        payload = await usage_for_key(session, api_key_id=key_id, hours=hours)
+    return ok(payload)

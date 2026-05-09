@@ -1,0 +1,51 @@
+# Mutmut configuration — mutation testing for the most-business-
+# critical service files.
+#
+# Why these three
+# ---------------
+# `services/audit.py` + `services/webhooks.py` + `services/codeguard_quotas.py`
+# are the modules where a silently-broken test would be the most
+# painful: the audit feed + webhook outbox are how customers verify
+# "did the system actually do the thing", and quota enforcement gates
+# every codeguard request. A test that "passes" but doesn't actually
+# assert behavior on these paths is a real reliability hazard.
+#
+# The other ~80 files in `apps/api/services/` are also worth running
+# against — but mutation runs are 10-30 min per file, so we ratchet
+# in one batch at a time rather than mass-import.
+#
+# Unit-lane vs deep mode
+# ----------------------
+# Default tests_dir is the unit-lane test files only — those run in
+# ~8s and don't need a live DB. The May-2026 audit (see
+# docs/testing.md) found ~30 of 99 codeguard_quotas survivors were
+# "mock-blindness on SQL" — mutations to SQL strings / bind-param
+# names that the FakeAsyncSession can't see.
+#
+# To actually kill that category of survivor, mutmut needs to run
+# the integration suite (`tests/test_codeguard_quotas_integration.py`
+# already exists with 25+ cases pinning the SQL contract). Use
+# `make test-api-mutation-deep` (gated on `COSTPULSE_RLS_DB_URL`):
+#   * `tests_dir` adds the integration file.
+#   * `runner` adds `--integration` to opt past the deselect gate.
+#   * Wall time goes from ~10 min to ~30-60 min — quarterly cadence
+#     only, never in CI.
+#
+# Why not in CI
+# -------------
+# Each mutant re-runs the relevant test subset, so even a small
+# module is several minutes. CI on every PR would 5x the wall time
+# and surface mostly-noise (timeouts, async-loop flakes that survive
+# at one mutation but not another). Run quarterly + after major
+# service-layer refactors via `make test-api-mutation`.
+[mutmut]
+paths_to_mutate = "services/audit.py,services/webhooks.py,services/codeguard_quotas.py"
+# Only run the test files that DIRECTLY exercise these services.
+# The full suite is ~700 tests / 8 seconds; running it per mutant
+# multiplies to ~hours. Targeted runs cut that to ~5-15 min total.
+tests_dir = "tests/test_audit_router.py tests/test_audit_action_webhooks_in_sync.py tests/test_webhooks_service.py tests/test_codeguard_quotas.py tests/test_codeguard_quotas_integration.py"
+# Default runner stays unit-only (--integration deselects the
+# integration tests so they don't try to connect to a missing DB
+# and crash mid-mutation). `make test-api-mutation-deep` overrides
+# this on the CLI to opt in.
+runner = "pytest -x -q"

@@ -25,6 +25,14 @@ class AuthContext:
     organization_id: UUID
     role: str
     email: str
+    api_key_mode: str = "live"
+    api_key_id: UUID | None = None
+    # Per-project scope allowlist for api-key callers. Empty tuple =
+    # "all projects" (back-compat with keys minted pre-migration-0039
+    # and with user-JWT callers — humans have org-level RBAC, not
+    # per-project). Tuple (not list) so the frozen dataclass stays
+    # hashable and the field is shareable across requests.
+    api_key_project_ids: tuple[UUID, ...] = ()
 
 
 @lru_cache(maxsize=1)

@@ -75,10 +75,16 @@ def test_worker_settings_registers_scraper_jobs():
 
 
 def test_worker_settings_registers_monthly_cron():
+    import inspect
+
     from workers.queue import WorkerSettings, scrape_all_prices_job
 
     # arq.cron.CronJob exposes the underlying coroutine as `.coroutine` in
     # recent versions; older ones stash it on `.func`. Accept either.
+    # Cron handlers are wrapped by `cron_telemetry_wrap` for
+    # invocation-tracking, so we compare against the unwrapped form
+    # via `inspect.unwrap` (relies on the wrapper setting
+    # `__wrapped__` per the standard `functools.wraps` convention).
     crons = WorkerSettings.cron_jobs
-    targets = [getattr(c, "coroutine", None) or getattr(c, "func", None) for c in crons]
+    targets = [inspect.unwrap(getattr(c, "coroutine", None) or getattr(c, "func", None)) for c in crons]
     assert scrape_all_prices_job in targets

@@ -38,7 +38,13 @@ extend-immutable-calls = [
 # Test files use B011 `assert False` and E731 lambda assignments freely.
 # E402: section-grouped tests deliberately put `from services... import`
 # blocks inline with their explanatory comments rather than at the top.
-"tests/**" = ["B011", "E731", "E402"]
+# SIM102/103/105: ratchet-audit AST walkers use deliberately verbose
+# nested `if` chains to mirror the bug-shape they're checking; collapsing
+# to `and`-chains hurts readability of the audit's intent.
+"tests/**" = ["B011", "E731", "E402", "SIM102", "SIM103", "SIM105"]
+# Scripts: `generate_audit_index.py` and friends use the same nested-if
+# style as the audits they introspect.
+"scripts/**" = ["SIM102", "SIM103", "SIM105"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -51,6 +57,22 @@ asyncio_mode = "auto"
 # Per-function loop = no cross-test loop reuse, no flake.
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+# Per-test timeout via pytest-timeout. A test that hangs longer than
+# `timeout` seconds raises pytest.fail() with a stack trace. Without
+# this, GHA's runner-shutdown signal kills the whole job at ~10
+# minutes after exactly 56 dots, leaving us with no diagnostic output
+# (no traceback, no "FAILED tests/..." line, just `runner shutdown`).
+#
+# `timeout_method = thread` uses a watchdog thread; the alternative
+# `signal` only works on the main thread and silently no-ops for
+# async tests. The watchdog approach interrupts even a stuck
+# `await some_blocking_call()`.
+#
+# 60s is generous: the slowest unit-style test in this suite finishes
+# in <5s. Integration tests that legitimately take longer can opt out
+# with `@pytest.mark.timeout(...)` per-test.
+timeout = 60
+timeout_method = "thread"
 markers = [
     "integration: requires live infra (Postgres / Redis / OpenAI). Skipped by default; pass --integration to opt in.",
     "real_rate_limit: opt out of the autouse rate-limiter bypass in conftest.py. Use for tests that exercise `core.rate_limit._acquire` directly.",

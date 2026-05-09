@@ -1,0 +1,6 @@
+{
+  "//": "TypeScript strict-mode escape-hatch baseline. Tracks the three dangerous escapes (`@ts-ignore`, `as any`, `as unknown as`); `@ts-expect-error` is allowed without ratchet because it fails-loud when the underlying issue is fixed (the directive becomes a TS error and forces removal). Driven from 7 → 0 in May 2026 by tightening the test fixtures and the PackageCard Link-href cast. With strict-equality at 0, additions (or relaxations) red-gate the PR loudly.",
+  "ts_ignore": 0,
+  "as_any": 1,
+  "as_unknown_as": 2
+}

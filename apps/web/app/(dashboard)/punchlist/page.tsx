@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ClipboardCheck, Plus } from "lucide-react";
 
+import { EmptyState } from "@/components/EmptyState";
 import { useCreatePunchList, usePunchLists } from "@/hooks/punchlist";
 import type { PunchListListFilters } from "@/hooks/punchlist";
 
@@ -81,10 +82,17 @@ export default function PunchListPage() {
       ) : isError ? (
         <p className="text-sm text-red-600">Không thể tải danh sách.</p>
       ) : !data?.data.length ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-12 text-center">
-          <ClipboardCheck size={32} className="mx-auto mb-3 text-slate-400" aria-hidden />
-          <p className="text-sm text-slate-500">Chưa có punch list nào.</p>
-        </div>
+        <EmptyState
+          icon={ClipboardCheck}
+          title="Chưa có punch list nào"
+          body={
+            <>
+              Punch list là danh mục các lỗi cần sửa trước khi nghiệm thu —
+              tổng hợp từ Defects, walkthroughs, hoặc tạo thủ công. Mỗi mục
+              theo dõi từ "phát hiện" tới "đã sửa và xác nhận".
+            </>
+          }
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {data.data.map((p) => {

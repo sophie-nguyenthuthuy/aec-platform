@@ -60,10 +60,14 @@ class WebhookSubscriptionCreated(WebhookSubscriptionOut):
 
 
 class WebhookDeliveryOut(BaseModel):
-    """Read-side projection used by `/webhooks/{id}/deliveries`."""
+    """Read-side projection used by `/webhooks/{id}/deliveries` AND
+    `/webhooks/deliveries/dead-letter`. The dead-letter feed reuses
+    this shape across subscriptions, so `subscription_id` is required
+    — pinned by `tests/test_integrator_surface_snapshot.py`."""
 
     model_config = ConfigDict(from_attributes=True)
     id: UUID
+    subscription_id: UUID
     event_type: str
     status: str
     attempt_count: int

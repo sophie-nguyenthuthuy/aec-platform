@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { PackageOpen, Plus } from "lucide-react";
 import { PackageCard } from "@aec/ui/handover";
 import type { PackageStatus } from "@aec/ui/handover";
+
+import { EmptyState } from "@/components/EmptyState";
 import { useCreatePackage, usePackages } from "@/hooks/handover";
 
 const STATUS_FILTERS: Array<{ value: PackageStatus | "all"; label: string }> = [
@@ -62,9 +64,32 @@ export default function HandoverPackagesPage() {
       {isLoading ? (
         <p className="text-sm text-slate-500">Đang tải...</p>
       ) : !data?.data.length ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-          Chưa có gói bàn giao nào.
-        </div>
+        <EmptyState
+          icon={PackageOpen}
+          title={
+            statusFilter === "all"
+              ? "Chưa có gói bàn giao nào"
+              : "Chưa có gói nào ở trạng thái này"
+          }
+          body={
+            statusFilter === "all" ? (
+              <>
+                Gói bàn giao tổng hợp tài liệu vận hành, bảo hành, và biên bản
+                nghiệm thu cho khách hàng cuối kỳ thi công. Tạo gói đầu tiên
+                để bắt đầu thu thập tài liệu từ các module khác.
+              </>
+            ) : (
+              <>Đổi sang tab "Tất cả" để xem các gói ở trạng thái khác.</>
+            )
+          }
+          // Wire the existing creator instead of duplicating the modal
+          // logic — the page already has a `setCreating` toggle.
+          cta={
+            statusFilter === "all"
+              ? { label: "Tạo gói bàn giao", onClick: () => setCreating(true) }
+              : undefined
+          }
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {data.data.map((pkg) => (

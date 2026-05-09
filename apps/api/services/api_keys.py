@@ -113,6 +113,9 @@ def key_prefix(raw: str) -> str:
     return body[:8]
 
 
+KEY_MODES: frozenset[str] = frozenset({"live", "test"})
+
+
 async def mint_key(
     session: AsyncSession,
     *,
@@ -122,6 +125,8 @@ async def mint_key(
     scopes: list[str],
     rate_limit_per_minute: int | None,
     expires_at: datetime | None,
+    mode: str = "live",
+    project_ids: list[UUID] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Generate, persist, return `(plaintext, row_dict)`.
 
@@ -135,6 +140,8 @@ async def mint_key(
     for s in scopes:
         if s not in SCOPES:
             raise ValueError(f"unknown_scope: {s!r}")
+    if mode not in KEY_MODES:
+        raise ValueError(f"unknown_mode: {mode!r}")
 
     raw = _generate_key()
     h = hash_key(raw)
@@ -145,13 +152,16 @@ async def mint_key(
             """
             INSERT INTO api_keys (
                 id, organization_id, created_by, name, hash, prefix,
-                scopes, rate_limit_per_minute, expires_at
+                scopes, rate_limit_per_minute, expires_at, mode,
+                project_ids
             ) VALUES (
                 gen_random_uuid(), :org, :created_by, :name, :hash, :prefix,
-                :scopes, :rl, :expires_at
+                :scopes, :rl, :expires_at, :mode,
+                :project_ids
             )
             RETURNING id, name, prefix, scopes, rate_limit_per_minute,
-                      created_at, expires_at, last_used_at, revoked_at
+                      created_at, expires_at, last_used_at, revoked_at, mode,
+                      project_ids
             """
         ),
         {
@@ -163,6 +173,11 @@ async def mint_key(
             "scopes": scopes,
             "rl": rate_limit_per_minute,
             "expires_at": expires_at,
+            "mode": mode,
+            # Empty list = "all projects" (back-compat with pre-0039
+            # rows). Cast strings explicitly so asyncpg binds as
+            # uuid[] rather than text[].
+            "project_ids": [str(p) for p in (project_ids or [])],
         },
     )
     row = dict(result.mappings().one())
@@ -207,7 +222,7 @@ async def verify_key(
               AND revoked_at IS NULL
               AND (expires_at IS NULL OR expires_at > NOW())
             RETURNING id, organization_id, scopes, rate_limit_per_minute,
-                      name, prefix
+                      name, prefix, mode, project_ids
             """
         ),
         {"hash": h, "ip": client_ip},
@@ -229,6 +244,29 @@ def has_scope(key_scopes: list[str], required: str) -> bool:
     if "*" in key_scopes:
         return True
     return required in key_scopes
+
+
+def has_project_access(
+    key_project_ids: list[UUID] | list[str],
+    project_id: UUID | str,
+) -> bool:
+    """True iff this api-key may access `project_id`.
+
+    Empty `key_project_ids` means "all projects" — the back-compat
+    default for keys minted before migration 0039 and for new keys
+    that don't opt into per-project scoping. A non-empty list is a
+    closed allowlist; access requires `project_id` to be a member.
+
+    Comparison is string-coerced so the helper accepts either UUID
+    instances or already-stringified ids on either side. asyncpg
+    returns UUID instances for `uuid[]` columns; FastAPI path params
+    arrive as UUID after parsing; tests sometimes pass strings.
+    Coercing once here means the call sites don't repeat the dance.
+    """
+    if not key_project_ids:
+        return True  # "all projects" sentinel
+    needle = str(project_id)
+    return any(str(p) == needle for p in key_project_ids)
 
 
 # ---------- Rate limit ----------

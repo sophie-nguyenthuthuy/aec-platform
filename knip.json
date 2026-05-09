@@ -1,0 +1,30 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["scripts/*.{mjs,js,ts}"],
+  "project": ["scripts/*.{mjs,js,ts}"],
+  "workspaces": {
+    "apps/web": {
+      "entry": [
+        "next.config.{js,mjs,ts}",
+        "middleware.ts",
+        "app/**/{page,layout,error,loading,not-found,route,template}.tsx",
+        "app/**/{page,layout,error,loading,not-found,route,template}.ts",
+        "tests/**/*.{spec,test}.{ts,tsx}",
+        "**/__tests__/**/*.{test,test-d}.{ts,tsx}",
+        "scripts/**/*.{mjs,ts}",
+        "vitest.config.ts",
+        "playwright.config.ts"
+      ],
+      "project": ["**/*.{ts,tsx}", "!.next/**", "!**/node_modules/**"]
+    },
+    "packages/ui": {
+      "entry": [
+        "index.ts",
+        "*/index.ts",
+        "**/__tests__/**/*.test.{ts,tsx}",
+        "vitest.config.ts"
+      ],
+      "project": ["**/*.{ts,tsx}", "!**/node_modules/**"]
+    }
+  }
+}

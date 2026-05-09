@@ -59,11 +59,22 @@ class FakeAsyncSession:
         # Default: empty mappings + 0 scalars + empty scalars. The
         # service fires many COUNT queries plus a "load existing thread"
         # query; an empty default is a safe "no signal / new thread".
+        #
+        # Why both `.all()` AND `.first()` are pinned: the assistant
+        # rollup uses `.mappings().first()` for "latest record" queries
+        # (e.g. costpulse_latest_estimate, winwork_latest_proposal). An
+        # auto-generated MagicMock returns truthy garbage there — which
+        # the service then dereferences as `row["id"]` and ends up
+        # citing a phantom source. Pinning `first.return_value = None`
+        # is what makes "zero signal" tests behave as their name
+        # promises.
         r = MagicMock()
         r.scalar_one_or_none.return_value = None
         r.scalar_one.return_value = 0
         r.mappings.return_value.all.return_value = []
+        r.mappings.return_value.first.return_value = None
         r.scalars.return_value.all.return_value = []
+        r.scalars.return_value.first.return_value = None
         return r
 
 

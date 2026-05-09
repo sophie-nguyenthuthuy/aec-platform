@@ -35,6 +35,17 @@ const NAV: Array<{ href: Route; label: string; section?: string }> = [
   { href: "/settings/export", label: "Xuất dữ liệu" },
   { href: "/settings/retention", label: "Retention" },
   { href: "/settings/api-keys", label: "API keys" },
+  // Admin section — only useful for platform admins, but the link
+  // itself is harmless to non-admins (each sub-page is server-gated
+  // and renders an "admin only" banner for the wrong role). Keeping
+  // it visible avoids a "where do I go for X" support ticket.
+  { section: "Quản trị nền tảng", href: "/admin", label: "Tổng quan admin" },
+  { href: "/admin/api-usage", label: "API key usage" },
+  { href: "/admin/webhook-deliveries", label: "Webhook deliveries" },
+  { href: "/admin/slack-deliveries", label: "Slack deliveries" },
+  { href: "/admin/crons", label: "Cron jobs" },
+  { href: "/admin/scrapers", label: "Price scrapers" },
+  { href: "/admin/normalizer-rules", label: "Normaliser rules" },
   { section: "Tài liệu", href: "/docs/webhooks", label: "Webhooks" },
   { href: "/docs/api", label: "API reference" },
 ];

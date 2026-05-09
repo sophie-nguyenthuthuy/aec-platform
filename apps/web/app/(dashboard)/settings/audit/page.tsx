@@ -277,14 +277,28 @@ function AuditRow({ event }: { event: AuditEvent }) {
             >
               {actionLabel}
             </span>
-            {/* Cron-driven events have a null actor (e.g.
-                `costpulse.rfq.slots_expired`). Render them as a
-                visually distinct badge so admins skimming the log can
-                tell "the system did this" from "Bob did this." Without
-                it the row read as "blank user email" — looks like a
-                bug, not a feature. */}
+            {/* Three actor flavours — render each distinctly so
+                admins skimming the log can tell at a glance which
+                kind did the action:
+                  * Human (actor_email present) → plain email text.
+                  * API key (actor_api_key_name present) → blue
+                    "key" badge with the key's name. Partner
+                    integrations look obviously different from
+                    human actions.
+                  * System (both null) → grey "system" badge.
+                    Cron-driven events read as "system" rather than
+                    "blank email", which used to look like a bug. */}
             {event.actor_email ? (
-              <span className="text-xs text-slate-500">{event.actor_email}</span>
+              <span className="text-xs text-slate-500">
+                {event.actor_email}
+              </span>
+            ) : event.actor_api_key_name ? (
+              <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[11px] text-blue-800">
+                <span className="font-mono text-[9px] uppercase tracking-wide">
+                  key
+                </span>
+                <span className="font-medium">{event.actor_api_key_name}</span>
+              </span>
             ) : (
               <span className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-slate-700">
                 system

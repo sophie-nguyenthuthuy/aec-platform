@@ -89,9 +89,14 @@ async def list_audit_events(
     # Join to `users` for human actors and to `api_keys` for api-key
     # actors. Both joins are LEFT because at most one of the two FK
     # columns is populated on any row (and both are NULL for cron /
-    # system events). The `api_key:<name>` prefix on the displayed
-    # email keeps the column human-readable while making it obvious in
-    # the admin UI that the actor wasn't a person.
+    # system events).
+    #
+    # We project them as TWO distinct columns rather than coalescing
+    # them into one `api_key:<name>` string. The frontend wants to
+    # render user emails differently from api-key actors (different
+    # icons, the api-key gets a "key" badge), so a single coalesced
+    # column would force the frontend to parse the prefix back out.
+    # Keeping them separate is wire-clean.
     rows = (
         (
             await db.execute(
@@ -100,7 +105,8 @@ async def list_audit_events(
                     SELECT
                         a.id, a.organization_id,
                         a.actor_user_id, a.actor_api_key_id,
-                        COALESCE(u.email, 'api_key:' || ak.name) AS actor_email,
+                        u.email                    AS actor_email,
+                        ak.name                    AS actor_api_key_name,
                         a.action, a.resource_type, a.resource_id,
                         a.before, a.after, a.ip, a.user_agent,
                         a.created_at

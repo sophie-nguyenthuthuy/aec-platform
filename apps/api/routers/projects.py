@@ -23,6 +23,7 @@ from core.envelope import ok, paginated
 from db.deps import get_db
 from db.session import TenantAwareSession
 from middleware.auth import AuthContext, require_auth
+from middleware.idempotency_route import IdempotentRoute
 from models.changeorder import ChangeOrderCandidate
 from models.codeguard import ComplianceCheck, PermitChecklist
 from models.core import Project
@@ -57,7 +58,14 @@ from schemas.projects import (
     WinworkStatus,
 )
 
-router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
+# Idempotency on POST/PATCH/DELETE — see `/docs/api#idempotency`.
+# Project creation is a likely retry target: partner's CI provisions
+# a project, network blip, retry would otherwise create two.
+router = APIRouter(
+    prefix="/api/v1/projects",
+    tags=["projects"],
+    route_class=IdempotentRoute,
+)
 
 
 # ---------- List (card grid) ----------

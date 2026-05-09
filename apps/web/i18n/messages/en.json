@@ -75,6 +75,69 @@
     "non_admin_message": "Scraper telemetry is admin-only. Ask an org admin to grant access.",
     "link_normalizer_rules": "Edit normaliser rules →"
   },
+  "admin_slack_deliveries": {
+    "title": "Slack delivery telemetry",
+    "description": "Per-kind health of the platform Slack webhook. Cards in red mean every attempt failed in the window — page on-call.",
+    "window_1": "24 hours",
+    "window_7": "7 days",
+    "window_30": "30 days",
+    "loading": "Loading…",
+    "empty_state": "No Slack delivery attempts in this window. The drift cron may not have fired yet.",
+    "non_admin_message": "Slack delivery telemetry is admin-only. Ask an org admin to grant access.",
+    "no_attempts_in_window": "no attempts",
+    "rate_pct": "{pct}% delivered",
+    "col_attempts": "Attempts",
+    "col_delivered": "Delivered",
+    "col_failed": "Failed",
+    "last_failure": "Last failure",
+    "table_heading": "Recent attempts",
+    "table_empty": "No attempts match the current filter.",
+    "failures_only_toggle": "Failures only",
+    "col_when": "When",
+    "col_kind": "Kind",
+    "col_outcome": "Outcome",
+    "col_status": "HTTP",
+    "col_reason": "Reason",
+    "col_preview": "Preview",
+    "outcome_delivered": "delivered",
+    "outcome_failed": "failed"
+  },
+  "admin_webhook_deliveries": {
+    "title": "Webhook delivery telemetry",
+    "description": "Cross-tenant view of outbound webhook health by event type. Cards in red mean every attempt failed in the window — page on-call.",
+    "window_1": "24 hours",
+    "window_7": "7 days",
+    "window_30": "30 days",
+    "loading": "Loading…",
+    "empty_state": "No webhook deliveries in this window. The dispatcher cron may not have run yet.",
+    "non_admin_message": "Webhook delivery telemetry is admin-only. Ask an org admin to grant access.",
+    "no_attempts_in_window": "no attempts",
+    "rate_pct": "{pct}% delivered",
+    "col_attempts": "Attempts",
+    "col_delivered": "Delivered",
+    "col_failed": "Failed",
+    "pending_backlog": "{count} pending in queue",
+    "distinct_orgs": "{count} org(s)",
+    "platform_wide_chip": "platform-wide",
+    "last_failure": "Last failure",
+    "table_heading": "Recent attempts",
+    "table_empty": "No deliveries match the current filter.",
+    "filter_all": "All",
+    "filter_pending": "Pending",
+    "filter_in_flight": "In-flight",
+    "filter_delivered": "Delivered",
+    "filter_failed": "Failed",
+    "col_when": "When",
+    "col_event_type": "Event",
+    "col_status": "Status",
+    "col_attempts_short": "Try #",
+    "col_response": "HTTP",
+    "col_error": "Error / response",
+    "status_pending": "pending",
+    "status_in_flight": "in-flight",
+    "status_delivered": "delivered",
+    "status_failed": "failed"
+  },
   "admin_normalizer_rules": {
     "title": "Normaliser rules",
     "description": "Regex rules merged on top of the in-code material normaliser. New rules take effect on the next scrape — no redeploy needed.",
@@ -142,6 +205,164 @@
       "weekly_digest_email": {
         "title": "Weekly digest",
         "description": "Activity summary across the projects you watch."
+      }
+    }
+  },
+  "marketing": {
+    "nav": {
+      "pricing": "Pricing",
+      "docs": "Docs",
+      "about": "About",
+      "login": "Sign in",
+      "signup": "Try free"
+    },
+    "footer": {
+      "tagline": "An AEC platform built for Vietnam.",
+      "webhooks": "Webhooks"
+    },
+    "hero": {
+      "eyebrow": "AEC software, built for Vietnam",
+      "title": "Run construction projects from proposal to handover — on one platform.",
+      "subtitle": "AEC Platform brings 14 purpose-built modules for the architecture, engineering, and construction industry into one place: proposals, bidding, the site, safety, handover, and more. AI-native, bilingual, ready for teams in Vietnam.",
+      "cta_primary": "Start free trial",
+      "cta_secondary": "See pricing"
+    },
+    "modules": {
+      "title": "14 modules, one platform",
+      "subtitle": "Organised by project lifecycle — pick what fits your team's stage today, scale into the rest as you grow.",
+      "bucket": {
+        "pre": { "title": "Pre-construction", "subtitle": "From finding the work to signing the contract." },
+        "live": { "title": "On site", "subtitle": "Track progress, schedule, and safety in real time." },
+        "close": { "title": "Close-out & operate", "subtitle": "Handover, punch lists, change orders, and code compliance." }
+      },
+      "winwork": { "name": "WinWork", "tagline": "Proposals, fee estimates, and win-rate analytics." },
+      "bidradar": { "name": "BidRadar", "tagline": "Track public tenders and new opportunities daily." },
+      "costpulse": { "name": "CostPulse", "tagline": "Live materials pricing, alerts, and rapid take-offs." },
+      "drawbridge": { "name": "Drawbridge", "tagline": "Drawing management, RFIs, and cross-discipline coordination." },
+      "pulse": { "name": "Pulse", "tagline": "Project pulse — schedule, budget, and risk at a glance." },
+      "siteeye": { "name": "SiteEye", "tagline": "AI camera analytics for PPE compliance and site safety." },
+      "schedulepilot": { "name": "SchedulePilot", "tagline": "Schedules, critical path, and what-if delay simulations." },
+      "submittals": { "name": "Submittals", "tagline": "Approval workflows for materials, samples, and inspections." },
+      "dailylog": { "name": "DailyLog", "tagline": "Site diaries with photos, GPS, and one-click PDF export." },
+      "handover": { "name": "Handover", "tagline": "Closeout package, warranties, and ops documentation." },
+      "punchlist": { "name": "Punchlist", "tagline": "Defect lists tracked from open to closed." },
+      "changeorder": { "name": "ChangeOrder", "tagline": "Change orders, approvals, and cost impact tracking." },
+      "codeguard": { "name": "CodeGuard", "tagline": "AI assistant that answers QCVN/TCVN questions in your design tool." }
+    },
+    "why": {
+      "title": "Why AEC Platform",
+      "local": { "title": "Built for Vietnam", "body": "Native QCVN/TCVN workflows, Vietnamese document templates, VND-first pricing, and project-level RBAC." },
+      "ai": { "title": "AI as a teammate, not a feature", "body": "An assistant with full project context drafts proposals, checks code compliance, and triages site photos." },
+      "open": { "title": "Open and integrable", "body": "APIs, webhooks, and clean exports plug into accounting, ERP, and BIM tools you already use." }
+    },
+    "cta": {
+      "title": "Ready to try it on a real project?",
+      "subtitle": "Free trial in 2 minutes. No credit card required. Cancel anytime.",
+      "primary": "Start trial",
+      "secondary": "Talk to sales"
+    },
+    "pricing": {
+      "title": "Simple per-user pricing",
+      "subtitle": "Pay monthly, no long-term lock-in. Every plan includes all 14 modules.",
+      "popular": "Most popular",
+      "per_user_month": " /user/month",
+      "tier": {
+        "starter": { "name": "Starter", "tagline": "Small teams, your first project on the platform.", "price": "₫490,000", "cta": "Start free trial" },
+        "growth": { "name": "Growth", "tagline": "Growing firms running multiple concurrent projects.", "price": "₫890,000", "cta": "Start with Growth" },
+        "scale": { "name": "Scale", "tagline": "General contractors and multi-branch enterprises.", "price": "Contact us", "cta": "Talk to sales" }
+      },
+      "feature": {
+        "modules_all": "All 14 modules",
+        "users_5": "Up to 5 users",
+        "users_25": "Up to 25 users",
+        "users_unlimited": "Unlimited users",
+        "ai_assistant": "AI assistant",
+        "api_keys": "API keys for integrations",
+        "webhooks": "Event webhooks",
+        "audit_export": "Audit log export",
+        "sla_8h": "8-hour support SLA",
+        "sla_2h": "2-hour support SLA",
+        "dedicated_csm": "Dedicated customer success manager"
+      },
+      "footer_note": "Public-sector or specialised use case? <contact>Talk to sales</contact> for a tailored plan."
+    },
+    "about": {
+      "title": "Who we are",
+      "subtitle": "A small team that believes construction software for Vietnam should be built in Vietnam, for Vietnamese teams.",
+      "story": {
+        "p1": "AEC Platform started from a simple question: why are construction teams in Vietnam still stitching together Excel, Zalo, and five disconnected tools to run a project?",
+        "p2": "We built 14 modules on a single platform, connected by shared data and an AI assistant that understands the project context.",
+        "p3": "The product is early, but the philosophy is clear: prioritise Vietnamese users, stay open to integrate, let AI take the repetitive work."
+      },
+      "numbers": {
+        "modules": "Modules shipped",
+        "languages": "Languages",
+        "regions": "Markets",
+        "version": "Version"
+      },
+      "contact": {
+        "title": "Get in touch",
+        "body": "Questions, feedback, or partnerships — drop us a line.",
+        "email_label": "General",
+        "sales_label": "Sales"
+      }
+    },
+    "docs": {
+      "hub": {
+        "title": "Developer docs",
+        "intro": "Reference for partner integrations: REST API, webhooks, ops surface. Public on purpose — read these before signing up to evaluate whether the platform fits your stack.",
+        "manage_keys_hint": "Have an API key already? Manage them at <link>/settings/api-keys</link> (admin-only). For typed clients, the auto-generated TypeScript SDK lives at <code>@aec/sdk</code>.",
+        "pages": {
+          "api": {
+            "title": "API reference",
+            "description": "Authenticate via API keys, send authenticated requests, handle rate limits and errors. Code samples in curl + Python + TypeScript. Includes the sandbox-mode walkthrough."
+          },
+          "webhooks": {
+            "title": "Webhooks",
+            "description": "Subscribe to platform events. HMAC-SHA256 signing, retry schedule, replay protection, dead-letter handling."
+          },
+          "events": {
+            "title": "Event catalog",
+            "description": "Every webhook event the platform emits, grouped by source module. Each event has a description and an illustrative payload sample."
+          },
+          "ops": {
+            "title": "Operations",
+            "description": "Health probes (/healthz, /readyz), Prometheus scrape config (/metrics), example k8s manifests, alert rules."
+          }
+        }
+      },
+      "events": {
+        "back_link": "Webhook overview",
+        "title": "Event catalog",
+        "intro": "Every webhook event the platform emits, grouped by source module. Each card lists the event type, when it fires, and an illustrative payload sample.",
+        "count": "{events} events across {modules} module(s). Sample payloads show the fields you can rely on; additional fields may appear (best-effort) and may change between releases.",
+        "event_count": "{n} event(s)",
+        "unreachable": "Catalog is currently unreachable. The full list lives in <code>services/webhooks.py::EVENT_CATALOG</code> on the source repo.",
+        "payload_sample_label": "Payload sample"
+      },
+      "translation_notice": {
+        "title": "English translation in progress",
+        "body": "This page is currently Vietnamese-canonical. The English translation is being rolled out incrementally — headers and side-text are translated, but the body content is still in the original Vietnamese. Email hello@aec-platform.vn if you need a complete English reference today."
+      }
+    },
+    "auth": {
+      "email_label": "Email",
+      "login": {
+        "subtitle": "Sign in to continue",
+        "submit": "Sign in",
+        "submitting": "Signing in…"
+      },
+      "signup": {
+        "subtitle": "Create a free account",
+        "password_label": "Password (≥ 8 chars)",
+        "submit": "Sign up",
+        "submitting": "Signing up…",
+        "have_account": "Already have an account? <link>Sign in</link>"
+      },
+      "confirm": {
+        "title": "Check your email",
+        "body": "We just sent a confirmation link to <email></email>. Open it and come back here to sign in.",
+        "back_to_login": "Back to sign in"
       }
     }
   }
