@@ -55,6 +55,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Shell injection](#shell-injection)
 - [Singleton comparison](#singleton-comparison)
 - [Sync open in async](#sync-open-in-async)
+- [Sync requests in async](#sync-requests-in-async)
 - [Tenant predicate](#tenant-predicate)
 - [Todo aging](#todo-aging)
 - [Type ignore specificity](#type-ignore-specificity)
@@ -573,6 +574,19 @@ Sync `open()` inside `async def` audit.
 | `BASELINE_SYNC_OPEN_IN_ASYNC` | `2` |
 
 **Tests**: `test_no_sync_open_in_async_function`, `test_audit_recognises_documented_patterns`, `test_allowlist_entries_actually_correspond_to_real_calls`
+
+## Sync requests in async <a id="sync-requests-in-async"></a>
+_File:_ `apps/api/tests/test_sync_requests_in_async_audit.py`
+
+`requests.<verb>(...)` (or other sync HTTP) in async function audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_SYNC_HTTP_IN_ASYNC` | `0` |
+
+**Tests**: `test_no_sync_http_in_async_function`, `test_audit_recognises_documented_patterns`
 
 ## Tenant predicate <a id="tenant-predicate"></a>
 _File:_ `apps/api/tests/test_tenant_predicate_audit.py`
