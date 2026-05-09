@@ -52,6 +52,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Router handlers are async](#router-handlers-are-async)
 - [Secret access](#secret-access)
 - [Shell injection](#shell-injection)
+- [Singleton comparison](#singleton-comparison)
 - [Sync open in async](#sync-open-in-async)
 - [Tenant predicate](#tenant-predicate)
 - [Todo aging](#todo-aging)
@@ -532,6 +533,19 @@ Shell-injection guard audit.
 | `BASELINE_SHELL_INJECTIONS` | `0` |
 
 **Tests**: `test_no_shell_injection_call_sites`, `test_audit_recognises_documented_shapes`, `test_allowlist_entries_actually_correspond_to_real_calls`
+
+## Singleton comparison <a id="singleton-comparison"></a>
+_File:_ `apps/api/tests/test_singleton_comparison_audit.py`
+
+`==` against None/True/False audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_SINGLETON_EQ` | `0` |
+
+**Tests**: `test_no_eq_against_singletons`, `test_audit_recognises_documented_shapes`
 
 ## Sync open in async <a id="sync-open-in-async"></a>
 _File:_ `apps/api/tests/test_sync_open_in_async_audit.py`
