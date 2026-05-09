@@ -680,7 +680,7 @@ Untyped function-signature audit.
 
 | Constant | Value |
 |---|---|
-| `BASELINE_UNTYPED_SLOTS` | `204` |
+| `BASELINE_UNTYPED_SLOTS` | `179` |
 
 **Tests**: `test_untyped_function_slot_count_does_not_grow`, `test_audit_recognises_documented_shapes`, `test_allowlist_entries_actually_correspond_to_real_functions`
 
