@@ -1,0 +1,93 @@
+name: Audit baseline drift
+
+# Posts a markdown table on every PR showing which `BASELINE_*`
+# constants moved between `main` and the PR's HEAD. The table is a
+# sticky comment (a marker comment is updated in place on subsequent
+# pushes) so the PR's conversation tab doesn't fill with stale drift
+# tables on every push.
+#
+# The workflow doesn't fail the PR — drift is informational, not
+# gating. The audits themselves are the ratchet; this just surfaces
+# the deltas to reviewers.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  # Allow re-running by hand from the Actions tab, useful when a
+  # reviewer wants a fresh table after a comment edit etc.
+  workflow_dispatch:
+
+# Comments are author-attributable; we need write permission on
+# pull-requests + the contents to fetch.
+permissions:
+  contents: read
+  pull-requests: write
+
+# Cancel in-flight runs when a new push lands. The drift report is
+# fast (<5s) but it's not worth keeping a stale run alive when the
+# branch already moved on.
+concurrency:
+  group: audit-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: Compute + post drift table
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Fetch enough history that `git show main:<path>` works.
+          # depth=0 fetches everything; we don't need the full tree
+          # but the script does walk every audit file at the base ref.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Generate drift report
+        id: drift
+        working-directory: apps/api
+        # `origin/main` is the canonical base. The PR's HEAD is what
+        # GHA checked out, so HEAD points at the merge commit's first
+        # parent (the PR branch tip).
+        run: |
+          python -m scripts.audit_baseline_drift \
+            --base "origin/${{ github.base_ref }}" \
+            --head HEAD \
+            --output "$RUNNER_TEMP/drift.md"
+          # Make the file path discoverable to later steps.
+          echo "report_path=$RUNNER_TEMP/drift.md" >> "$GITHUB_OUTPUT"
+
+      - name: Post sticky comment
+        uses: actions/github-script@v8
+        env:
+          REPORT_PATH: ${{ steps.drift.outputs.report_path }}
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync(process.env.REPORT_PATH, 'utf8');
+            // Sticky-comment marker. We look for this exact string in
+            // existing comments to find the one to update; new PRs
+            // get a fresh comment with the marker baked in.
+            const marker = '<!-- audit-baseline-drift-bot -->';
+            const fullBody = `${marker}\n${body}`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            // List existing comments and find ours.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: existing.id, body: fullBody,
+              });
+              core.info(`Updated existing drift comment (#${existing.id}).`);
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number, body: fullBody,
+              });
+              core.info('Created new drift comment.');
+            }
