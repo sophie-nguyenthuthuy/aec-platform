@@ -26,6 +26,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Fk index coverage](#fk-index-coverage)
 - [Fk ondelete](#fk-ondelete)
 - [Frontend bundle composition](#frontend-bundle-composition)
+- [Future annotations import](#future-annotations-import)
 - [Http status constants](#http-status-constants)
 - [Idempotency contract](#idempotency-contract)
 - [Input schemas no organization id](#input-schemas-no-organization-id)
@@ -34,6 +35,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Migration upgrade downgrade symmetry](#migration-upgrade-downgrade-symmetry)
 - [N plus one](#n-plus-one)
 - [Naive datetime](#naive-datetime)
+- [Noqa specificity](#noqa-specificity)
 - [Openapi route docs](#openapi-route-docs)
 - [Openapi tags](#openapi-tags)
 - [Orm tables organization id](#orm-tables-organization-id)
@@ -234,6 +236,13 @@ Frontend bundle composition tracker.
 
 **Tests**: `test_no_unreviewed_packages_enter_the_bundle`, `test_no_server_only_imports_in_client_source`, `test_allowlist_entries_correspond_to_real_files`, `test_audit_recognises_documented_import_shapes`
 
+## Future annotations import <a id="future-annotations-import"></a>
+_File:_ `apps/api/tests/test_future_annotations_import_audit.py`
+
+Audit: every Python file under `apps/api/` has `from __future__ import annotations` near the top.
+
+**Tests**: `test_every_python_file_has_future_annotations`, `test_audit_finds_python_files`
+
 ## Http status constants <a id="http-status-constants"></a>
 _File:_ `apps/api/tests/test_http_status_constants_audit.py`
 
@@ -326,6 +335,19 @@ Naive-datetime audit.
 | `BASELINE_NAIVE_DATETIMES` | `0` |
 
 **Tests**: `test_no_new_naive_datetime_call_sites`, `test_audit_recognises_documented_naive_shapes`, `test_allowlist_entries_actually_correspond_to_real_lines`
+
+## Noqa specificity <a id="noqa-specificity"></a>
+_File:_ `apps/api/tests/test_noqa_specificity_audit.py`
+
+`# noqa` specificity audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_BARE_NOQA` | `0` |
+
+**Tests**: `test_no_bare_noqa_comments`, `test_audit_recognises_documented_shapes`
 
 ## Openapi route docs <a id="openapi-route-docs"></a>
 _File:_ `apps/api/tests/test_openapi_route_docs_audit.py`
