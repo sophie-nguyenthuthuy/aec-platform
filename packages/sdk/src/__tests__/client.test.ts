@@ -227,7 +227,7 @@ describe("AecClientCore", () => {
     const err = await promise;
 
     expect(err).toBeInstanceOf(AecApiError);
-    expect(err.status).toBe(500);
+    expect((err as AecApiError).status).toBe(500);
     expect(fetchMock).toHaveBeenCalledTimes(3); // initial + 2 retries
   });
 
