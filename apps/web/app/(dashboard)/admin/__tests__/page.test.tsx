@@ -44,6 +44,7 @@ const EXPECTED_TILES: ReadonlyArray<{ href: string; title: string }> = [
   { href: "/admin/webhook-deliveries", title: "Webhook deliveries" },
   { href: "/admin/slack-deliveries", title: "Slack deliveries" },
   { href: "/admin/crons", title: "Cron jobs" },
+  { href: "/admin/retention", title: "Data retention" },
   { href: "/admin/scrapers", title: "Price scrapers" },
   { href: "/admin/normalizer-rules", title: "Normaliser rules" },
 ];

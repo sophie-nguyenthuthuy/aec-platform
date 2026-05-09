@@ -28,6 +28,7 @@ what to read when the dashboard turns red.
 | Slack deliveries           | `/admin/slack-deliveries`      | [`runbook-slack-deliveries.md`](runbook-slack-deliveries.md) | `tests/test_slack_deliveries_surface_pin.py` + `tests/test_slack_render_contract_pin.py` | `hooks/admin/__tests__/useSlackDeliveries.test.tsx`           |
 | Cron jobs                  | `/admin/crons`                 | [`runbook-cron-admin.md`](runbook-cron-admin.md) + [`runbook-cron-watchdog.md`](runbook-cron-watchdog.md) | `tests/test_cron_admin_surface_pin.py` + `tests/test_cron_telemetry_behaviour_pin.py` + `tests/test_cron_alerts_watchdog_pin.py` | `hooks/admin/__tests__/useCrons.test.tsx`                     |
 | Cron drilldown (per-cron)  | `/admin/crons/[cron_name]`     | (same as parent)                                             | (same as parent — `/runs` endpoint pinned)           | `hooks/admin/__tests__/useCronRuns.test.tsx`                  |
+| Data retention             | `/admin/retention`             | _(no runbook yet — telemetry of `retention_prune_cron`)_     | _(none)_                                             | _(none)_                                                       |
 
 ## Configuration / management dashboards
 
