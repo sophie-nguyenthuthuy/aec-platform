@@ -115,3 +115,39 @@ repos:
         entry: bash -c 'cd apps/api && pytest tests/test_integrator_surface_snapshot.py -q'
         pass_filenames: false
         files: ^apps/api/(routers/(api_keys|ops|webhooks|admin)\.py|services/api_keys\.py|middleware/(auth|api_key_auth)\.py|core/config\.py|schemas/webhooks\.py|main\.py|tests/test_integrator_surface_snapshot\.py)$
+
+      # ---------- Ratchet audit suite ----------
+      # Runs every `tests/test_*_audit.py` in one pass (~5s). These are
+      # the audits that pin numeric baselines across the codebase
+      # (cron mutexes, tenant predicates, Pydantic strictness,
+      # complexity budgets, bundle composition, etc.) — adding a new
+      # offender red-gates the commit, removing one prompts a baseline
+      # bump-down.
+      #
+      # Why pre-commit (not just CI): the audits' failure messages
+      # tell you exactly what to add (or which ALLOWLIST entry to
+      # delete). Catching at `git commit` time means the operator
+      # sees the message in the same window they wrote the code.
+      #
+      # `language: system` reuses the active venv — the audits import
+      # FastAPI / Pydantic / SQLAlchemy and reinstalling those under
+      # a pre-commit-owned virtualenv would add ~30s to every commit.
+      #
+      # Glob form (`tests/test_*_audit.py`) instead of `-k audit`:
+      # `-k` filters after pytest's collection step, so an unrelated
+      # broken import would fail the audit run before it starts.
+      # Globbing the path bypasses collection of non-audit files.
+      - id: ratchet-audits
+        name: Ratchet audit suite (cron, tenant, schema, complexity, …)
+        language: system
+        entry: bash -c 'cd apps/api && pytest tests/test_*_audit.py -q --no-header'
+        pass_filenames: false
+        files: |
+          (?x)^(
+            apps/api/(core|db|middleware|models|routers|schemas|services|workers)/.+\.py|
+            apps/api/tests/test_.+_audit\.py|
+            apps/api/main\.py|
+            apps/api/alembic/versions/.+\.py|
+            apps/worker/tasks\.py|
+            apps/web/(app|components|hooks|lib)/.+\.(ts|tsx|js|jsx|mjs)
+          )$

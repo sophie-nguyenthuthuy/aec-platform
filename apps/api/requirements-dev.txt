@@ -12,4 +12,13 @@ pytest-asyncio==0.24.0
 # version; major bumps occasionally change the XML/JSON report shape
 # that CI artifact consumers depend on, which would silently red CI.
 pytest-cov==6.0.0
+# pytest-timeout: per-test timeout that interrupts a single hung test
+# rather than letting the whole suite block until the GitHub-hosted
+# runner is preempted. Two consecutive CI runs on `feat/ai-assistant-rbac`
+# died at the runner level (one "shutdown signal" at 11min, one "lost
+# communication" at 52min) without producing test output — strong
+# signal that a test was hanging long enough to exhaust the runner's
+# resources. Set `--timeout=120 --timeout-method=thread` on the CI
+# invocation; thread-based timeout is asyncio-safe (signal-based isn't).
+pytest-timeout==2.4.0
 httpx==0.27.2
