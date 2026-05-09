@@ -198,12 +198,8 @@ def test_every_audit_record_action_in_literal():
 
     assert not bad_actions, (
         "These audit-record call sites pass an `action` string "
-        "that's NOT in the canonical AuditAction Literal:\n  "
-        + "\n  ".join(sorted(bad_actions))
-        + "\n\n"
-        f"Canonical actions ({len(canonical_actions)} total):\n  "
-        + "\n  ".join(sorted(canonical_actions))
-        + "\n\n"
+        "that's NOT in the canonical AuditAction Literal:\n  " + "\n  ".join(sorted(bad_actions)) + "\n\n"
+        f"Canonical actions ({len(canonical_actions)} total):\n  " + "\n  ".join(sorted(canonical_actions)) + "\n\n"
         "COMPLIANCE: an audit row with a non-canonical action "
         "string still writes, but compliance queries that "
         "GROUP BY action OR filter on the canonical strings "
@@ -218,9 +214,7 @@ def test_every_audit_record_action_in_literal():
 
     assert not dynamic_sites_unallowlisted, (
         "These audit-record call sites use a non-literal "
-        "`action=` expression (variable / f-string):\n  "
-        + "\n  ".join(sorted(dynamic_sites_unallowlisted))
-        + "\n\n"
+        "`action=` expression (variable / f-string):\n  " + "\n  ".join(sorted(dynamic_sites_unallowlisted)) + "\n\n"
         "The audit can't statically resolve dynamic values. "
         "Resolution:\n"
         "  1. Refactor to pass a literal string (preferred — "
