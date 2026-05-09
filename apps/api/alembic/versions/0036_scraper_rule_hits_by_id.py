@@ -32,7 +32,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0036_scraper_runs_rule_hits_by_id"
+revision = "0036_scraper_rule_hits_by_id"
 down_revision = "0035_codeguard_user_usage"
 branch_labels = None
 depends_on = None

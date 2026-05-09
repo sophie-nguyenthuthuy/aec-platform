@@ -38,7 +38,7 @@ Schema rationale:
     retention registry with `default_days=1`.
 
 Revision ID: 0037_idempotency_records
-Revises: 0036_scraper_runs_rule_hits_by_id
+Revises: 0036_scraper_rule_hits_by_id
 Create Date: 2026-05-04
 """
 
@@ -49,7 +49,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0037_idempotency_records"
-down_revision = "0036_scraper_runs_rule_hits_by_id"
+down_revision = "0036_scraper_rule_hits_by_id"
 branch_labels = None
 depends_on = None
 

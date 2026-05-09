@@ -39,7 +39,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0037_slack_deliveries"
-down_revision = "0036_scraper_runs_rule_hits_by_id"
+down_revision = "0036_scraper_rule_hits_by_id"
 branch_labels = None
 depends_on = None
 

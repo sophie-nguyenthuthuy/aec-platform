@@ -23,7 +23,7 @@ landing this green is the whole reason that test exists.
 from __future__ import annotations
 
 # Alembic identifiers.
-revision = "0041_merge_api_keys_codeguard_route"
+revision = "0041_merge_api_keys_cg_route"
 down_revision = (
     "0039_api_keys_project_ids",
     "0040_codeguard_user_usage_route",

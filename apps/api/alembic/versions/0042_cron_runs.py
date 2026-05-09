@@ -42,7 +42,7 @@ What this migration does NOT do:
     side-channel that complements audit, not replaces it.
 
 Revision ID: 0042_cron_runs
-Revises: 0041_merge_api_keys_codeguard_route
+Revises: 0041_merge_api_keys_cg_route
 Create Date: 2026-05-09
 """
 
@@ -53,7 +53,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0042_cron_runs"
-down_revision = "0041_merge_api_keys_codeguard_route"
+down_revision = "0041_merge_api_keys_cg_route"
 branch_labels = None
 depends_on = None
 
