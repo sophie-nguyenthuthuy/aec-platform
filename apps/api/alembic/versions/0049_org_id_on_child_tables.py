@@ -85,6 +85,13 @@ def upgrade() -> None:
             ondelete="CASCADE",
         )
         op.execute(f"ALTER TABLE {child} ENABLE ROW LEVEL SECURITY")
+        # Drop any pre-existing policy of the same name first. boq_items
+        # got an `EXISTS-against-estimates` policy in 0002_costpulse —
+        # we replace it here with the now-direct organization_id check
+        # (cheaper plan, no parent join required). The other two child
+        # tables don't have a prior policy; the IF EXISTS makes the
+        # operation idempotent across them too.
+        op.execute(f"DROP POLICY IF EXISTS tenant_isolation_{child} ON {child}")
         op.execute(
             f"CREATE POLICY tenant_isolation_{child} ON {child} "
             "USING (organization_id = current_setting('app.current_org_id', true)::uuid) "
