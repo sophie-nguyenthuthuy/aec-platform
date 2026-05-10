@@ -84,6 +84,12 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("/invitations/{token}/accept", "POST"): "creates the user; audited via invitation.create",
     # Onboarding: ditto — the user has no audit identity yet.
     ("/onboarding/seed-demo", "POST"): "first-sign-in seeding; pre-audit-identity",
+    # Webhook signature-verification diagnostic: stateless HMAC
+    # check for partners debugging their integration BEFORE
+    # getting an API key. No DB writes, no authenticated actor,
+    # secret supplied by the caller (not retrieved). Nothing
+    # for an audit row to attribute or recover.
+    ("/verify-signature", "POST"): "stateless HMAC diagnostic; no auth, no DB writes",
 }
 
 

@@ -73,7 +73,7 @@ class GenericProvinceScraper(BaseScraper):
     unless the province's DOC site diverges from the template.
     """
 
-    def __init__(self, config: ProvinceConfig, *, http_client=None) -> None:
+    def __init__(self, config: ProvinceConfig, *, http_client: httpx.AsyncClient | None = None) -> None:
         self._config = config
         self._http = http_client
 
@@ -145,7 +145,7 @@ class GenericProvinceScraper(BaseScraper):
         except Exception as exc:
             raise ScrapeError(f"generic scrape failed for {self._config.slug}: {exc}") from exc
 
-    async def _get_client(self):
+    async def _get_client(self) -> httpx.AsyncClient:
         if self._http is not None:
             return self._http
         import httpx

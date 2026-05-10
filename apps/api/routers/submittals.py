@@ -381,30 +381,29 @@ async def review_revision(
         # the submittal stays open.
         from services import audit as _audit
 
-        verdict_to_action: dict[str, str] = {
-            "approved": "submittals.review.approve",
-            "approved_as_noted": "submittals.review.approve_as_noted",
-            "revise_resubmit": "submittals.review.revise_resubmit",
-            "rejected": "submittals.review.reject",
-        }
-        verdict_action = verdict_to_action.get(payload.review_status.value)
-        if verdict_action is not None:
-            await _audit.record(
-                session,
-                organization_id=auth.organization_id,
-                auth=auth,
-                action=verdict_action,  # type: ignore[arg-type]
-                resource_type="submittals",
-                resource_id=rev_d["submittal_id"],
-                before={"revision_id": str(revision_id)},
-                after={
-                    "review_status": payload.review_status.value,
-                    "submittal_status": new_sub_status,
-                    "ball_in_court": new_bic,
-                    "reviewer_notes": payload.reviewer_notes,
-                },
-                request=request,
-            )
+        _audit_kwargs = dict(
+            organization_id=auth.organization_id,
+            auth=auth,
+            resource_type="submittals",
+            resource_id=rev_d["submittal_id"],
+            before={"revision_id": str(revision_id)},
+            after={
+                "review_status": payload.review_status.value,
+                "submittal_status": new_sub_status,
+                "ball_in_court": new_bic,
+                "reviewer_notes": payload.reviewer_notes,
+            },
+            request=request,
+        )
+        verdict_value = payload.review_status.value
+        if verdict_value == "approved":
+            await _audit.record(session, action="submittals.review.approve", **_audit_kwargs)
+        elif verdict_value == "approved_as_noted":
+            await _audit.record(session, action="submittals.review.approve_as_noted", **_audit_kwargs)
+        elif verdict_value == "revise_resubmit":
+            await _audit.record(session, action="submittals.review.revise_resubmit", **_audit_kwargs)
+        elif verdict_value == "rejected":
+            await _audit.record(session, action="submittals.review.reject", **_audit_kwargs)
 
         await session.commit()
 

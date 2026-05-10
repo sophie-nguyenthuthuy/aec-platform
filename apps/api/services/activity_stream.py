@@ -240,7 +240,7 @@ async def subscribe_activity(
 # ---------- Pool helper ----------
 
 
-async def _redis_or_none():
+async def _redis_or_none() -> ArqRedis | None:
     """Pull the arq Redis pool lazily. Mirrors the same shape used by
     `middleware.api_key_auth._get_redis` so a no-Redis dev env doesn't
     fail to boot."""

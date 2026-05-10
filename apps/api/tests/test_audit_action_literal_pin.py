@@ -30,7 +30,7 @@ from typing import get_args
 
 from services.audit import AuditAction
 
-# Source of truth, pinned 2026-05-04. Each entry's grouping comment
+# Source of truth, pinned 2026-05-10. Each entry's grouping comment
 # mirrors the ordering in `services.audit.AuditAction` so a reviewer
 # can scan the two files side-by-side. Keep the comments in lockstep
 # with the literal — they're load-bearing for human review.
@@ -65,6 +65,10 @@ EXPECTED: frozenset[str] = frozenset(
         "admin.normalizer_rule.create",
         "admin.normalizer_rule.update",
         "admin.normalizer_rule.delete",
+        # Webhook secret rotation
+        "webhooks.subscription.rotate_secret",
+        # Operator-triggered manual cron run
+        "admin.cron.run_now",
     }
 )
 

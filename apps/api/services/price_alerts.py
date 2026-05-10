@@ -118,7 +118,7 @@ async def evaluate_price_alerts() -> dict:
     return summary
 
 
-async def _update_baseline(session, alert_id: UUID, current: Decimal) -> None:
+async def _update_baseline(session: AsyncSession, alert_id: UUID, current: Decimal) -> None:
     await session.execute(
         text("UPDATE price_alerts SET last_price_vnd = :p WHERE id = :id"),
         {"p": current, "id": str(alert_id)},
@@ -134,7 +134,7 @@ async def _notify(
     baseline: Decimal,
     current: Decimal,
     delta_pct: Decimal,
-    effective_date,
+    effective_date: date,
 ) -> None:
     direction = "↑" if delta_pct > 0 else "↓"
     province_label = province or "nationwide"

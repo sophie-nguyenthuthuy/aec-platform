@@ -69,7 +69,7 @@ def parse_suppliers_xlsx(content: bytes) -> list[SupplierRow]:
     return out
 
 
-def _cell_to_str(value) -> str:
+def _cell_to_str(value: Any) -> str:
     """openpyxl returns native types (int / datetime / None / str). The
     column-detection layer expects strings; coerce here once."""
     if value is None:

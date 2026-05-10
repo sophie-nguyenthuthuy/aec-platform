@@ -84,7 +84,7 @@ def parse_docx_bulletin(
     return []
 
 
-def _rows_from_docx_table(table) -> list[list[str]]:
+def _rows_from_docx_table(table: Any) -> list[list[str]]:
     """Flatten a python-docx Table to list[list[str]] — cells joined by newline within each cell."""
     out: list[list[str]] = []
     for row in table.rows:

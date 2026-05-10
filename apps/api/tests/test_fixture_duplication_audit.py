@@ -57,7 +57,11 @@ PATTERNS: dict[str, str] = {
 # ratchets independently.
 BASELINES: dict[str, int] = {
     "langchain_stubs": 1,
-    "fake_execute_result": 12,
+    # 2026-05: 12 → 13 with new tests for assistant streaming +
+    # query budgets. The signal stays loud — past 13 the right
+    # answer is to lift `fake_execute_result` into conftest as a
+    # `make_execute_result(rows: list[Any])` helper.
+    "fake_execute_result": 13,
     "rate_limit_bypass": 0,
 }
 

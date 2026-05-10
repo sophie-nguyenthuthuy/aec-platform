@@ -53,7 +53,7 @@ _SCAN_DIRS = ["apps/api", "apps/ml", "apps/worker", "apps/web", "packages"]
 
 # Today's baselines. Filled in on first run. Same ratchet shape
 # as prior audits.
-BASELINE_UNANNOTATED_TODOS = 3
+BASELINE_UNANNOTATED_TODOS = 0
 BASELINE_STALE_TODOS = 0
 
 

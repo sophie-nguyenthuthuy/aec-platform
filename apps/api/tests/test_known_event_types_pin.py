@@ -63,6 +63,8 @@ EXPECTED: frozenset[str] = frozenset(
         "admin.normalizer_rule.create",
         "admin.normalizer_rule.update",
         "admin.normalizer_rule.delete",
+        "webhooks.subscription.rotate_secret",
+        "admin.cron.run_now",
         # ---- Non-audit creations (not gated by RBAC; carry no actor
         # before/after diff, so they're awkward to log to audit but
         # high-value to webhook).

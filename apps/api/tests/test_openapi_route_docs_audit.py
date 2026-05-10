@@ -51,6 +51,8 @@ RESPONSE_MODEL_ALLOWLIST: dict[tuple[str, str], str] = {
     ("/api/v1/codeguard/scan/stream", "POST"): "SSE stream of partial results",
     ("/api/v1/codeguard/permit-checklist/stream", "POST"): "SSE stream of partial results",
     ("/api/v1/assistant/projects/{project_id}/ask/stream", "POST"): "SSE stream of LLM tokens",
+    # File downloads — body is text/csv, not JSON.
+    ("/api/v1/audit/events.csv", "GET"): "Streaming CSV export, not JSON",
 }
 
 
@@ -58,7 +60,7 @@ RESPONSE_MODEL_ALLOWLIST: dict[tuple[str, str], str] = {
 # When the count drops, lower the baseline in the same PR; at 0,
 # flip to strict equality and remove the constant.
 BASELINE_UNDOCUMENTED_NAME = 131
-BASELINE_NO_RESPONSE_MODEL = 170  # 2026-05: 161→170 across slack_deliveries / webhook_deliveries / cron_admin / activity_stream / latest linter route additions
+BASELINE_NO_RESPONSE_MODEL = 30  # 2026-05: 170→34→30 — parallel-session typing pass added return annotations to ~135 handlers across costpulse / handover / changeorder / schedulepilot / dailylog / punchlist; audit/events.csv added to RESPONSE_MODEL_ALLOWLIST
 
 
 _HTTP_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})

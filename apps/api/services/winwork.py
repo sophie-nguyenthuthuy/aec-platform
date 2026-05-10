@@ -321,7 +321,7 @@ async def send_proposal_email(session: AsyncSession, proposal: Proposal, payload
     so the request returns quickly."""
     if not proposal.client_email:
         raise ValueError("Proposal has no client_email")
-    # TODO: integrate with email transport (Celery task posting to SES/SMTP).
+    # TODO(triage 2026-05): integrate with email transport (Celery task posting to SES/SMTP).
     await mark_sent(session, proposal.id)
 
 

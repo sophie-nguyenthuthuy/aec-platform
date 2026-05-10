@@ -83,6 +83,8 @@ _KNOWN_EVENT_TYPES: set[str] = {
     "admin.normalizer_rule.create",
     "admin.normalizer_rule.update",
     "admin.normalizer_rule.delete",
+    "webhooks.subscription.rotate_secret",
+    "admin.cron.run_now",
     # Non-audit creations (not gated by RBAC; carry no actor
     # before/after diff, so they're awkward to log to audit but
     # high-value to webhook)
@@ -197,6 +199,14 @@ EVENT_CATALOG: dict[str, dict[str, str | dict[str, Any]]] = {
     "admin.normalizer_rule.delete": {
         "description": "Normaliser rule removed (or soft-disabled).",
         "payload_sample": {"rule_id": "<uuid>"},
+    },
+    "webhooks.subscription.rotate_secret": {
+        "description": "A webhook subscription's signing secret was rotated by an admin. Receivers should re-fetch the secret out-of-band; deliveries signed with the previous secret will start failing verification at rotation time.",
+        "payload_sample": {"webhook_id": "<uuid>", "rotated_by": "<user_uuid>"},
+    },
+    "admin.cron.run_now": {
+        "description": "An admin manually triggered a cron job out-of-schedule. Useful for ops dashboards that distinguish operator interventions from scheduled runs.",
+        "payload_sample": {"cron_name": "<string>", "triggered_by": "<user_uuid>"},
     },
     # --- Non-audit events (creations + cron + test fire) ---
     "project.created": {

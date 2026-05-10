@@ -31,7 +31,7 @@ class MinistryOfConstructionScraper(BaseScraper):
     province = "Vietnam"  # Treated as the national fallback row.
     slug = "moc"
 
-    def __init__(self, *, http_client=None) -> None:
+    def __init__(self, *, http_client: httpx.AsyncClient | None = None) -> None:
         # `http_client` is injected for tests. In prod we lazy-import
         # httpx so this module can be imported without network deps.
         self._http = http_client
@@ -52,7 +52,7 @@ class MinistryOfConstructionScraper(BaseScraper):
         except Exception as exc:  # httpx.HTTPError, parse errors, etc.
             raise ScrapeError(f"MOC scrape failed: {exc}") from exc
 
-    async def _get_client(self):
+    async def _get_client(self) -> httpx.AsyncClient:
         if self._http is not None:
             return self._http
         import httpx

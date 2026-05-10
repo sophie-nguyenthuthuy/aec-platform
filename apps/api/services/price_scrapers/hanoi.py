@@ -26,7 +26,7 @@ class HanoiScraper(BaseScraper):
     province = "Hanoi"
     slug = "hanoi"
 
-    def __init__(self, *, http_client=None) -> None:
+    def __init__(self, *, http_client: httpx.AsyncClient | None = None) -> None:
         self._http = http_client
 
     async def scrape(self) -> list[ScrapedPrice]:
@@ -59,7 +59,7 @@ class HanoiScraper(BaseScraper):
         except Exception as exc:
             raise ScrapeError(f"Hanoi scrape failed: {exc}") from exc
 
-    async def _get_client(self):
+    async def _get_client(self) -> httpx.AsyncClient:
         if self._http is not None:
             return self._http
         import httpx

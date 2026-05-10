@@ -61,7 +61,7 @@ ALLOWLIST: dict[str, str] = {
 
 
 # Today's baseline — captured on first run.
-BASELINE_ORPHAN_DOCS = 6  # 2026-05: +2 (slack-deliveries + webhook-deliveries runbooks landed without a docs/index entry; add to the ops runbook index)
+BASELINE_ORPHAN_DOCS = 2  # 2026-05: 6→2 after 4 orphan docs got picked up into the docs index
 
 
 # Markdown link regex matching `[label](target)`. Same shape as

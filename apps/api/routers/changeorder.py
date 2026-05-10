@@ -430,14 +430,28 @@ async def record_approval(
         # audit_events row is the cross-module governance log keyed by
         # (organization, resource_type, resource_id) for the
         # /settings/audit + per-resource panels.
-        if new_status in ("approved", "rejected"):
+        if new_status == "approved":
             from services import audit as _audit
 
             await _audit.record(
                 session,
                 organization_id=auth.organization_id,
                 auth=auth,
-                action=("pulse.change_order.approve" if new_status == "approved" else "pulse.change_order.reject"),
+                action="pulse.change_order.approve",
+                resource_type="change_orders",
+                resource_id=co_id,
+                before={"status": from_status},
+                after={"status": new_status, "notes": payload.notes},
+                request=request,
+            )
+        elif new_status == "rejected":
+            from services import audit as _audit
+
+            await _audit.record(
+                session,
+                organization_id=auth.organization_id,
+                auth=auth,
+                action="pulse.change_order.reject",
                 resource_type="change_orders",
                 resource_id=co_id,
                 before={"status": from_status},

@@ -103,6 +103,11 @@ _FILE_ALLOWLIST: dict[str, str] = {
     "services/audit.py": "audit-row writes are scoped via organization_id parameter, not predicate",
     # Retention cron walks all tenants by design.
     "services/retention.py": "cron-driven cross-tenant prune",
+    # Cron-alert dedup: the `cron_alerts_sent` table is keyed by
+    # (cron_name, kind) — cron alerts are global infrastructure
+    # events, not per-org. Reads/writes go through AdminSessionFactory
+    # by design.
+    "services/cron_alert_dedup.py": "cron-driven cross-tenant alert dedup",
     # Codeguard quotas cron writes cross-tenant aggregates.
     "services/codeguard_quotas.py": "cron + per-org writes parameterised at the call site",
     # Notifications dispatcher iterates across users (not tenant-

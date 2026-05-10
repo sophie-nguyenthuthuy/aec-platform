@@ -74,9 +74,7 @@ _SCAN_DIRS = [_API_ROOT / "routers", _API_ROOT / "services"]
 
 
 # Today's baseline. Filled in on first run.
-BASELINE_UNTYPED_SLOTS = (
-    56  # 2026-05: 58 → 56 after typing 2 service-layer None-returning helpers (with_usage_recording, ask_stream)
-)
+BASELINE_UNTYPED_SLOTS = 39  # 2026-05: 58 → 56 → 39 after further typing passes across routers/services
 
 
 # Per-(relative_path, function_name) allowlist. Each entry needs
