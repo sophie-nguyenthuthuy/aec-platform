@@ -59,20 +59,20 @@ from pathlib import Path
 # deploy hazard.
 _KNOWN_MULTI_HEAD_REVISIONS: frozenset[str] = frozenset(
     {
-        # TODO(triage): `0026_codeguard_quota_audit_log` references
+        # TODO(triage 2026-05): `0026_codeguard_quota_audit_log` references
         # an autogenerate-leftover `ceff072b3343` that doesn't exist.
         # Likely meant to descend from `0025_webhooks`. Until
         # reconciled, 0026 + descendants form a disconnected sub-
         # chain showing as additional heads. Remove this entry once
         # the orphan reference is fixed.
         "0026_codeguard_quota_audit_log",
-        # TODO(triage): `0025_notification_prefs` is a leaf with no
+        # TODO(triage 2026-05): `0025_notification_prefs` is a leaf with no
         # descendant. Likely needs a merge migration that lists it
         # alongside the other 0025_* head (`0025_webhooks`) as a
         # tuple `down_revision`. See `0006_merge_heads.py` (or any
         # other merge migration) for the pattern.
         "0025_notification_prefs",
-        # TODO(triage): same — `0025_webhooks` is a leaf because
+        # TODO(triage 2026-05): same — `0025_webhooks` is a leaf because
         # its supposed descendant `0026` has the dangling
         # down_revision. Fixing 0026's down_revision to point here
         # would also remove this from the heads set.
@@ -87,7 +87,7 @@ _KNOWN_MULTI_HEAD_REVISIONS: frozenset[str] = frozenset(
 # audit ships green WITH these documented so the bug isn't lost —
 # the allowlist IS the triage list.
 _KNOWN_DANGLING_DOWN_REVISIONS: dict[str, str] = {
-    # TODO(triage): autogenerate left a hex revision id that was
+    # TODO(triage 2026-05): autogenerate left a hex revision id that was
     # never landed as a migration file. Fix: update the
     # `down_revision` line in `0026_codeguard_quota_audit_log.py`
     # to point at `0025_webhooks` (or whichever migration was
@@ -105,13 +105,13 @@ _KNOWN_DANGLING_DOWN_REVISIONS: dict[str, str] = {
 # other.
 _KNOWN_FILENAME_MISMATCHES: frozenset[str] = frozenset(
     {
-        # TODO(triage): file says `_notifications`, revision says
+        # TODO(triage 2026-05): file says `_notifications`, revision says
         # `_thresholds`. The DB table the migration creates is
         # `codeguard_quota_threshold_notifications` — so the
         # FILENAME is right and the revision id should be renamed
         # to match.
         "0030_codeguard_quota_threshold_notifications.py",
-        # TODO(triage): file says `_by_route`, revision says
+        # TODO(triage 2026-05): file says `_by_route`, revision says
         # `_route`. Same shape — pick one and align.
         "0040_codeguard_user_usage_by_route.py",
     }
@@ -296,7 +296,7 @@ def test_at_most_one_head_revision_or_explicit_multi_head():
         for down in downs:
             referenced_as_down.add(down)
 
-    heads = {rev for rev in chain.keys() if rev not in referenced_as_down}
+    heads = {rev for rev in chain if rev not in referenced_as_down}
     unallowlisted_heads = heads - _KNOWN_MULTI_HEAD_REVISIONS
 
     assert len(unallowlisted_heads) <= 1, (
@@ -330,8 +330,8 @@ def test_no_cycle_in_migration_chain():
 
     # In-degree against the down-edge: how many times this
     # revision is referenced by a descendant.
-    in_degree: dict[str, int] = {rev: 0 for rev in chain.keys()}
-    for rev, downs in edges.items():
+    in_degree: dict[str, int] = {rev: 0 for rev in chain}
+    for _rev, downs in edges.items():
         for down in downs:
             if down in in_degree:
                 in_degree[down] += 1

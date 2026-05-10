@@ -24,7 +24,7 @@ user logs in, `/api/v1/me/orgs` shows the new membership.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status

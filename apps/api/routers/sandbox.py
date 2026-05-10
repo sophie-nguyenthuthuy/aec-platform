@@ -22,7 +22,7 @@ Mutations are not exposed here in v1 — the rationale is in
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 
