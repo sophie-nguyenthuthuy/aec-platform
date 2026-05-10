@@ -64,7 +64,7 @@ function _extract9Digits(cleaned: string): string | null {
   }
   if (rest.length !== 9) return null;
   if (!/^\d{9}$/.test(rest)) return null;
-  if (!VN_MOBILE_PREFIXES.has(rest[0])) return null;
+  if (!VN_MOBILE_PREFIXES.has(rest[0]!)) return null;
   return rest;
 }
 

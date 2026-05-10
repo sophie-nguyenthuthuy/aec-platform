@@ -104,7 +104,7 @@ export default function ProjectAuditPage({
     projectId,
     filters,
   );
-  const events = data?.data ?? [];
+  const events: AuditEvent[] = data?.data ?? [];
   const total = data?.meta?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
 

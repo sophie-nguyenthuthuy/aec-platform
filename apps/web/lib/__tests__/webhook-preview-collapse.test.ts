@@ -85,7 +85,7 @@ describe("buildPreviewCards", () => {
     // empty description rather than crashing.
     const cards = buildPreviewCards(["unknown.event.type"], CATALOG);
     expect(cards).toHaveLength(1);
-    const c = cards[0];
+    const c = cards[0]!;
     expect(c.kind).toBe("literal");
     if (c.kind === "literal") {
       expect(c.description).toBe("");
@@ -96,13 +96,13 @@ describe("buildPreviewCards", () => {
   it("collapses a `<module>.*` wildcard with the matching events", () => {
     const cards = buildPreviewCards(["costpulse.*"], CATALOG);
     expect(cards).toHaveLength(1);
-    const c = cards[0];
+    const c = cards[0]!;
     expect(c.kind).toBe("wildcard");
     if (c.kind === "wildcard") {
       expect(c.pattern).toBe("costpulse.*");
       expect(c.prefix).toBe("costpulse");
       // Both costpulse.* events match; pulse.* does NOT.
-      const matchedTypes = c.matched_events.map((e) => e.event_type);
+      const matchedTypes = c.matched_events.map((e: { event_type: string }) => e.event_type);
       expect(matchedTypes).toEqual([
         "costpulse.estimate.approve",
         "costpulse.boq.import",
@@ -115,10 +115,10 @@ describe("buildPreviewCards", () => {
     // NOT `costpulse.boq.import` — the prefix-with-trailing-dot check
     // is what enforces the depth.
     const cards = buildPreviewCards(["costpulse.estimate.*"], CATALOG);
-    const c = cards[0];
+    const c = cards[0]!;
     expect(c.kind).toBe("wildcard");
     if (c.kind === "wildcard") {
-      const matchedTypes = c.matched_events.map((e) => e.event_type);
+      const matchedTypes = c.matched_events.map((e: { event_type: string }) => e.event_type);
       expect(matchedTypes).toEqual(["costpulse.estimate.approve"]);
     }
   });
@@ -129,9 +129,9 @@ describe("buildPreviewCards", () => {
       CATALOG,
     );
     expect(cards).toHaveLength(3);
-    expect(cards[0].kind).toBe("literal");
-    expect(cards[1].kind).toBe("wildcard");
-    expect(cards[2].kind).toBe("literal");
+    expect(cards[0]!.kind).toBe("literal");
+    expect(cards[1]!.kind).toBe("wildcard");
+    expect(cards[2]!.kind).toBe("literal");
   });
 
   it("returns an empty wildcard when the catalog has no matches", () => {
@@ -140,7 +140,7 @@ describe("buildPreviewCards", () => {
     // "no events match this prefix yet" inline.
     const cards = buildPreviewCards(["unknownmodule.*"], CATALOG);
     expect(cards).toHaveLength(1);
-    const c = cards[0];
+    const c = cards[0]!;
     expect(c.kind).toBe("wildcard");
     if (c.kind === "wildcard") {
       expect(c.matched_events).toEqual([]);

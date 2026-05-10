@@ -40,8 +40,20 @@ export interface AuditFilters {
   offset?: number;
 }
 
+export interface ProjectAuditFilters {
+  action?: string;
+  actor_kind?: "user" | "api_key" | "system";
+  /** Limit results to events emitted in the last N days. */
+  since_days?: number;
+  limit?: number;
+  offset?: number;
+}
+
 const auditKey = (filters: AuditFilters) =>
   ["audit", "events", filters] as const;
+
+const projectAuditKey = (projectId: UUID, filters: ProjectAuditFilters) =>
+  ["audit", "events", "project", projectId, filters] as const;
 
 export function useAuditEvents(filters: AuditFilters = {}) {
   const { token, orgId } = useSession();
@@ -58,6 +70,44 @@ export function useAuditEvents(filters: AuditFilters = {}) {
           resource_id: filters.resource_id,
           action: filters.action,
           actor_kind: filters.actor_kind,
+          limit: filters.limit ?? 50,
+          offset: filters.offset ?? 0,
+        },
+      });
+      return {
+        data: (res.data ?? []) as AuditEvent[],
+        meta: res.meta,
+      };
+    },
+  });
+}
+
+
+// Project-scoped variant: queries the same `/api/v1/audit/events`
+// endpoint but pre-attaches the `project_id` filter (which the
+// backend treats as a resource-link narrowing across all relevant
+// resource_types — change_orders, milestones, defects, etc.). Lets
+// the per-project audit page stay thin: filter UI passes through
+// here, the project_id stays out of the user-controlled filter
+// surface.
+export function useProjectAuditEvents(
+  projectId: UUID,
+  filters: ProjectAuditFilters = {},
+) {
+  const { token, orgId } = useSession();
+  return useQuery({
+    queryKey: projectAuditKey(projectId, filters),
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const res = await apiFetch<AuditEvent[]>("/api/v1/audit/events", {
+        method: "GET",
+        token,
+        orgId,
+        query: {
+          project_id: projectId,
+          action: filters.action,
+          actor_kind: filters.actor_kind,
+          since_days: filters.since_days,
           limit: filters.limit ?? 50,
           offset: filters.offset ?? 0,
         },

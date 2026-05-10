@@ -53,10 +53,10 @@ describe("buildSparklineBuckets", () => {
   it("buckets are ordered oldest → newest", () => {
     const buckets = buildSparklineBuckets([], NOW);
     // First bucket = 167h before NOW. Last bucket = NOW's current hour.
-    const first = new Date(buckets[0].hour_iso).getTime();
-    const last = new Date(buckets[buckets.length - 1].hour_iso).getTime();
+    const first = new Date(buckets[0]!.hour_iso).getTime();
+    const last = new Date(buckets[buckets.length - 1]!.hour_iso).getTime();
     expect(last - first).toBe(167 * 3600 * 1000);
-    expect(buckets[buckets.length - 1].hour_iso).toBe("2026-05-09T12:00:00.000Z");
+    expect(buckets[buckets.length - 1]!.hour_iso).toBe("2026-05-09T12:00:00.000Z");
   });
 
   it("places a delivery in the floored-hour bucket", () => {
@@ -66,7 +66,7 @@ describe("buildSparklineBuckets", () => {
       { created_at: "2026-05-09T12:43:00Z", status: "delivered" },
     ];
     const buckets = buildSparklineBuckets(deliveries, NOW);
-    const last = buckets[buckets.length - 1];
+    const last = buckets[buckets.length - 1]!;
     expect(last.hour_iso).toBe("2026-05-09T12:00:00.000Z");
     expect(last.delivered).toBe(1);
     expect(last.failed).toBe(0);
@@ -80,7 +80,7 @@ describe("buildSparklineBuckets", () => {
       { created_at: "2026-05-09T12:43:00Z", status: "failed" },
     ];
     const buckets = buildSparklineBuckets(deliveries, NOW);
-    const last = buckets[buckets.length - 1];
+    const last = buckets[buckets.length - 1]!;
     expect(last.delivered).toBe(2);
     expect(last.failed).toBe(1);
   });
@@ -93,7 +93,7 @@ describe("buildSparklineBuckets", () => {
       { created_at: "2026-05-09T12:20:00Z", status: "in_flight" },
     ];
     const buckets = buildSparklineBuckets(deliveries, NOW);
-    const last = buckets[buckets.length - 1];
+    const last = buckets[buckets.length - 1]!;
     expect(last.pending).toBe(2);
   });
 
@@ -104,10 +104,10 @@ describe("buildSparklineBuckets", () => {
       { created_at: "2026-05-09T09:43:00Z", status: "failed" },
     ];
     const buckets = buildSparklineBuckets(deliveries, NOW);
-    expect(buckets[164].hour_iso).toBe("2026-05-09T09:00:00.000Z");
-    expect(buckets[164].failed).toBe(1);
+    expect(buckets[164]!.hour_iso).toBe("2026-05-09T09:00:00.000Z");
+    expect(buckets[164]!.failed).toBe(1);
     // The current-hour bucket is unchanged.
-    expect(buckets[buckets.length - 1].failed).toBe(0);
+    expect(buckets[buckets.length - 1]!.failed).toBe(0);
   });
 
   it("drops deliveries older than the 7d window", () => {
@@ -156,11 +156,11 @@ describe("buildSparklineBuckets", () => {
     ];
     const buckets = buildSparklineBuckets(deliveries, NOW);
     // Hour-2 (10:00 bucket) — index 165
-    expect(buckets[165].delivered).toBe(1);
+    expect(buckets[165]!.delivered).toBe(1);
     // Hour-1 (11:00 bucket) — index 166
-    expect(buckets[166].failed).toBe(1);
+    expect(buckets[166]!.failed).toBe(1);
     // Current hour (12:00 bucket) — index 167
-    expect(buckets[167].delivered).toBe(1);
+    expect(buckets[167]!.delivered).toBe(1);
   });
 });
 
