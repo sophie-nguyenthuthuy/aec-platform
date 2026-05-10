@@ -673,6 +673,7 @@ async def _assemble_and_persist(
     rows_out.append(
         BoqItem(
             id=uuid4(),
+            organization_id=organization_id,
             estimate_id=estimate_id,
             parent_id=None,
             sort_order=sort_cursor,
