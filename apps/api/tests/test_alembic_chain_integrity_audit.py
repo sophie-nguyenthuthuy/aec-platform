@@ -389,3 +389,46 @@ def test_filename_prefix_matches_revision_id():
         "filenames would miss these — confusing during incident "
         "triage."
     )
+
+
+# Alembic's `alembic_version` table pins `version_num` as
+# `varchar(32)`. A revision id over that limit fails the chain step
+# at runtime with `StringDataRightTruncation` — the migration's logic
+# may be perfect, but `UPDATE alembic_version SET version_num='...'`
+# truncates and Postgres rejects the write. The error surfaces only
+# on actual upgrade against a real Postgres; pinning the limit here
+# in CI catches it pre-merge.
+#
+# History: `0050_index_org_id_on_child_tables` (33) and
+# `0051_retention_overrides_rls_with_check` (39) both shipped
+# over-limit and red-gated CI on alembic upgrade. They were renamed
+# to `0050_idx_...` (31) and `0051_retention_rls_with_check` (29).
+_ALEMBIC_VERSION_NUM_MAX_LEN = 32
+
+
+def test_revision_ids_fit_alembic_version_num_column():
+    """Pin: every revision id is ≤32 chars (the
+    `alembic_version.version_num` column width). The runtime error
+    on overrun is `StringDataRightTruncation` from psycopg2 during
+    the post-migration `UPDATE alembic_version` step — happens AFTER
+    the migration's DDL has already partially run, so the chain
+    state on disk and in the DB diverge.
+
+    Easier to catch the over-long id in static CI than to
+    triage the half-applied chain on a fresh DB.
+    """
+    chain = _build_chain()
+    too_long = sorted(
+        f"{revision!r} ({len(revision)} chars)"
+        for revision in chain
+        if len(revision) > _ALEMBIC_VERSION_NUM_MAX_LEN
+    )
+    assert not too_long, (
+        f"These revision ids exceed alembic_version.version_num's "
+        f"varchar({_ALEMBIC_VERSION_NUM_MAX_LEN}) column:\n  "
+        + "\n  ".join(too_long)
+        + "\n\nShorten the revision id (and rename the file to match — "
+        "see `test_filename_prefix_matches_revision_id`). Sample fix: "
+        "`0050_index_org_id_on_child_tables` (33) → "
+        "`0050_idx_org_id_on_child_tables` (31)."
+    )

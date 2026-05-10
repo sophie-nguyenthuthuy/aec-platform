@@ -52,7 +52,7 @@ If table sizes grow such that the lock window becomes a deploy
 concern, switch to a CONCURRENTLY follow-up migration AND mark
 this one's downgrade as a no-op for safety.
 
-Revision ID: 0050_index_org_id_on_child_tables
+Revision ID: 0050_idx_org_id_on_child_tables
 Revises: 0049_org_id_on_child_tables
 Create Date: 2026-05-09
 """
@@ -62,7 +62,7 @@ from __future__ import annotations
 from alembic import op
 
 
-revision = "0050_index_org_id_on_child_tables"
+revision = "0050_idx_org_id_on_child_tables"
 down_revision = "0049_org_id_on_child_tables"
 branch_labels = None
 depends_on = None

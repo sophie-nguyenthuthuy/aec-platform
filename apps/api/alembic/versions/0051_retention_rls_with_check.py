@@ -14,8 +14,8 @@ existing policy and recreate it with both clauses. A separate
 follow-up migration (rather than editing 0048 in place) so already-
 deployed environments pick the change up on the next upgrade.
 
-Revision ID: 0051_retention_overrides_rls_with_check
-Revises: 0050_index_org_id_on_child_tables
+Revision ID: 0051_retention_rls_with_check
+Revises: 0050_idx_org_id_on_child_tables
 Create Date: 2026-05-10
 """
 
@@ -24,8 +24,8 @@ from __future__ import annotations
 from alembic import op
 
 
-revision = "0051_retention_overrides_rls_with_check"
-down_revision = "0050_index_org_id_on_child_tables"
+revision = "0051_retention_rls_with_check"
+down_revision = "0050_idx_org_id_on_child_tables"
 branch_labels = None
 depends_on = None
 
