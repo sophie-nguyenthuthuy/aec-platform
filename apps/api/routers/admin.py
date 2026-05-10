@@ -461,3 +461,58 @@ async def admin_api_key_usage(
     async with AdminSessionFactory() as session:
         payload = await usage_for_key(session, api_key_id=key_id, hours=hours)
     return ok(payload)
+
+
+# ---------- Admin operational health (cycle S2) ----------
+
+
+@router.get("/operational-health")
+async def admin_operational_health(
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+) -> dict[str, Any]:
+    """Four live counts for the ops widget: unused keys, stuck crons, pending exports, failing webhooks."""
+    from sqlalchemy import text as _text
+
+    from services import api_keys as api_keys_mod
+    from services import cron_alerts as cron_alerts_mod
+
+    # Unused API keys (30-day inactivity default).
+    async with AdminSessionFactory() as session:
+        unused_keys_list = await api_keys_mod.find_unused_keys(session, organization_id=auth.organization_id)
+    unused_api_keys = len(unused_keys_list)
+
+    # Stuck crons: running longer than 3× their p95 baseline with enough samples.
+    running = await cron_alerts_mod._running_crons_with_baseline()
+    stuck_crons = sum(
+        1
+        for r in running
+        if r.get("sample_count", 0) >= 5 and r.get("p95_ms", 0) > 0 and r.get("elapsed_ms", 0) > 3 * r["p95_ms"]
+    )
+
+    # Pending audit exports and failing webhook subscriptions (platform-global queries).
+    pending_audit_exports = 0
+    failing_webhook_subscriptions = 0
+    try:
+        async with AdminSessionFactory() as session:
+            r1 = await session.execute(
+                _text("SELECT COUNT(*) FROM webhook_subscriptions WHERE failure_count > 0 AND enabled = TRUE")
+            )
+            failing_webhook_subscriptions = int(r1.scalar_one())
+    except Exception:
+        failing_webhook_subscriptions = 0
+
+    try:
+        async with AdminSessionFactory() as session:
+            r2 = await session.execute(_text("SELECT COUNT(*) FROM audit_exports WHERE status = 'pending'"))
+            pending_audit_exports = int(r2.scalar_one())
+    except Exception:
+        pending_audit_exports = 0
+
+    return ok(
+        {
+            "unused_api_keys": unused_api_keys,
+            "stuck_crons": stuck_crons,
+            "pending_audit_exports": pending_audit_exports,
+            "failing_webhook_subscriptions": failing_webhook_subscriptions,
+        }
+    )

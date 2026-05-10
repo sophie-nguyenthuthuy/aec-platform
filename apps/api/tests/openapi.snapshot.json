@@ -842,7 +842,6 @@
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -872,7 +871,6 @@
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -898,7 +896,6 @@
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -1087,7 +1084,6 @@
             "type": "array"
           },
           "cost_breakdown": {
-            "additionalProperties": true,
             "title": "Cost Breakdown",
             "type": "object"
           },
@@ -1117,7 +1113,6 @@
             "type": "string"
           },
           "schedule_analysis": {
-            "additionalProperties": true,
             "title": "Schedule Analysis",
             "type": "object"
           }
@@ -1536,7 +1531,6 @@
           "financials": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1551,7 +1545,6 @@
           },
           "issues": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Issues",
@@ -1566,14 +1559,12 @@
           },
           "photos_section": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Photos Section",
             "type": "array"
           },
           "progress_section": {
-            "additionalProperties": true,
             "title": "Progress Section",
             "type": "object"
           }
@@ -1771,7 +1762,6 @@
           "input": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1991,7 +1981,6 @@
           "bbox": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2437,7 +2426,6 @@
             "type": "string"
           },
           "weather": {
-            "additionalProperties": true,
             "title": "Weather",
             "type": "object"
           },
@@ -2534,7 +2522,6 @@
           "weather": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2586,7 +2573,6 @@
           "location": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2688,7 +2674,6 @@
           "location": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2859,7 +2844,6 @@
             "title": "Drawing Number"
           },
           "extracted_data": {
-            "additionalProperties": true,
             "title": "Extracted Data",
             "type": "object"
           },
@@ -3695,7 +3679,6 @@
           "data": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -4473,7 +4456,6 @@
           "title_block": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -4494,7 +4476,6 @@
           "bbox": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -4872,7 +4853,6 @@
           },
           "past_wins": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Past Wins",
@@ -4974,7 +4954,6 @@
             "type": "string"
           },
           "scope_summary": {
-            "additionalProperties": true,
             "title": "Scope Summary",
             "type": "object"
           }
@@ -5004,7 +4983,6 @@
           "scope_summary": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -6521,7 +6499,6 @@
           "features": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -6557,7 +6534,6 @@
           "location": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -7061,7 +7037,6 @@
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -7135,7 +7110,6 @@
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -7524,7 +7498,6 @@
           "content": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -8519,7 +8492,6 @@
       "ScheduleRow": {
         "properties": {
           "cells": {
-            "additionalProperties": true,
             "title": "Cells",
             "type": "object"
           }
@@ -8992,7 +8964,6 @@
             "title": "Observation Id"
           },
           "payload": {
-            "additionalProperties": true,
             "title": "Payload",
             "type": "object"
           },
@@ -9023,7 +8994,6 @@
           "bbox": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -9210,7 +9180,6 @@
         "properties": {
           "annotations": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Annotations",
@@ -9238,7 +9207,6 @@
             "anyOf": [
               {
                 "items": {
-                  "additionalProperties": true,
                   "type": "object"
                 },
                 "type": "array"
@@ -9420,7 +9388,6 @@
             "type": "array"
           },
           "contact": {
-            "additionalProperties": true,
             "title": "Contact",
             "type": "object"
           },
@@ -10142,7 +10109,6 @@
             "title": "Category"
           },
           "claim_contact": {
-            "additionalProperties": true,
             "title": "Claim Contact",
             "type": "object"
           },
@@ -10264,7 +10230,6 @@
           "claim_contact": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -10388,6 +10353,57 @@
           "week_end"
         ],
         "title": "WeeklyReportGenerateRequest",
+        "type": "object"
+      },
+      "_PinBody": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "_PinBody",
+        "type": "object"
+      },
+      "_VerifySignatureRequest": {
+        "description": "Wire-shape for `POST /verify-signature`.",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "max_skew_seconds": {
+            "default": 300,
+            "title": "Max Skew Seconds",
+            "type": "integer"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          },
+          "signature": {
+            "title": "Signature",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "secret",
+          "body",
+          "timestamp",
+          "signature"
+        ],
+        "title": "_VerifySignatureRequest",
         "type": "object"
       },
       "core__envelope__Envelope_QueryResponse___1": {
@@ -11038,7 +11054,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Activity Feed Api V1 Activity Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -11099,11 +11118,6 @@
         ],
         "responses": {
           "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
             "description": "Successful Response"
           },
           "422": {
@@ -11166,7 +11180,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Mint Stream Ticket Api V1 Activity Stream Ticket Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -11243,7 +11260,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Admin Top Api Keys Api V1 Admin Api Keys Top Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -11318,7 +11338,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Admin Api Key Usage Api V1 Admin Api Keys  Key Id  Usage Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -11371,7 +11394,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Crons Api V1 Admin Crons Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -11393,6 +11419,71 @@
           }
         ],
         "summary": "List Crons",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/crons/{cron_name}/run": {
+      "post": {
+        "description": "Enqueue an arq job that runs `cron_name` immediately.\n\nCloses the incident-triage loop: an operator looking at a failed\ncron on `/admin/crons/[name]` can re-run it without waiting for\nthe next schedule tick or shelling into the worker. The arq job\nthreads through `cron_telemetry_wrap` so the manual invocation\nwrites a fresh `cron_runs` row — it shows up in the drilldown\nsparkline alongside scheduled runs, which is what the operator\nwants to see.\n\nReturns 202 with the arq job_id so the frontend can correlate the\nenqueue with the eventual `cron_runs` row (which has its own UUID\n— the job_id is incidental telemetry, not used for joining).\n\nValidation:\n\n  * Unknown cron names 404. The lookup happens here AND inside\n    the arq job (defense in depth: a cron added after the job\n    was enqueued but before it runs would otherwise raise inside\n    the job and burn an arq retry budget for nothing).\n\n  * Admin-gated via `require_role(\"admin\")` — this fires real\n    side effects (S3 writes, downstream HTTP, downstream Slack).\n    Only platform ops should be able to fire it.\n\nAudit: the `admin.cron.run_now` audit row carries the cron name\nand actor so \"who manually ran X right before the outage?\" stays\nanswerable. (`record` is lazy-imported to avoid a heavy import at\nmodule load — same shape as the other admin handlers in this\nfile.)",
+        "operationId": "run_cron_now_api_v1_admin_crons__cron_name__run_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cron_name",
+            "required": true,
+            "schema": {
+              "title": "Cron Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Org-Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Run Cron Now Api V1 Admin Crons  Cron Name  Run Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Run Cron Now",
         "tags": [
           "admin"
         ]
@@ -11433,7 +11524,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Cron Runs Api V1 Admin Crons  Cron Name  Runs Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -11455,6 +11549,145 @@
           }
         ],
         "summary": "List Cron Runs",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/crons/{name}/dedup-state": {
+      "get": {
+        "description": "Return outstanding dedup rows for a cron (one per alert kind).",
+        "operationId": "get_cron_dedup_state_api_v1_admin_crons__name__dedup_state_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Org-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Cron Dedup State Api V1 Admin Crons  Name  Dedup State Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Cron Dedup State",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/crons/{name}/dedup-state/clear": {
+      "post": {
+        "description": "Clear a cron alert dedup row and write an audit row.",
+        "operationId": "clear_cron_dedup_state_api_v1_admin_crons__name__dedup_state_clear_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Org-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Clear Cron Dedup State Api V1 Admin Crons  Name  Dedup State Clear Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Clear Cron Dedup State",
         "tags": [
           "admin"
         ]
@@ -11486,7 +11719,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Normalizer Rules Api V1 Admin Normalizer Rules Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -11547,7 +11783,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Normalizer Rule Api V1 Admin Normalizer Rules Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -11676,7 +11915,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Normalizer Rule Api V1 Admin Normalizer Rules  Rule Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -11698,6 +11940,62 @@
           }
         ],
         "summary": "Update Normalizer Rule",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/operational-health": {
+      "get": {
+        "description": "Four live counts for the ops widget: unused keys, stuck crons, pending exports, failing webhooks.",
+        "operationId": "admin_operational_health_api_v1_admin_operational_health_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Org-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Admin Operational Health Api V1 Admin Operational Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Admin Operational Health",
         "tags": [
           "admin"
         ]
@@ -11729,7 +12027,10 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Retention Run Now Api V1 Admin Retention Run Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -11782,7 +12083,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Retention Status Api V1 Admin Retention Status Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -11865,7 +12169,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Scraper Runs Api V1 Admin Scraper Runs Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -11930,7 +12237,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Scraper Runs Summary Api V1 Admin Scraper Runs Summary Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -12031,7 +12341,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Slack Deliveries Api V1 Admin Slack Deliveries Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -12096,7 +12409,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Slack Deliveries Summary Api V1 Admin Slack Deliveries Summary Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -12235,7 +12551,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Webhook Deliveries Api V1 Admin Webhook Deliveries Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -12300,7 +12619,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Webhook Deliveries Summary Api V1 Admin Webhook Deliveries Summary Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -12363,7 +12685,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Webhook Delivery Detail Api V1 Admin Webhook Deliveries  Delivery Id  Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -12416,7 +12741,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Api Keys Api V1 Api Keys Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -12477,7 +12805,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Api Key Api V1 Api Keys Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -12530,7 +12861,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Scopes Api V1 Api Keys Scopes Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -12593,7 +12927,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Revoke Api Key Api V1 Api Keys  Key Id  Revoke Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -12666,7 +13003,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Ask About Project Api V1 Assistant Projects  Project Id  Ask Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -12737,11 +13077,6 @@
         },
         "responses": {
           "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
             "description": "Successful Response"
           },
           "422": {
@@ -12814,7 +13149,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Threads Api V1 Assistant Projects  Project Id  Threads Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -12933,7 +13271,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Thread Api V1 Assistant Threads  Thread Id  Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -12962,7 +13303,7 @@
     },
     "/api/v1/audit/events": {
       "get": {
-        "description": "Recent audit events for the caller's org. Admin/owner only.\n\nFilter params compose: pass `resource_type=change_orders` +\n`resource_id=<uuid>` to see one CO's full audit trail; pass `action`\nto scope to one verb (e.g. `org.member.role_change`).\n\n`actor_kind` narrows by what KIND of actor produced the row:\n  * `user` — human, attributed via `actor_user_id`.\n  * `api_key` — programmatic, attributed via `actor_api_key_id`.\n    Customer Success uses this to answer \"what did partner X's\n    integration do this week.\"\n  * `system` — both columns NULL; cron / queue worker actors.",
+        "description": "Recent audit events for the caller's org. Admin/owner only.\n\nFilter params compose: pass `resource_type=change_orders` +\n`resource_id=<uuid>` to see one CO's full audit trail; pass `action`\nto scope to one verb (e.g. `org.member.role_change`).\n\n`actor_kind` narrows by what KIND of actor produced the row:\n  * `user` — human, attributed via `actor_user_id`.\n  * `api_key` — programmatic, attributed via `actor_api_key_id`.\n    Customer Success uses this to answer \"what did partner X's\n    integration do this week.\"\n  * `system` — both columns NULL; cron / queue worker actors.\n\n`since_days` narrows to rows with\n`created_at >= NOW() - INTERVAL 'N days'`. Drives the dashboard\nquick-chip row (24h / 7d / 30d / all). Optional — omitting it\npreserves the historical \"everything in retention window\"\nbehaviour.",
         "operationId": "list_audit_events_api_v1_audit_events_get",
         "parameters": [
           {
@@ -13033,6 +13374,24 @@
           },
           {
             "in": "query",
+            "name": "since_days",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 365,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since Days"
+            }
+          },
+          {
+            "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
@@ -13075,7 +13434,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Audit Events Api V1 Audit Events Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -13097,6 +13459,474 @@
           }
         ],
         "summary": "List Audit Events",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/api/v1/audit/events.csv": {
+      "get": {
+        "description": "Stream a CSV of the matching audit events.\n\nSame filter surface as `GET /events` so a reviewer can preview in\nthe dashboard, then click \"Download CSV\" with the same chips\nselected and get the same row set.\n\nCapped at `_CSV_MAX_ROWS` (50k). Larger windows return 413 with a\nhint to tighten — silently truncating would mislead a compliance\nreviewer who reads the file as authoritative (\"you sent us 50k\nrows, but they're not the 50k I asked for\").\n\nStreaming via `StreamingResponse`: even at 50k × ~600 bytes/row\nthe body is ~30MB; streaming means we don't materialise it all\nin Python memory at once. Each row is yielded as the CSV writer\nflushes its internal buffer.\n\nWhy not server-side gzip: compliance reviewers often open these\nin Excel directly; the extra .gz step adds friction. The body\nis plain-text CSV with the standard `text/csv; charset=utf-8`\nContent-Type and a `Content-Disposition: attachment` so the\nbrowser saves it without an open-in-tab fallback.\n\nWhy not background job + email link: the row cap keeps it under\na 30s request budget on a healthy DB. If a future customer asks\nfor unbounded exports we add a `request_export` job + email; for\nv1 the synchronous path covers every realistic compliance ask.",
+        "operationId": "export_audit_events_csv_api_v1_audit_events_csv_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "resource_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resource Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resource Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actor_kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(user|api_key|system)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since_days",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 365,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since Days"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Org-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Audit Events Csv",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/api/v1/audit/events/{event_id}/pin": {
+      "delete": {
+        "description": "Delete the caller's pin on this audit event. Idempotent — 200 even if no row.",
+        "operationId": "unpin_event_api_v1_audit_events__event_id__pin_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Org-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Unpin Event Api V1 Audit Events  Event Id  Pin Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Unpin Event",
+        "tags": [
+          "audit"
+        ]
+      },
+      "post": {
+        "description": "UPSERT a pin row for the caller on this audit event (cross-tenant → 404).",
+        "operationId": "pin_event_api_v1_audit_events__event_id__pin_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Org-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_PinBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Pin Event Api V1 Audit Events  Event Id  Pin Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Pin Event",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/api/v1/audit/pins": {
+      "get": {
+        "description": "Return audit events pinned by the calling user (per-user, org-scoped).",
+        "operationId": "list_pins_api_v1_audit_pins_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Org-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response List Pins Api V1 Audit Pins Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Pins",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/api/v1/audit/projects/{project_id}/events": {
+      "get": {
+        "description": "Paginated audit events for a specific project (union across all project-scoped resources).",
+        "operationId": "project_audit_events_api_v1_audit_projects__project_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actor_kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(user|api_key|system)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since_days",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 365,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since Days"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Org-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Project Audit Events Api V1 Audit Projects  Project Id  Events Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Project Audit Events",
         "tags": [
           "audit"
         ]
@@ -13140,7 +13970,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response List Digests Api V1 Bidradar Digests Get",
                   "type": "object"
                 }
@@ -13206,7 +14035,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Send Digest Api V1 Bidradar Digests Send Post",
                   "type": "object"
                 }
@@ -13263,8 +14091,8 @@
             "schema": {
               "anyOf": [
                 {
-                  "maximum": 100,
-                  "minimum": 0,
+                  "maximum": 100.0,
+                  "minimum": 0.0,
                   "type": "number"
                 },
                 {
@@ -13329,7 +14157,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response List Matches Api V1 Bidradar Matches Get",
                   "type": "object"
                 }
@@ -13395,7 +14222,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Get Match Api V1 Bidradar Matches  Match Id  Get",
                   "type": "object"
                 }
@@ -13461,7 +14287,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Create Proposal Api V1 Bidradar Matches  Match Id  Create Proposal Post",
                   "type": "object"
                 }
@@ -13537,7 +14362,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Update Match Status Api V1 Bidradar Matches  Match Id  Status Patch",
                   "type": "object"
                 }
@@ -13593,7 +14417,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Get Firm Profile Api V1 Bidradar Profile Get",
                   "type": "object"
                 }
@@ -13657,7 +14480,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Upsert Firm Profile Api V1 Bidradar Profile Put",
                   "type": "object"
                 }
@@ -13723,7 +14545,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Score Matches Api V1 Bidradar Score Post",
                   "type": "object"
                 }
@@ -13789,7 +14610,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Trigger Scrape Api V1 Bidradar Scrape Post",
                   "type": "object"
                 }
@@ -13984,7 +14804,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response List Tenders Api V1 Bidradar Tenders Get",
                   "type": "object"
                 }
@@ -14050,7 +14869,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Get Tender Api V1 Bidradar Tenders  Tender Id  Get",
                   "type": "object"
                 }
@@ -14126,7 +14944,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Accept Candidate Api V1 Changeorder Candidates  Cand Id  Accept Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -14198,7 +15019,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Reject Candidate Api V1 Changeorder Candidates  Cand Id  Reject Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -14306,7 +15130,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Change Orders Api V1 Changeorder Cos Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -14366,7 +15193,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Change Order Api V1 Changeorder Cos Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -14428,7 +15258,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Change Order Api V1 Changeorder Cos  Co Id  Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -14498,7 +15331,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Change Order Api V1 Changeorder Cos  Co Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -14571,7 +15407,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Analyze Impact Endpoint Api V1 Changeorder Cos  Co Id  Analyze Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -14644,7 +15483,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Record Approval Api V1 Changeorder Cos  Co Id  Approvals Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -14716,7 +15558,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Add Line Item Api V1 Changeorder Cos  Co Id  Line Items Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -14788,7 +15633,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Add Source Api V1 Changeorder Cos  Co Id  Sources Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -14851,7 +15699,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Extract Candidates Endpoint Api V1 Changeorder Extract Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -14923,7 +15774,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Line Item Api V1 Changeorder Line Items  Li Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -15036,7 +15890,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Price Suggestions Api V1 Changeorder Price Suggestions Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -15256,7 +16113,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Codeguard Health Api V1 Codeguard Health Get",
                   "type": "object"
                 }
@@ -15384,11 +16240,6 @@
         },
         "responses": {
           "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
             "description": "Successful Response"
           },
           "422": {
@@ -15574,11 +16425,6 @@
         },
         "responses": {
           "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
             "description": "Successful Response"
           },
           "422": {
@@ -15630,7 +16476,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Get Codeguard Quota Api V1 Codeguard Quota Get",
                   "type": "object"
                 }
@@ -15754,7 +16599,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Codeguard Quota Audit Api V1 Codeguard Quota Audit Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -15819,7 +16667,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Get Codeguard Quota History Api V1 Codeguard Quota History Get",
                   "type": "object"
                 }
@@ -15895,7 +16742,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Codeguard Quota Top Users Api V1 Codeguard Quota Top Users Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -16227,11 +17077,6 @@
         },
         "responses": {
           "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
             "description": "Successful Response"
           },
           "422": {
@@ -16314,7 +17159,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Cost Benchmark Api V1 Costpulse Analytics Cost Benchmark Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -16377,7 +17225,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Estimate From Brief Api V1 Costpulse Estimate From Brief Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -16440,7 +17291,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Estimate From Drawings Api V1 Costpulse Estimate From Drawings Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -16548,7 +17402,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Estimates Api V1 Costpulse Estimates Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -16608,7 +17465,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Estimate Api V1 Costpulse Estimates Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -16670,7 +17530,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Estimate Api V1 Costpulse Estimates  Estimate Id  Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -16732,7 +17595,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Approve Estimate Api V1 Costpulse Estimates  Estimate Id  Approve Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -16805,7 +17671,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Boq Api V1 Costpulse Estimates  Estimate Id  Boq Put",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -16868,7 +17737,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Export Boq Pdf Api V1 Costpulse Estimates  Estimate Id  Boq Export Pdf Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -16931,7 +17803,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Export Boq Xlsx Api V1 Costpulse Estimates  Estimate Id  Boq Export Xlsx Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -17004,7 +17879,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Import Boq Xlsx Api V1 Costpulse Estimates  Estimate Id  Boq Import Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -17079,7 +17957,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Diff Estimate Versions Api V1 Costpulse Estimates  Estimate Id  Diff Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -17142,7 +18023,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Estimate Versions Api V1 Costpulse Estimates  Estimate Id  Versions Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -17229,7 +18113,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Price Alert Api V1 Costpulse Price Alerts Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -17386,7 +18273,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Lookup Prices Api V1 Costpulse Prices Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -17475,7 +18365,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Price History Api V1 Costpulse Prices History  Material Code  Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -17526,7 +18419,6 @@
                   "type": "number"
                 },
                 {
-                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                   "type": "string"
                 }
               ],
@@ -17611,7 +18503,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Override Price Api V1 Costpulse Prices Override Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -17680,7 +18575,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Rfq Api V1 Costpulse Rfq Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -17740,7 +18638,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Rfq Api V1 Costpulse Rfq Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -17873,7 +18774,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Suppliers Api V1 Costpulse Suppliers Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -17933,7 +18837,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Supplier Api V1 Costpulse Suppliers Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -17986,7 +18893,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Export Suppliers Csv Api V1 Costpulse Suppliers Export Csv Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -18039,7 +18949,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Export Suppliers Xlsx Api V1 Costpulse Suppliers Export Xlsx Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -18102,7 +19015,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Import Suppliers Api V1 Costpulse Suppliers Import Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -18244,7 +19160,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Logs Api V1 Dailylog Logs Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -18305,7 +19224,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Log Api V1 Dailylog Logs Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -18367,7 +19289,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Log Api V1 Dailylog Logs  Log Id  Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -18438,7 +19363,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Log Api V1 Dailylog Logs  Log Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -18511,7 +19439,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Trigger Extract Api V1 Dailylog Logs  Log Id  Extract Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -18583,7 +19514,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Observation Api V1 Dailylog Logs  Log Id  Observations Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -18655,7 +19589,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Observation Api V1 Dailylog Observations  Obs Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -18738,7 +19675,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Patterns Api V1 Dailylog Projects  Project Id  Patterns Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -20434,7 +21374,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Upload File Api V1 Files Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -20496,7 +21439,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Register As Built Api V1 Handover As Builts Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -20568,7 +21514,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Closeout Item Api V1 Handover Closeout Items  Item Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -20726,7 +21675,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Defects Api V1 Handover Defects Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -20786,7 +21738,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Defect Api V1 Handover Defects Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -20858,7 +21813,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Defect Api V1 Handover Defects  Defect Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -20920,7 +21878,10 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Generate Om Manual Api V1 Handover Om Manuals Generate Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21028,7 +21989,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Packages Api V1 Handover Packages Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21088,7 +22052,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Package Api V1 Handover Packages Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21150,7 +22117,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Package Api V1 Handover Packages  Package Id  Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21220,7 +22190,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Package Api V1 Handover Packages  Package Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21292,7 +22265,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Add Closeout Item Api V1 Handover Packages  Package Id  Closeout Items Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21354,7 +22330,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Om Manuals Api V1 Handover Packages  Package Id  Om Manuals Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21417,7 +22396,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Package Preconditions Api V1 Handover Packages  Package Id  Preconditions Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21490,7 +22472,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Promote Drawings From Drawbridge Api V1 Handover Packages  Package Id  Promote Drawings Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21568,7 +22553,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List As Builts Api V1 Handover Projects  Project Id  As Builts Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21711,7 +22699,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Warranties Api V1 Handover Warranties Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21771,7 +22762,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Warranty Api V1 Handover Warranties Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21833,7 +22827,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Extract Warranty Api V1 Handover Warranties Extract Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21905,7 +22902,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Warranty Api V1 Handover Warranties  Warranty Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -21968,7 +22968,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Import Job Api V1 Import Jobs  Job Id  Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -22031,7 +23034,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Commit Import Job Api V1 Import Jobs  Job Id  Commit Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -22107,7 +23113,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Preview Import Api V1 Import  Entity  Preview Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -22155,7 +23164,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Get Invitation Api V1 Invitations  Token  Get",
                   "type": "object"
                 }
@@ -22211,7 +23219,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Accept Invitation Api V1 Invitations  Token  Accept Post",
                   "type": "object"
                 }
@@ -22291,7 +23298,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response My Inbox Api V1 Me Inbox Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -22327,7 +23337,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response List My Orgs Api V1 Me Orgs Get",
                   "type": "object"
                 }
@@ -22373,7 +23382,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Preferences Api V1 Notifications Preferences Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -22445,7 +23457,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Upsert Preference Api V1 Notifications Preferences  Key  Put",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -22498,7 +23513,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List My Watches Api V1 Notifications Watches Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -22559,7 +23577,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Watch Api V1 Notifications Watches Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -22670,7 +23691,10 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Seed Demo Into Caller Org Api V1 Onboarding Seed Demo Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -22723,7 +23747,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Members Api V1 Org Members Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -22784,7 +23811,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Invite Member Api V1 Org Members Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -22913,7 +23943,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Member Role Api V1 Org Members  User Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -22959,7 +23992,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Create Org Api V1 Orgs Post",
                   "type": "object"
                 }
@@ -23025,7 +24057,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response List Invitations Api V1 Orgs  Org Id  Invitations Get",
                   "type": "object"
                 }
@@ -23099,7 +24130,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Create Invitation Api V1 Orgs  Org Id  Invitations Post",
                   "type": "object"
                 }
@@ -23175,7 +24205,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Revoke Invitation Api V1 Orgs  Org Id  Invitations  Invitation Id  Delete",
                   "type": "object"
                 }
@@ -23302,7 +24331,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Projects Api V1 Projects Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -23364,7 +24396,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Project Detail Api V1 Projects  Project Id  Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -23391,6 +24426,72 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/operational-health": {
+      "get": {
+        "description": "Four live counts for the project widget. Member-and-above; defensive zero-on-failure.",
+        "operationId": "project_operational_health_api_v1_projects__project_id__operational_health_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Org-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Project Operational Health Api V1 Projects  Project Id  Operational Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Project Operational Health",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
     "/api/v1/public/rfq/context": {
       "get": {
         "operationId": "get_rfq_context_api_v1_public_rfq_context_get",
@@ -23412,7 +24513,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Get Rfq Context Api V1 Public Rfq Context Get",
                   "type": "object"
                 }
@@ -23468,7 +24568,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Submit Rfq Response Api V1 Public Rfq Respond Post",
                   "type": "object"
                 }
@@ -24594,7 +25693,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Item Api V1 Punchlist Items  Item Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -24702,7 +25804,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Lists Api V1 Punchlist Lists Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -24762,7 +25867,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create List Api V1 Punchlist Lists Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -24824,7 +25932,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get List Api V1 Punchlist Lists  List Id  Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -24894,7 +26005,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update List Api V1 Punchlist Lists  List Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -24966,7 +26080,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Add Item Api V1 Punchlist Lists  List Id  Items Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -25053,7 +26170,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Photo Hints Api V1 Punchlist Lists  List Id  Photo Hints Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -25126,7 +26246,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Sign Off Api V1 Punchlist Lists  List Id  Sign Off Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -25253,7 +26376,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Activity Api V1 Schedule Activities  Activity Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -25315,7 +26441,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Dependency Api V1 Schedule Dependencies Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -25480,7 +26609,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Schedules Api V1 Schedule Schedules Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -25540,7 +26672,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Schedule Api V1 Schedule Schedules Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -25602,7 +26737,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Schedule Api V1 Schedule Schedules  Schedule Id  Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -25672,7 +26810,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Schedule Api V1 Schedule Schedules  Schedule Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -25744,7 +26885,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Activity Api V1 Schedule Schedules  Schedule Id  Activities Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -25817,7 +26961,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Baseline Schedule Api V1 Schedule Schedules  Schedule Id  Baseline Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -25890,7 +27037,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Run Risk Assessment Api V1 Schedule Schedules  Schedule Id  Risk Assessment Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -25964,7 +27114,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Risk Assessments Api V1 Schedule Schedules  Schedule Id  Risk Assessments Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -26027,7 +27180,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Search Endpoint Api V1 Search Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -26104,7 +27260,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Search Analytics Endpoint Api V1 Search Analytics Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -26282,7 +27441,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Photos Api V1 Siteeye Photos Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -26344,7 +27506,10 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Upload Photos Api V1 Siteeye Photos Upload Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -26440,7 +27605,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Progress Timeline Api V1 Siteeye Progress Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -26532,7 +27700,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Reports Api V1 Siteeye Reports Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -26594,7 +27765,10 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Generate Report Api V1 Siteeye Reports Generate Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -26666,7 +27840,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Send Report Api V1 Siteeye Reports  Report Id  Send Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -26840,7 +28017,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Safety Incidents Api V1 Siteeye Safety Incidents Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -26912,7 +28092,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Acknowledge Incident Api V1 Siteeye Safety Incidents  Incident Id  Ack Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27038,7 +28221,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Visits Api V1 Siteeye Visits Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27098,7 +28284,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Visit Api V1 Siteeye Visits Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27238,7 +28427,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Submittals Api V1 Submittals Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27299,7 +28491,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Submittal Api V1 Submittals Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27372,7 +28567,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Accept Draft Api V1 Submittals Drafts  Draft Id  Accept Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27445,7 +28643,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Review Revision Api V1 Submittals Revisions  Revision Id  Review Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27518,7 +28719,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Draft Rfi Response Endpoint Api V1 Submittals Rfis  Rfi Id  Draft Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27581,7 +28785,10 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Embed Rfi Endpoint Api V1 Submittals Rfis  Rfi Id  Embed Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27654,7 +28861,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Find Similar Rfis Endpoint Api V1 Submittals Rfis  Rfi Id  Similar Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27716,7 +28926,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Get Submittal Api V1 Submittals  Submittal Id  Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27786,7 +28999,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Submittal Api V1 Submittals  Submittal Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27859,7 +29075,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Revision Api V1 Submittals  Submittal Id  Revisions Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27912,7 +29131,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Webhooks Api V1 Webhooks Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -27973,7 +29195,10 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Create Webhook Api V1 Webhooks Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -28050,7 +29275,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Dead Letter Api V1 Webhooks Deliveries Dead Letter Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -28113,7 +29341,10 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Redeliver Api V1 Webhooks Deliveries  Delivery Id  Redeliver Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -28148,13 +29379,59 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Event Types Api V1 Webhooks Event Types Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
           }
         },
         "summary": "List Event Types",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/verify-signature": {
+      "post": {
+        "description": "Diagnose a receiver-side signature verification.\n\nReturns the same dict shape `services.webhooks.verify_payload_with_trace`\nproduces — verified bool, expected vs provided signature,\nclock-skew seconds, structured reason code on failure.\n\nNo auth: partners debug their integration BEFORE getting a key.\nThe endpoint computes HMAC over user-supplied bytes — there's\nnothing tenant-scoped to leak (the secret is supplied by the\ncaller, not looked up).\n\nThe frontend `/docs/webhooks/verify` UI plays this back inline:\npaste your secret, body, timestamp, and signature; see whether\nit would verify, plus the side-by-side digest comparison so a\none-byte diff is immediately visible.",
+        "operationId": "verify_signature_api_v1_webhooks_verify_signature_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_VerifySignatureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Verify Signature Api V1 Webhooks Verify Signature Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Signature",
         "tags": [
           "webhooks"
         ]
@@ -28260,7 +29537,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Update Webhook Api V1 Webhooks  Webhook Id  Patch",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -28366,7 +29646,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response List Deliveries Api V1 Webhooks  Webhook Id  Deliveries Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -28441,7 +29724,10 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Deliveries Histogram Api V1 Webhooks  Webhook Id  Deliveries Histogram Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -28463,6 +29749,138 @@
           }
         ],
         "summary": "Deliveries Histogram",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/{webhook_id}/health": {
+      "get": {
+        "description": "7-day delivery health stats for a subscription (cross-tenant → 404).",
+        "operationId": "webhook_subscription_health_api_v1_webhooks__webhook_id__health_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Org-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Webhook Subscription Health Api V1 Webhooks  Webhook Id  Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Webhook Subscription Health",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/{webhook_id}/rotate-secret": {
+      "post": {
+        "description": "Issue a NEW HMAC secret for this webhook, retaining the old one\nfor a 24h grace window.\n\nDuring the grace, the dispatcher emits TWO signature headers per\ndelivery:\n\n  * `X-AEC-Signature` — signed with the new secret.\n  * `X-AEC-Signature-Previous` — signed with the old secret.\n\nReceivers verify whichever matches. This lets the customer roll\ntheir receiver to the new secret without a flag-day deploy: ship\nthe new-secret config, smoke-test, then retire the old. Same shape\nas Stripe's webhook rollover.\n\nLike creation, the new secret is returned in the response body\nEXACTLY ONCE — there's no \"show secret\" endpoint. If the customer\nloses it before pasting into their receiver, the path forward is\nanother rotation.\n\nIdempotency contract:\n  * `Idempotency-Key` (via `IdempotentRoute`) replays the cached\n    202 within the 24h dedup window. Two clicks in quick succession\n    with the same key get the SAME new secret rather than burning\n    through two rotations.\n  * Without the header, two rapid rotations DO produce two new\n    secrets — the second discards the first as `secret_previous`.\n    Receivers running on the original old secret may stop verifying\n    sooner than expected. We document this in the response note.\n\nAudit: writes `webhooks.subscription.rotate_secret` so admins\nanswering \"did someone rotate this in the last incident?\" have a\ndurable record. Secret material is NOT logged (before/after empty).",
+        "operationId": "rotate_webhook_secret_api_v1_webhooks__webhook_id__rotate_secret_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Org-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Rotate Webhook Secret Api V1 Webhooks  Webhook Id  Rotate Secret Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rotate Webhook Secret",
         "tags": [
           "webhooks"
         ]
@@ -28504,7 +29922,10 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "title": "Response Test Webhook Api V1 Webhooks  Webhook Id  Test Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -28557,7 +29978,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Win Rate Route Api V1 Winwork Analytics Win Rate Get",
                   "type": "object"
                 }
@@ -28671,7 +30091,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response List Benchmarks Api V1 Winwork Benchmarks Get",
                   "type": "object"
                 }
@@ -28737,7 +30156,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Fee Estimate Api V1 Winwork Fee Estimate Post",
                   "type": "object"
                 }
@@ -28872,7 +30290,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response List Proposals Route Api V1 Winwork Proposals Get",
                   "type": "object"
                 }
@@ -28936,7 +30353,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Create Proposal Route Api V1 Winwork Proposals Post",
                   "type": "object"
                 }
@@ -29002,7 +30418,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Generate Proposal Route Api V1 Winwork Proposals Generate Post",
                   "type": "object"
                 }
@@ -29068,7 +30483,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Get Proposal Route Api V1 Winwork Proposals  Proposal Id  Get",
                   "type": "object"
                 }
@@ -29142,7 +30556,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Update Proposal Route Api V1 Winwork Proposals  Proposal Id  Patch",
                   "type": "object"
                 }
@@ -29218,7 +30631,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Mark Outcome Route Api V1 Winwork Proposals  Proposal Id  Outcome Patch",
                   "type": "object"
                 }
@@ -29294,7 +30706,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Send Proposal Route Api V1 Winwork Proposals  Proposal Id  Send Post",
                   "type": "object"
                 }
@@ -29333,7 +30744,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Health Health Get",
                   "type": "object"
                 }
@@ -29445,7 +30855,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Readyz Readyz Get",
                   "type": "object"
                 }

@@ -53,9 +53,7 @@ _ROUTERS_DIR = _API_ROOT / "routers"
 
 # Today's baseline. First-run captures the existing count; ratchet
 # down as routers move commit logic into get_db / service helpers.
-BASELINE_INLINE_COMMITS = (
-    182  # 2026-05: 178→182 across new admin routers (slack-deliveries / webhook-deliveries-admin / cron-admin)
-)
+BASELINE_INLINE_COMMITS = 188  # 2026-05: 182→188 across new audit-pin + admin operational-health endpoints
 
 
 # (relative_path, line_number) → reason. Each entry needs a

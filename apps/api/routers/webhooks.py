@@ -604,3 +604,63 @@ def _json_dumps(v: object) -> str:
     import json
 
     return json.dumps(v, default=str)
+
+
+# ---------- Subscription health endpoint (cycle T1) ----------
+
+
+@router.get("/{webhook_id}/health")
+async def webhook_subscription_health(
+    webhook_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    """7-day delivery health stats for a subscription (cross-tenant → 404)."""
+    sub = (
+        await db.execute(
+            text("SELECT id FROM webhook_subscriptions WHERE id = :id AND organization_id = :org"),
+            {"id": str(webhook_id), "org": str(auth.organization_id)},
+        )
+    ).scalar_one_or_none()
+    if sub is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "webhook_subscription_not_found")
+
+    row = (
+        (
+            await db.execute(
+                text(
+                    """
+                SELECT
+                    COUNT(*) AS total_7d,
+                    COUNT(*) FILTER (WHERE status = 'delivered') AS delivered_7d,
+                    COUNT(*) FILTER (WHERE status = 'failed') AS failed_7d,
+                    MAX(CASE WHEN status = 'failed' THEN created_at END) AS last_failure_at,
+                    PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY attempt_count) AS p95_attempts
+                FROM webhook_deliveries
+                WHERE subscription_id = :sub_id
+                  AND organization_id = :org
+                  AND created_at >= NOW() - INTERVAL '7 days'
+                """
+                ),
+                {"sub_id": str(webhook_id), "org": str(auth.organization_id)},
+            )
+        )
+        .mappings()
+        .one()
+    )
+
+    delivered = int(row["delivered_7d"] or 0)
+    failed = int(row["failed_7d"] or 0)
+    terminal = delivered + failed
+    rate_7d = (delivered / terminal) if terminal > 0 else None
+
+    return ok(
+        {
+            "total_7d": int(row["total_7d"] or 0),
+            "delivered_7d": delivered,
+            "failed_7d": failed,
+            "rate_7d": rate_7d,
+            "last_failure_at": row["last_failure_at"],
+            "p95_attempts": row["p95_attempts"],
+        }
+    )

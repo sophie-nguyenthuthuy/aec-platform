@@ -102,6 +102,8 @@ AuditAction = Literal[
     # WHO clicked, the cron_runs row tells you WHAT happened.
     # Cross-referenced via timestamp during incident retros.
     "admin.cron.run_now",
+    # Dedup state cleared by an admin (silences a stuck-cron alert).
+    "admin.cron.dedup_clear",
 ]
 
 

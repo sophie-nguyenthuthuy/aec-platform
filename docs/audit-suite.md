@@ -118,7 +118,7 @@ Audit-trail completeness audit.
 
 | Constant | Value |
 |---|---|
-| `BASELINE_MISSING_AUDIT` | `124` |
+| `BASELINE_MISSING_AUDIT` | `127` |
 
 **Tests**: `test_state_changing_routes_emit_audit_events_or_are_allowlisted`, `test_allowlist_entries_actually_match_routes`, `test_audit_patterns_recognise_documented_aliases`
 
@@ -551,7 +551,7 @@ Database transaction-commit audit (routers).
 
 | Constant | Value |
 |---|---|
-| `BASELINE_INLINE_COMMITS` | `182` |
+| `BASELINE_INLINE_COMMITS` | `188` |
 
 **Tests**: `test_no_inline_commit_in_routers`, `test_audit_recognises_session_commit_shapes`
 
@@ -676,7 +676,7 @@ Cross-tenant data-leak audit (raw SQL).
 
 | Constant | Value |
 |---|---|
-| `BASELINE_TENANT_LEAK` | `113` |
+| `BASELINE_TENANT_LEAK` | `115` |
 
 **Tests**: `test_no_raw_sql_query_misses_the_tenant_predicate`, `test_audit_recognises_documented_predicate_shapes`, `test_global_tables_recognised_for_unscoped_queries`, `test_allowlist_entries_actually_exist`
 

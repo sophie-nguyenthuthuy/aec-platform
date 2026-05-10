@@ -33,10 +33,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.envelope import paginated
+from core.envelope import ok, paginated
 from db.deps import get_db
 from middleware.auth import AuthContext
 from middleware.rbac import Role, require_min_role
@@ -215,7 +216,7 @@ _CSV_COLUMNS: list[tuple[str, str]] = [
 ]
 
 
-@router.get("/events.csv")
+@router.get("/events.csv", response_class=StreamingResponse)
 async def export_audit_events_csv(
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -369,3 +370,159 @@ async def export_audit_events_csv(
             "Cache-Control": "no-store",
         },
     )
+
+
+# ---------- Audit pin + project-audit endpoints (cycles U3 / S3) ----------
+
+_PROJECT_RESOURCE_TABLES: dict[str, str] = {
+    "change_orders": "change_orders",
+    "punchlist_lists": "punch_lists",
+    "handover_packages": "handover_packages",
+    "submittals": "submittals",
+    "rfq": "rfqs",
+}
+
+
+class _PinBody(BaseModel):
+    note: str | None = None
+
+
+@router.post("/events/{event_id}/pin")
+async def pin_event(
+    event_id: UUID,
+    body: _PinBody,
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    """UPSERT a pin row for the caller on this audit event (cross-tenant → 404)."""
+    ownership = await db.execute(
+        text("SELECT id FROM audit_events WHERE id = :id AND organization_id = :org"),
+        {"id": str(event_id), "org": str(auth.organization_id)},
+    )
+    if ownership.first() is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "audit_event_not_found")
+
+    await db.execute(
+        text(
+            """
+            INSERT INTO audit_pins (audit_event_id, pinned_by, note)
+            VALUES (:event_id, :user, :note)
+            ON CONFLICT (audit_event_id, pinned_by)
+            DO UPDATE SET note = EXCLUDED.note, pinned_at = NOW()
+            """
+        ),
+        {"event_id": str(event_id), "user": str(auth.user_id), "note": body.note},
+    )
+    await db.commit()
+    return ok({"pinned": True, "note": body.note})
+
+
+@router.delete("/events/{event_id}/pin")
+async def unpin_event(
+    event_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    """Delete the caller's pin on this audit event. Idempotent — 200 even if no row."""
+    result = await db.execute(
+        text("DELETE FROM audit_pins WHERE audit_event_id = :event_id AND pinned_by = :user"),
+        {"event_id": str(event_id), "user": str(auth.user_id)},
+    )
+    await db.commit()
+    return ok({"pinned": False, "removed": result.rowcount > 0})
+
+
+@router.get("/pins")
+async def list_pins(
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    """Return audit events pinned by the calling user (per-user, org-scoped)."""
+    rows = (
+        (
+            await db.execute(
+                text(
+                    """
+                SELECT
+                    a.id, a.organization_id, a.actor_user_id, a.actor_api_key_id,
+                    a.actor_email, a.actor_api_key_name, a.action, a.resource_type,
+                    a.resource_id, a.before, a.after, a.ip, a.user_agent, a.created_at,
+                    p.note AS pin_note, p.pinned_at AS pin_pinned_at
+                FROM audit_pins p
+                JOIN audit_events a ON a.id = p.audit_event_id
+                WHERE p.pinned_by = :user
+                  AND a.organization_id = :org
+                ORDER BY p.pinned_at DESC
+                """
+                ),
+                {"user": str(auth.user_id), "org": str(auth.organization_id)},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return ok([dict(r) for r in rows])
+
+
+@router.get("/projects/{project_id}/events")
+async def project_audit_events(
+    project_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    action: str | None = None,
+    actor_kind: Annotated[str | None, Query(pattern="^(user|api_key|system)$")] = None,
+    since_days: Annotated[int | None, Query(ge=1, le=365)] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    """Paginated audit events for a specific project (union across all project-scoped resources)."""
+    type_clauses = " OR ".join(f"resource_type = '{rtype}'" for rtype in _PROJECT_RESOURCE_TABLES)
+
+    actor_clause = ""
+    if actor_kind == "user":
+        actor_clause = "AND a.actor_user_id IS NOT NULL"
+    elif actor_kind == "api_key":
+        actor_clause = "AND a.actor_api_key_id IS NOT NULL"
+
+    action_clause = "AND a.action = :action" if action else ""
+    since_clause = "AND a.created_at >= NOW() - INTERVAL '1 day' * :since_days" if since_days else ""
+
+    base_where = (
+        f"WHERE a.organization_id = :org"
+        f"  AND ({type_clauses})"
+        f"  {action_clause} {actor_clause} {since_clause}"
+        f"  AND EXISTS ("
+        f"    SELECT 1 FROM change_orders WHERE id = a.resource_id AND project_id = :project_id AND organization_id = :org"
+        f"    UNION ALL SELECT 1 FROM punch_lists WHERE id = a.resource_id AND project_id = :project_id AND organization_id = :org"
+        f"    UNION ALL SELECT 1 FROM handover_packages WHERE id = a.resource_id AND project_id = :project_id AND organization_id = :org"
+        f"    UNION ALL SELECT 1 FROM submittals WHERE id = a.resource_id AND project_id = :project_id AND organization_id = :org"
+        f"    UNION ALL SELECT 1 FROM rfqs WHERE id = a.resource_id AND project_id = :project_id AND organization_id = :org"
+        f"  )"
+    )
+
+    params: dict[str, Any] = {
+        "org": str(auth.organization_id),
+        "project_id": str(project_id),
+    }
+    if action:
+        params["action"] = action
+    if since_days:
+        params["since_days"] = since_days
+
+    count_sql = text(f"SELECT COUNT(*) FROM audit_events a {base_where}")
+    total = (await db.execute(count_sql, params)).scalar_one()
+
+    rows_sql = text(
+        f"""
+        SELECT
+            a.id, a.organization_id, a.actor_user_id, a.actor_api_key_id,
+            a.actor_email, a.actor_api_key_name, a.action, a.resource_type,
+            a.resource_id, a.before, a.after, a.ip, a.user_agent, a.created_at
+        FROM audit_events a
+        {base_where}
+        ORDER BY a.created_at DESC
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    rows = (await db.execute(rows_sql, {**params, "limit": limit, "offset": offset})).mappings().all()
+    return paginated([dict(r) for r in rows], page=1, per_page=limit, total=total)

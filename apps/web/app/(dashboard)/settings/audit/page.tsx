@@ -44,6 +44,7 @@ const ACTION_FILTERS: Array<{ value: string; label: string }> = [
   { value: "admin.normalizer_rule.update",     label: "Sửa luật chuẩn hoá" },
   { value: "admin.normalizer_rule.delete",     label: "Xoá luật chuẩn hoá" },
   { value: "admin.cron.run_now",               label: "Chạy cron thủ công" },
+  { value: "admin.cron.dedup_clear",             label: "Xoá trạng thái dedup cron" },
   { value: "webhooks.subscription.rotate_secret", label: "Xoay secret webhook" },
 ];
 
@@ -92,6 +93,7 @@ const ACTION_TONE: Record<string, string> = {
   "admin.normalizer_rule.update":       "bg-indigo-100 text-indigo-800",
   "admin.normalizer_rule.delete":       "bg-rose-100 text-rose-800",
   "admin.cron.run_now":                 "bg-indigo-100 text-indigo-800",
+  "admin.cron.dedup_clear":               "bg-indigo-100 text-indigo-800",
   "webhooks.subscription.rotate_secret":"bg-amber-100 text-amber-800",
 };
 

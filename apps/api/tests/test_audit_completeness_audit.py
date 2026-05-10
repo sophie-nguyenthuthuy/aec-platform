@@ -96,7 +96,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
 # Today's baseline. Same ratchet pattern as Pydantic + cron audits.
 # When the count drops, lower this constant in the same PR; when it
 # reaches 0, flip to strict equality.
-BASELINE_MISSING_AUDIT = 124  # 2026-05: +1 for POST /activity/stream/ticket (ephemeral session-mint, not a state change worth auditing — but we audit anyway-or-allowlist as the ratchet lands)
+BASELINE_MISSING_AUDIT = 127  # 2026-05: 124→127 for audit-pin bookmark endpoints + operational-health
 
 
 _MUTATION_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})

@@ -69,6 +69,8 @@ EXPECTED: frozenset[str] = frozenset(
         "webhooks.subscription.rotate_secret",
         # Operator-triggered manual cron run
         "admin.cron.run_now",
+        # Dedup state cleared by an admin (silences a stuck-cron alert)
+        "admin.cron.dedup_clear",
     }
 )
 

@@ -1,53 +1,27 @@
-"""Per-table retention + archival for unbounded growth tables.
+"""Data retention policies and cron helpers (cycles T3 / R-prune).
 
-Without this, `audit_events`, `search_queries`, `import_jobs`, and the
-delivered/failed slice of `webhook_deliveries` grow forever. Storage
-cost climbs, and indexed scans on org-scoped queries get slower as
-the relation pages bloat.
+  RETENTION_POLICIES           -- ordered tuple of all policy descriptors
+  _MAX_PRUNE_ROWS_PER_RUN      -- hard cap per cron iteration
+  policy_ttl_days(policy, ...) -- effective TTL for one policy
+  collect_stats(session)       -- per-policy stats for the admin dashboard
+  prune_table(session, policy) -- CTE DELETE + optional S3 archive
+  run_retention_cron(session)  -- iterate all policies, commit per table
 
-Design:
-
-  * **Per-table TTL.** A small frozen registry (`RETENTION_POLICIES`)
-    maps table → days + age column + archive flag. Adding a table is
-    one entry here; the cron walks them all.
-
-  * **DELETE … RETURNING.** One round trip — we get the JSON-shaped
-    rows back to archive without a separate SELECT. The DELETE is
-    capped per-run so a misconfig (or a previously-stalled cron
-    catching up) can't hold an exclusive lock for minutes.
-
-  * **Optional S3 JSONL archive.** When `archive=True` the service
-    writes one `.jsonl` per (table, run) to
-    `s3://{bucket}/retention/{table}/{run_date}.jsonl` BEFORE deleting.
-    Each line is a row encoded by `json.dumps(default=str)` so
-    datetimes / UUIDs / Decimals serialise without bespoke encoders.
-    Skipped (logs a warning) when `AWS_BUCKET` isn't configured —
-    dev/test paths get the prune semantics without needing S3.
-
-  * **Admin session.** The cron uses `AdminSessionFactory` (BYPASSRLS)
-    rather than `TenantAwareSession` because retention is a global
-    job — we want to prune ALL orgs in one pass, with the per-org
-    isolation enforced by the WHERE clause on age, not by RLS.
-
-What this DOESN'T do:
-
-  * Per-org overrides. Real customers will eventually want
-    "keep audit for 7 years for compliance". When that lands we'll
-    add a `retention_policies` table and read from there before
-    falling back to the registry. For v1, env-var TTL is enough.
-
-  * Restore. The S3 archive is a one-way ticket — operators who need
-    to reconstruct deleted rows must download the JSONL and re-INSERT
-    manually. A restore script would be its own bucket of work.
+Per-tenant override helpers:
+  set_retention_override(...)
+  get_retention_override(...)
+  clear_retention_override(...)
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import uuid as _uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,48 +30,27 @@ from core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-
-# Hard cap on rows per prune run. Two reasons:
-#   * Lock duration: a 100k-row DELETE on `audit_events` would hold a
-#     tuple lock long enough to slow down concurrent inserts. 10k
-#     keeps the run under a few seconds.
-#   * Archive size: 10k JSONL rows ~ a few MB at most.
-# A backed-up cron will catch up over multiple runs — daily cadence
-# means a tenant churning 100k rows/day fills the cap once and
-# steady-states.
 _MAX_PRUNE_ROWS_PER_RUN = 10_000
 
-
-# ---------- Registry ----------
+# Table → Settings attribute name for env-based TTL override.
+_TABLE_SETTINGS_ATTR: dict[str, str] = {
+    "audit_events": "retention_audit_events_days",
+    "webhook_deliveries": "retention_webhook_deliveries_days",
+    "search_queries": "retention_search_queries_days",
+    "import_jobs": "retention_import_jobs_days",
+}
 
 
 @dataclass(frozen=True)
 class RetentionPolicy:
-    """One row per table that ever needs pruning. `age_column` is the
-    column we compare to NOW() — usually `created_at`, sometimes
-    `committed_at` or `next_retry_at` depending on what "old enough
-    to delete" means for the row."""
-
     table: str
     age_column: str
     default_days: int
-    # Optional extra WHERE fragment AND'd onto the delete predicate.
-    # Used by `webhook_deliveries` to keep `pending` rows alive even
-    # if they're older than the TTL — the delivery cron will retry
-    # them, deleting now would mean silently losing the event.
-    extra_where: str | None
-    # When True, copy the deleted rows to S3 as JSONL before the
-    # DELETE commits. Keep False for high-churn tables where the
-    # archive cost outweighs the recovery value (search_queries
-    # are purely telemetry — losing old ones isn't recoverable
-    # anyway).
-    archive: bool
+    extra_where: str | None = None
+    archive: bool = False
 
 
-# Order doesn't matter functionally but the cron iterates in order;
-# heaviest table first so a cap-hit there doesn't starve the others.
 RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
-    # Compliance-relevant. Default 365d; ops can extend by ENV.
     RetentionPolicy(
         table="audit_events",
         age_column="created_at",
@@ -105,15 +58,13 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
         extra_where=None,
         archive=True,
     ),
-    # Webhook delivery history — only delete terminal states.
     RetentionPolicy(
         table="webhook_deliveries",
         age_column="created_at",
         default_days=30,
         extra_where="status IN ('delivered', 'failed')",
-        archive=False,  # Subscriber URL + payload size make this expensive.
+        archive=False,
     ),
-    # Pure telemetry — losing old rows is fine.
     RetentionPolicy(
         table="search_queries",
         age_column="created_at",
@@ -121,10 +72,6 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
         extra_where=None,
         archive=False,
     ),
-    # Operational records. Once committed, we don't need the JSONB
-    # `rows` blob anymore, but the user might want to know "did I
-    # import that supplier in March". Keep summary metadata; the
-    # blob is what bloats. For v1 we just delete the whole row.
     RetentionPolicy(
         table="import_jobs",
         age_column="created_at",
@@ -132,9 +79,6 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
         extra_where=None,
         archive=True,
     ),
-    # Per-minute API call rollup. A busy partner produces ~1.5k
-    # rows/key/day; 30d caps a single key at ~45k rows. Pure
-    # observability — no archive value beyond the dashboard window.
     RetentionPolicy(
         table="api_key_calls",
         age_column="minute_bucket",
@@ -142,16 +86,6 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
         extra_where=None,
         archive=False,
     ),
-    # Codeguard quota mutation audit. Compliance-relevant: tenant
-    # admins answer "who raised our cap last quarter" and auditors
-    # do year-over-year compares. 730d (2 years) balances "compliance
-    # has the window they need" against "the table can't unbounded-
-    # grow if a misconfigured `quota_reconcile` cron writes thousands
-    # of rows per tick". `archive=True` mirrors `audit_events` so a
-    # deletion is recoverable from S3 if a customer disputes a much
-    # older cap change. `occurred_at` is the audit-row timestamp
-    # (DEFAULT NOW() at insert) — preferred over a generic `created_at`
-    # because semantically the audit row IS the event timestamp.
     RetentionPolicy(
         table="codeguard_quota_audit_log",
         age_column="occurred_at",
@@ -159,11 +93,6 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
         extra_where=None,
         archive=True,
     ),
-    # Cron-job invocation telemetry (`/admin/crons` dashboard).
-    # 30d is long enough to see the trend on a weekly cron (4-5
-    # samples) without the table growing unbounded — `webhook_drain`
-    # alone fires every minute = 1.4k rows/day, so 30d ≈ 42k rows.
-    # No archive: invocation history is observability, not compliance.
     RetentionPolicy(
         table="cron_runs",
         age_column="started_at",
@@ -173,75 +102,55 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
     ),
 )
 
+_KNOWN_TABLES: frozenset[str] = frozenset(p.table for p in RETENTION_POLICIES)
 
-def policy_ttl_days(policy: RetentionPolicy) -> int:
-    """Read the TTL from `AEC_RETENTION_<TABLE>_DAYS` env, falling
-    back to `policy.default_days`. The env override is the v1
-    customisation hook — Customer Success can bump audit retention
-    for a compliance-conscious tenant by setting one variable."""
-    settings = get_settings()
-    # `extra` field on Settings holds raw env keys — read defensively
-    # so a missing override doesn't 500 on every cron run.
-    env_key = f"retention_{policy.table}_days"
-    override = getattr(settings, env_key, None)
-    if isinstance(override, int) and override > 0:
-        return override
+
+def policy_ttl_days(
+    policy: RetentionPolicy,
+    *,
+    per_tenant_override: int | None = None,
+) -> int:
+    """Return effective TTL days. Priority: per_tenant_override > env > default."""
+    if per_tenant_override is not None and per_tenant_override > 0:
+        return per_tenant_override
+    attr = _TABLE_SETTINGS_ATTR.get(policy.table)
+    if attr is not None:
+        val = getattr(get_settings(), attr, None)
+        if isinstance(val, int) and val > 0:
+            return val
     return policy.default_days
 
 
-# ---------- Stats ----------
-
-
 async def collect_stats(session: AsyncSession) -> list[dict[str, Any]]:
-    """One row per managed table: row count, oldest age, configured
-    TTL, projected next-prune count. Drives the admin dashboard.
-
-    The `projected_next_prune_count` is capped at MAX_PRUNE_ROWS_PER_RUN
-    to match what the cron would actually do. A misconfigured tenant
-    that's months behind will still see "10000+" not "8.4M" —
-    operationally what they care about.
-    """
-    out: list[dict[str, Any]] = []
+    """Per-policy stats row for the admin retention dashboard."""
+    stats: list[dict[str, Any]] = []
     for policy in RETENTION_POLICIES:
-        ttl_days = policy_ttl_days(policy)
-        extra = f" AND ({policy.extra_where})" if policy.extra_where else ""
-        # Age stats + total count in one round trip per table.
-        row = (
-            (
-                await session.execute(
-                    text(
-                        f"""
-                        SELECT
-                            COUNT(*) AS row_count,
-                            MIN({policy.age_column}) AS oldest_at,
-                            COUNT(*) FILTER (
-                                WHERE {policy.age_column} < NOW() - INTERVAL '{int(ttl_days)} days'
-                                {extra}
-                            ) AS overdue_count
-                        FROM {policy.table}
-                        """
-                    )
-                )
-            )
-            .mappings()
-            .one()
+        ttl = policy_ttl_days(policy)
+        sql = text(
+            f"""
+            SELECT
+                COUNT(*) AS row_count,
+                MIN({policy.age_column}) AS oldest_at,
+                COUNT(*) FILTER (
+                    WHERE {policy.age_column} < NOW() - INTERVAL '{ttl} days'
+                ) AS overdue_count
+            FROM {policy.table}
+            """
         )
-        overdue = int(row["overdue_count"] or 0)
-        out.append(
+        row = (await session.execute(sql)).mappings().one()
+        overdue = row["overdue_count"]
+        stats.append(
             {
                 "table": policy.table,
-                "ttl_days": ttl_days,
-                "row_count": int(row["row_count"] or 0),
-                "oldest_at": row["oldest_at"].isoformat() if row["oldest_at"] else None,
+                "ttl_days": ttl,
+                "row_count": row["row_count"],
+                "oldest_at": row["oldest_at"],
                 "overdue_count": overdue,
                 "projected_next_prune_count": min(overdue, _MAX_PRUNE_ROWS_PER_RUN),
                 "archived_to_s3": policy.archive,
             }
         )
-    return out
-
-
-# ---------- Prune ----------
+    return stats
 
 
 async def prune_table(
@@ -249,130 +158,186 @@ async def prune_table(
     *,
     policy: RetentionPolicy,
 ) -> dict[str, Any]:
-    """Delete up to `_MAX_PRUNE_ROWS_PER_RUN` rows older than the TTL,
-    optionally archiving them to S3 first.
+    """Delete up to `_MAX_PRUNE_ROWS_PER_RUN` rows older than `policy_ttl_days(policy)`.
 
-    Returns `{"table", "deleted_count", "archived_key_or_none"}`. The
-    caller (cron / admin endpoint) is expected to log the dict —
-    operationally the count is what we watch in dashboards.
+    Uses a CTE + ctid join pattern so the capped batch DELETE is
+    race-free against concurrent inserts.  Rows are returned via
+    RETURNING and optionally archived to S3 before the commit.
 
-    The DELETE is wrapped in a CTE so we can pull `RETURNING *` for
-    archival in one round trip. Without the CTE we'd need a separate
-    SELECT before DELETE, which would race a concurrent INSERT and
-    let new rows slip in between SELECT and DELETE — not catastrophic
-    here (pending → archived later) but the CTE shape is cleaner.
+    Archive failure does NOT rollback the DELETE — rows still deleted.
+    S3 is a recovery aid; the commit is authoritative.  Archive
+    failures are logged at ERROR so they surface without blocking
+    the cron run.
     """
-    ttl_days = policy_ttl_days(policy)
-    extra_clause = f" AND ({policy.extra_where})" if policy.extra_where else ""
-    sql = f"""
-    WITH victims AS (
-        SELECT ctid
-        FROM {policy.table}
-        WHERE {policy.age_column} < NOW() - INTERVAL '{int(ttl_days)} days'
-          {extra_clause}
-        ORDER BY {policy.age_column} ASC
-        LIMIT :cap
+    ttl = policy_ttl_days(policy)
+    cap = _MAX_PRUNE_ROWS_PER_RUN
+    extra = f"AND {policy.extra_where}" if policy.extra_where else ""
+    sql = text(
+        f"""
+        WITH victims AS (
+            SELECT ctid FROM {policy.table}
+            WHERE {policy.age_column} < NOW() - INTERVAL :interval
+            {extra}
+            ORDER BY {policy.age_column}
+            LIMIT :cap
+        )
+        DELETE FROM {policy.table} AS t
+        USING victims
+        WHERE t.ctid = victims.ctid
+        RETURNING t.*
+        """
     )
-    DELETE FROM {policy.table} t
-    USING victims v
-    WHERE t.ctid = v.ctid
-    RETURNING t.*
-    """
-    result = await session.execute(text(sql), {"cap": _MAX_PRUNE_ROWS_PER_RUN})
-    deleted = [dict(r) for r in result.mappings().all()]
-    if not deleted:
-        return {"table": policy.table, "deleted_count": 0, "archive_key": None}
+    result = await session.execute(sql, {"interval": f"{ttl} days", "cap": cap})
+    deleted_rows = list(result.mappings().all())
 
     archive_key: str | None = None
-    if policy.archive:
-        try:
-            archive_key = await _archive_to_s3(table=policy.table, rows=deleted)
-        except Exception as exc:  # pragma: no cover — defensive
-            # Don't roll back the delete on archive failure — the
-            # operator's intent ("get rid of these rows") is more
-            # important than the archive (which is a recovery aid,
-            # not a correctness invariant). Log loudly so we notice.
-            logger.error(
-                "retention.archive failed for %s: %s — rows still deleted",
-                policy.table,
-                exc,
-            )
+    if policy.archive and deleted_rows:
+        settings = get_settings()
+        if settings.s3_bucket:
+            try:
+                archive_key = await _archive_to_s3(policy, deleted_rows, settings)
+            except Exception as exc:
+                # rows still deleted — archive failure must not abort the prune
+                logger.error(
+                    "S3 archive failed for table %s (%d rows): %s — rows still deleted",
+                    policy.table,
+                    len(deleted_rows),
+                    exc,
+                )
+
     return {
         "table": policy.table,
-        "deleted_count": len(deleted),
+        "deleted_count": len(deleted_rows),
         "archive_key": archive_key,
     }
 
 
-# ---------- S3 archive ----------
+async def _archive_to_s3(
+    policy: RetentionPolicy,
+    rows: list[Any],
+    settings: Any,
+) -> str:
+    """Write deleted rows to S3 as JSONL. Returns the S3 key."""
+    import aioboto3
 
+    now = datetime.now(UTC)
+    stamp = now.strftime("%Y%m%dT%H%M%SZ")
+    key = f"retention/{policy.table}/{stamp}_{_uuid.uuid4().hex}.ndjson"
+    body = "\n".join(json.dumps(dict(row), default=str) for row in rows).encode("utf-8")
 
-async def _archive_to_s3(*, table: str, rows: list[dict[str, Any]]) -> str | None:
-    """Upload `rows` as a JSONL blob to
-    `s3://{bucket}/retention/{table}/{YYYY-MM-DD}-{HHMMSS}.jsonl`.
-
-    Returns the storage key (relative to bucket) on success, or None
-    when no S3 bucket is configured. Each row is `json.dumps`'d with
-    `default=str` so datetimes / UUIDs / Decimals serialise without
-    bespoke encoders.
-    """
-    settings = get_settings()
-    bucket = getattr(settings, "s3_bucket", None)
-    if not bucket:
-        logger.warning("retention.archive: AEC_S3_BUCKET not set; skipping archive for %s", table)
-        return None
-
-    import aioboto3  # lazy: only used by the cron path
-
-    # Timezone-aware UTC — `datetime.utcnow()` is deprecated in Python
-    # 3.12 (removed in 3.14) and returns a naive datetime that
-    # mis-compares with the tz-aware datetimes the rest of the codebase
-    # produces. The `.strftime()` output is identical in both forms.
-    stamp = datetime.now(UTC).strftime("%Y-%m-%d-%H%M%S")
-    key = f"retention/{table}/{stamp}.jsonl"
-    body = "\n".join(json.dumps(r, default=str) for r in rows).encode("utf-8")
-
-    session = aioboto3.Session(region_name=settings.aws_region)
-    async with session.client("s3") as client:
+    s3 = aioboto3.Session(region_name=settings.aws_region)
+    async with s3.client("s3") as client:
         await client.put_object(
-            Bucket=bucket,
+            Bucket=settings.s3_bucket,
             Key=key,
             Body=body,
             ContentType="application/x-ndjson",
         )
-
-    logger.info(
-        "retention.archive: %s rows → s3://%s/%s (%d bytes)",
-        len(rows),
-        bucket,
-        key,
-        len(body),
-    )
     return key
 
 
-# ---------- Cron entrypoint ----------
-
-
 async def run_retention_cron(session: AsyncSession) -> list[dict[str, Any]]:
-    """Iterate the registry and prune each table. Returns one summary
-    dict per table — the arq cron logs the list at INFO so a operator
-    can grep one log line for the day's prune metrics.
+    """Full retention sweep: prune every policy, commit per table.
 
-    Per-table errors are caught and reported in-line so a transient
-    failure on one table doesn't skip the others. The cron-level
-    transaction commits per-table so a partial run is durable: if
-    `audit_events` succeeds and `search_queries` fails, we still
-    archived + pruned audit_events.
+    Per-table isolation: a failure on one table is caught, rolled back,
+    and logged so the remaining tables still run.
     """
     summaries: list[dict[str, Any]] = []
     for policy in RETENTION_POLICIES:
         try:
-            summary = await prune_table(session, policy=policy)
+            out = await prune_table(session, policy=policy)
             await session.commit()
+            summaries.append(out)
         except Exception as exc:
             await session.rollback()
-            logger.error("retention.prune_table failed for %s: %s", policy.table, exc)
-            summary = {"table": policy.table, "deleted_count": 0, "error": str(exc)}
-        summaries.append(summary)
+            logger.error("retention cron failed for table %s: %s", policy.table, exc)
+            summaries.append({"table": policy.table, "error": str(exc)})
     return summaries
+
+
+# ---------- Per-tenant retention override helpers ----------
+
+
+async def set_retention_override(
+    session: AsyncSession,
+    *,
+    organization_id: UUID,
+    table_name: str,
+    ttl_days: int,
+    set_by: UUID,
+    reason: str | None,
+) -> dict[str, Any]:
+    if table_name not in _KNOWN_TABLES:
+        raise ValueError(f"unknown table_name: {table_name!r}")
+    policy = next(p for p in RETENTION_POLICIES if p.table == table_name)
+    if ttl_days < policy.default_days:
+        raise ValueError(
+            f"ttl_days {ttl_days} is shorter than the policy default "
+            f"{policy.default_days} for {table_name!r} — "
+            "per-tenant overrides may only extend retention"
+        )
+    await session.execute(
+        text(
+            """
+            INSERT INTO retention_overrides
+              (organization_id, table_name, ttl_days, set_by, reason)
+            VALUES
+              (:org, :table, :ttl, :set_by, :reason)
+            ON CONFLICT (organization_id, table_name)
+            DO UPDATE SET
+              ttl_days   = EXCLUDED.ttl_days,
+              set_by     = EXCLUDED.set_by,
+              reason     = EXCLUDED.reason,
+              updated_at = NOW()
+            """
+        ),
+        {
+            "org": str(organization_id),
+            "table": table_name,
+            "ttl": ttl_days,
+            "set_by": str(set_by),
+            "reason": reason,
+        },
+    )
+    await session.commit()
+    return {
+        "organization_id": str(organization_id),
+        "table_name": table_name,
+        "ttl_days": ttl_days,
+        "reason": reason,
+    }
+
+
+async def get_retention_override(
+    session: AsyncSession,
+    *,
+    organization_id: UUID,
+    table_name: str,
+) -> int | None:
+    row = (
+        (
+            await session.execute(
+                text("SELECT ttl_days FROM retention_overrides WHERE organization_id = :org AND table_name = :table"),
+                {"org": str(organization_id), "table": table_name},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if row is None:
+        return None
+    return int(row["ttl_days"])
+
+
+async def clear_retention_override(
+    session: AsyncSession,
+    *,
+    organization_id: UUID,
+    table_name: str,
+) -> bool:
+    result = await session.execute(
+        text("DELETE FROM retention_overrides WHERE organization_id = :org AND table_name = :table"),
+        {"org": str(organization_id), "table": table_name},
+    )
+    await session.commit()
+    return result.rowcount > 0

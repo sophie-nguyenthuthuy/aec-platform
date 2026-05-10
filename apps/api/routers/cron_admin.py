@@ -308,3 +308,54 @@ async def run_cron_now(
         await session.commit()
 
     return ok({"cron_name": cron_name, "job_id": job.job_id, "status": "enqueued"})
+
+
+# ---------- Per-cron dedup state endpoints (cycle S1) ----------
+
+_DEDUP_VALID_KINDS: frozenset[str] = frozenset({"cron_failure", "cron_stuck"})
+
+
+@router.get("/crons/{name}/dedup-state")
+async def get_cron_dedup_state(
+    name: str,
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+) -> dict[str, Any]:
+    """Return outstanding dedup rows for a cron (one per alert kind)."""
+    from services import cron_alert_dedup as svc
+
+    rows = await svc.get_dedup_state(cron_name=name)
+    return ok(rows)
+
+
+@router.post("/crons/{name}/dedup-state/clear")
+async def clear_cron_dedup_state(
+    name: str,
+    kind: str,
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+) -> dict[str, Any]:
+    """Clear a cron alert dedup row and write an audit row."""
+    if kind not in _DEDUP_VALID_KINDS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"unknown kind {kind!r}; must be one of {sorted(_DEDUP_VALID_KINDS)}",
+        )
+    from db.session import AdminSessionFactory
+    from services import audit as audit_mod
+    from services import cron_alert_dedup as svc
+
+    cleared = await svc.clear_alert(cron_name=name, kind=kind)
+
+    async with AdminSessionFactory() as session:
+        await audit_mod.record(
+            session,
+            organization_id=auth.organization_id,
+            auth=auth,
+            action="admin.cron.dedup_clear",
+            resource_type="cron",
+            resource_id=None,
+            before={},
+            after={"cron_name": name, "kind": kind},
+        )
+        await session.commit()
+
+    return ok({"cleared": cleared, "cron_name": name, "kind": kind})

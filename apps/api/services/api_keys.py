@@ -463,3 +463,40 @@ async def check_rate_limit(
     count, _ = await pipe.execute()
     count_int = int(count)
     return count_int <= limit_per_minute, count_int, limit_per_minute
+
+
+async def find_unused_keys(
+    session: AsyncSession,
+    *,
+    organization_id: UUID,
+    unused_days: int = 30,
+) -> list[dict[str, Any]]:
+    """Return API keys that have never been called, or whose last
+    call was more than `unused_days` days ago.
+
+    Used by the operational-health widget to surface stale keys that
+    should be rotated or revoked.
+    """
+    rows = (
+        (
+            await session.execute(
+                text(
+                    """
+                SELECT k.id, k.name, k.prefix, k.created_at, k.last_used_at
+                FROM api_keys k
+                WHERE k.organization_id = :org
+                  AND k.revoked_at IS NULL
+                  AND (
+                    k.last_used_at IS NULL
+                    OR k.last_used_at < NOW() - make_interval(days => :days)
+                  )
+                ORDER BY k.created_at ASC
+                """
+                ),
+                {"org": str(organization_id), "days": unused_days},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(r) for r in rows]

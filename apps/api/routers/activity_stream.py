@@ -77,7 +77,7 @@ async def mint_stream_ticket(
 # ---------- SSE stream ----------
 
 
-@router.get("/stream")
+@router.get("/stream", response_class=StreamingResponse)
 async def stream_activity(
     ticket: Annotated[str, Query()],
     project_id: Annotated[UUID | None, Query()] = None,

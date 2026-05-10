@@ -85,6 +85,7 @@ _KNOWN_EVENT_TYPES: set[str] = {
     "admin.normalizer_rule.delete",
     "webhooks.subscription.rotate_secret",
     "admin.cron.run_now",
+    "admin.cron.dedup_clear",
     # Non-audit creations (not gated by RBAC; carry no actor
     # before/after diff, so they're awkward to log to audit but
     # high-value to webhook)
@@ -207,6 +208,10 @@ EVENT_CATALOG: dict[str, dict[str, str | dict[str, Any]]] = {
     "admin.cron.run_now": {
         "description": "An admin manually triggered a cron job out-of-schedule. Useful for ops dashboards that distinguish operator interventions from scheduled runs.",
         "payload_sample": {"cron_name": "<string>", "triggered_by": "<user_uuid>"},
+    },
+    "admin.cron.dedup_clear": {
+        "description": "An admin cleared the dedup state for a cron alert, silencing a stuck-cron notification. The alert will re-fire if the underlying cron remains stuck.",
+        "payload_sample": {"cron_name": "<string>", "kind": "cron_stuck", "cleared_by": "<user_uuid>"},
     },
     # --- Non-audit events (creations + cron + test fire) ---
     "project.created": {
@@ -509,6 +514,27 @@ def verify_payload(
         return False
 
 
+# ---------- Wildcard helpers ----------
+
+
+def _wildcard_candidates(event_type: str) -> list[str]:
+    """Return wildcard patterns that would match `event_type`.
+
+    Walks segment prefixes from most-specific to least:
+      "costpulse.estimate.approve" → ["costpulse.estimate.*", "costpulse.*"]
+      "webhook.test"               → ["webhook.*"]
+      "unstructured"               → []
+    """
+    parts = event_type.split(".")
+    if len(parts) < 2:
+        return []
+    candidates = []
+    for i in range(len(parts) - 1, 0, -1):
+        prefix = ".".join(parts[:i])
+        candidates.append(f"{prefix}.*")
+    return candidates
+
+
 # ---------- Outbox enqueue ----------
 
 
@@ -535,6 +561,7 @@ async def enqueue_event(
         # it. Subscriptions only fire on known events anyway.
         logger.warning("webhooks.enqueue_event: unknown type %r", event_type)
 
+    wildcards = _wildcard_candidates(event_type)
     rows = (
         (
             await session.execute(
@@ -546,10 +573,15 @@ async def enqueue_event(
                       AND (
                         cardinality(event_types) = 0
                         OR :event_type = ANY(event_types)
+                        OR event_types && CAST(:wildcards AS text[])
                       )
                     """
                 ),
-                {"org": str(organization_id), "event_type": event_type},
+                {
+                    "org": str(organization_id),
+                    "event_type": event_type,
+                    "wildcards": wildcards,
+                },
             )
         )
         .scalars()

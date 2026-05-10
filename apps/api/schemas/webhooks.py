@@ -20,14 +20,18 @@ class WebhookSubscriptionCreate(BaseModel):
     @field_validator("event_types")
     @classmethod
     def _validate_event_types(cls, v: list[str]) -> list[str]:
-        # Bound the per-event-type length so a typo doesn't blow up the
-        # array column.
         for item in v:
             if not item or len(item) > 80:
                 raise ValueError(f"invalid event_type: {item!r}")
-            # The convention is `module.resource.verb` but we don't
-            # enforce a hard regex — the dispatcher matches by literal
-            # equality so adding a new event type is a 1-line PR.
+            if "*" in item:
+                # Wildcard: must be exactly `<prefix>.*` — bare `*`,
+                # embedded wildcards (`a.*.b`), and `module*` (no dot)
+                # are all rejected to keep the matcher simple.
+                if not item.endswith(".*"):
+                    raise ValueError(f"wildcard event_type must end with .*: {item!r}")
+                prefix = item[:-2]
+                if not prefix or "*" in prefix:
+                    raise ValueError(f"invalid wildcard event_type: {item!r}")
         return v
 
 

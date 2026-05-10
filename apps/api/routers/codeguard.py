@@ -422,7 +422,7 @@ async def codeguard_query(
     return ok(result)
 
 
-@router.post("/query/stream")
+@router.post("/query/stream", response_class=StreamingResponse)
 async def codeguard_query_stream(
     payload: QueryRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
@@ -609,7 +609,7 @@ async def codeguard_scan(
     return ok(response)
 
 
-@router.post("/scan/stream")
+@router.post("/scan/stream", response_class=StreamingResponse)
 async def codeguard_scan_stream(
     payload: ScanRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
@@ -765,7 +765,7 @@ async def create_permit_checklist(
     return ok(PermitChecklist.model_validate(record))
 
 
-@router.post("/permit-checklist/stream")
+@router.post("/permit-checklist/stream", response_class=StreamingResponse)
 async def codeguard_permit_checklist_stream(
     payload: PermitChecklistRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],

@@ -41,15 +41,13 @@ RBAC posture (the branch's named feature):
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-if TYPE_CHECKING:
-    from fastapi.responses import StreamingResponse
 
 from core.envelope import ok
 from db.deps import get_db
@@ -110,7 +108,7 @@ async def ask_about_project(
 # ---------- Ask (streaming variant) ----------
 
 
-@router.post("/projects/{project_id}/ask/stream")
+@router.post("/projects/{project_id}/ask/stream", response_class=StreamingResponse)
 async def ask_about_project_stream(
     project_id: UUID,
     payload: AskRequest,
@@ -136,8 +134,6 @@ async def ask_about_project_stream(
     standard 4xx; the in-band error frame mechanism is only for
     post-stream-open errors (cross-tenant project, DB blip mid-LLM).
     """
-    from fastapi.responses import StreamingResponse
-
     generator = assistant_ask_stream(
         db,
         organization_id=auth.organization_id,
