@@ -82,7 +82,7 @@ representative parameters) usually reveals it.
 Symptom: every API request returns 503 / connection-timeout.
 `pg_stat_activity` shows `count(*)` close to `max_connections`.
 
-### Diagnosis
+### Diagnosis (pool exhaustion)
 
 ```sql
 -- Who's holding connections, and what state are they in?
@@ -106,7 +106,7 @@ Common shapes:
     committing/rolling back. Look at the `query` column for the
     last statement they ran.
 
-### Recovery
+### Recovery (pool exhaustion)
 
   1. Cancel idle-in-transaction connections older than 30s:
      ```sql
@@ -133,7 +133,7 @@ Common shapes:
 Symptom: queries slow, `wait_event_type = 'Lock'` on multiple
 rows in `pg_stat_activity`.
 
-### Diagnosis
+### Diagnosis (lock contention)
 
 ```sql
 -- Who's holding the locks the waiters want?
@@ -179,7 +179,7 @@ Common cases:
     Same root cause as idle-in-transaction; a handler took a
     row lock then went off to do something slow.
 
-### Recovery
+### Recovery (lock contention)
 
 Same as connection pool: cancel/terminate the blocking PID;
 investigate WHY it was slow.
@@ -188,7 +188,7 @@ investigate WHY it was slow.
 
 Symptom: read-replica returns stale data; lag metric spikes.
 
-### Diagnosis
+### Diagnosis (replication lag)
 
 ```sql
 -- On the primary:
@@ -212,7 +212,7 @@ Causes:
   * **Replica is disk-bound** — the storage couldn't apply WAL
     fast enough.
 
-### Recovery
+### Recovery (replication lag)
 
   * Cancel / terminate the long-running primary transaction.
   * If application is replica-aware (some reads go to replica),
@@ -237,7 +237,7 @@ device`. Writes start failing; reads may still work.
   * **Genuine data growth** — unusual; the storage layer
     should be alerting on capacity well before this.
 
-### Recovery
+### Recovery (disk full)
 
 In order of preference:
 
