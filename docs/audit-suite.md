@@ -56,6 +56,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Router docstring](#router-docstring)
 - [Router handlers are async](#router-handlers-are-async)
 - [Secret access](#secret-access)
+- [Settings only env access](#settings-only-env-access)
 - [Shell injection](#shell-injection)
 - [Singleton comparison](#singleton-comparison)
 - [Stale init export](#stale-init-export)
@@ -587,6 +588,19 @@ Secret/env-var access audit.
 | `BASELINE_DIRECT_ENV_ACCESS` | `0` |
 
 **Tests**: `test_no_direct_env_access_outside_settings`, `test_audit_recognises_documented_access_shapes`, `test_file_allowlist_entries_actually_correspond_to_real_files`
+
+## Settings only env access <a id="settings-only-env-access"></a>
+_File:_ `apps/api/tests/test_settings_only_env_access_audit.py`
+
+Settings-only env-access audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_DIRECT_ENV_READS` | `2` |
+
+**Tests**: `test_no_direct_env_reads_outside_settings`, `test_audit_recognises_documented_shapes`, `test_allowlist_entries_actually_correspond_to_real_env_reads`
 
 ## Shell injection <a id="shell-injection"></a>
 _File:_ `apps/api/tests/test_shell_injection_audit.py`
