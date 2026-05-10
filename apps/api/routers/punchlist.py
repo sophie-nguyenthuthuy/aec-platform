@@ -396,11 +396,11 @@ async def update_item(
     return ok(PunchItem.model_validate(_row_to_dict(row)).model_dump(mode="json"))
 
 
-@router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_item(
     item_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> None:
     async with TenantAwareSession(auth.organization_id) as session:
         result = await session.execute(
             text("DELETE FROM punch_items WHERE id = :id"),

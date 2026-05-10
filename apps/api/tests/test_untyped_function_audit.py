@@ -75,23 +75,24 @@ _SCAN_DIRS = [_API_ROOT / "routers", _API_ROOT / "services"]
 
 # Today's baseline. Filled in on first run.
 BASELINE_UNTYPED_SLOTS = (
-    59  # 2026-05: 78 → 59 after typing handlers in assistant/notifications/api_keys/org/projects/sandbox
+    58  # 2026-05: 59 → 58 after migrating ALLOWLIST'd 204 handlers from `# skip` to `response_model=None` + -> None
 )
 
 
 # Per-(relative_path, function_name) allowlist. Each entry needs
 # a stated reason. An empty rationale silences the gate.
 ALLOWLIST: dict[tuple[str, str], str] = {
-    # FastAPI 204 routes: a `-> None` annotation makes FastAPI infer
-    # `response_model = NoneType`, which trips the runtime check
-    # `assert is_body_allowed_for_status_code(...)` at app startup
-    # ("Status code 204 must not have a response body"). The handlers
-    # genuinely return None, but we can't say so in source. Move out
-    # of the allowlist if we adopt `response_class=Response` on these
-    # decorators (which suppresses the response-model inference).
-    ("routers/punchlist.py", "delete_item"): "FastAPI 204 startup-check rejects -> None annotation",
-    ("routers/schedulepilot.py", "delete_activity"): "FastAPI 204 startup-check rejects -> None annotation",
-    ("routers/schedulepilot.py", "delete_dependency"): "FastAPI 204 startup-check rejects -> None annotation",
+    # No entries today. The 204-DELETE handlers that previously
+    # lived here (punchlist::delete_item, schedulepilot::
+    # {delete_activity, delete_dependency}) now declare
+    # `response_model=None` on the decorator — which suppresses
+    # FastAPI's response-model inference from the return annotation —
+    # and carry an explicit `-> None`. Same handler behaviour, slot
+    # now countably typed. (The webhooks::delete_webhook handler
+    # was never in this allowlist because it returned `None` literals
+    # rather than implicit-None; it got the same treatment for
+    # consistency and because `-> None` would otherwise trip the same
+    # FastAPI startup check.)
 }
 
 
