@@ -150,7 +150,11 @@ def test_admin_session_factory_uses_admin_url_when_configured():
         return
 
     bound_engine = AdminSessionFactory.kw["bind"]
-    bound_url = str(bound_engine.url)
+    # `str(engine.url)` masks the password as `***`; `render_as_string`
+    # with `hide_password=False` returns the URL the engine actually
+    # opens against, which is what we need to compare to the raw env
+    # value in `settings.database_url_admin`.
+    bound_url = bound_engine.url.render_as_string(hide_password=False)
 
     # The URL representations differ (asyncpg vs sync drivers,
     # password-masking, etc.) so we compare host + database parts
