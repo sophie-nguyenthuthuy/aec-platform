@@ -87,44 +87,54 @@ disable_ddl_transaction = True
 
 
 def upgrade() -> None:
-    # 3 organization_id FKs from migration 0049.
-    op.create_index(
-        "ix_assistant_messages_organization_id",
-        "assistant_messages",
-        ["organization_id"],
-        postgresql_concurrently=True,
-    )
-    op.create_index(
-        "ix_audit_pins_organization_id",
-        "audit_pins",
-        ["organization_id"],
-        postgresql_concurrently=True,
-    )
-    op.create_index(
-        "ix_boq_items_organization_id",
-        "boq_items",
-        ["organization_id"],
-        postgresql_concurrently=True,
-    )
-    # 3 audit-parser-blind FKs from earlier migrations.
-    op.create_index(
-        "ix_audit_pins_audit_event_id",
-        "audit_pins",
-        ["audit_event_id"],
-        postgresql_concurrently=True,
-    )
-    op.create_index(
-        "ix_audit_pins_pinned_by_only",
-        "audit_pins",
-        ["pinned_by"],
-        postgresql_concurrently=True,
-    )
-    op.create_index(
-        "ix_retention_overrides_set_by",
-        "retention_overrides",
-        ["set_by"],
-        postgresql_concurrently=True,
-    )
+    # `CREATE INDEX CONCURRENTLY` cannot run inside a transaction. Our
+    # env.py wraps each upgrade run in `context.begin_transaction()`,
+    # so the script-level `disable_ddl_transaction = True` flag isn't
+    # enough — alembic honours it only when `transaction_per_migration`
+    # is also set in alembic.ini, which it isn't (would change behaviour
+    # for every other migration). The portable fix is alembic's
+    # documented `autocommit_block()`, which commits the outer
+    # transaction, runs the inner statements in autocommit mode, then
+    # re-begins. CONCURRENTLY index creations all live inside.
+    with op.get_context().autocommit_block():
+        # 3 organization_id FKs from migration 0049.
+        op.create_index(
+            "ix_assistant_messages_organization_id",
+            "assistant_messages",
+            ["organization_id"],
+            postgresql_concurrently=True,
+        )
+        op.create_index(
+            "ix_audit_pins_organization_id",
+            "audit_pins",
+            ["organization_id"],
+            postgresql_concurrently=True,
+        )
+        op.create_index(
+            "ix_boq_items_organization_id",
+            "boq_items",
+            ["organization_id"],
+            postgresql_concurrently=True,
+        )
+        # 3 audit-parser-blind FKs from earlier migrations.
+        op.create_index(
+            "ix_audit_pins_audit_event_id",
+            "audit_pins",
+            ["audit_event_id"],
+            postgresql_concurrently=True,
+        )
+        op.create_index(
+            "ix_audit_pins_pinned_by_only",
+            "audit_pins",
+            ["pinned_by"],
+            postgresql_concurrently=True,
+        )
+        op.create_index(
+            "ix_retention_overrides_set_by",
+            "retention_overrides",
+            ["set_by"],
+            postgresql_concurrently=True,
+        )
 
 
 def downgrade() -> None:
