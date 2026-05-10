@@ -75,7 +75,7 @@ _SCAN_DIRS = [_API_ROOT / "routers", _API_ROOT / "services"]
 
 # Today's baseline. Filled in on first run.
 BASELINE_UNTYPED_SLOTS = (
-    58  # 2026-05: 59 → 58 after migrating ALLOWLIST'd 204 handlers from `# skip` to `response_model=None` + -> None
+    56  # 2026-05: 58 → 56 after typing 2 service-layer None-returning helpers (with_usage_recording, ask_stream)
 )
 
 

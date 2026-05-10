@@ -168,7 +168,7 @@ async def with_usage_recording(
     auth: AuthContext,
     *,
     route_key: str = "query",
-):
+) -> None:
     """Bind a per-request `TelemetryAccumulator`, drain it on exit.
 
     Yields the accumulator so handlers can inspect token counts mid-

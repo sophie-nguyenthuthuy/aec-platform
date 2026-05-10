@@ -553,7 +553,7 @@ async def ask_stream(
     project_id: UUID,
     user_id: UUID,
     request: AskRequest,
-):
+) -> None:
     """Streaming variant of `ask()`. Yields SSE-shaped strings:
 
       event: meta\\ndata: {"thread_id": "..."}\\n\\n  (sent first)
