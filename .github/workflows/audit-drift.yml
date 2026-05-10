@@ -34,6 +34,12 @@ jobs:
   drift:
     name: Compute + post drift table
     runs-on: ubuntu-latest
+    # Drift report is <5s in practice (fetch + AST walk + diff) plus a
+    # comment update via the GitHub API. A 5-minute cap is generous
+    # cover for slow runner provisioning + GitHub-API hiccups while
+    # still failing fast if something goes wrong. Pinned by
+    # `tests/test_github_actions_hygiene.py::test_every_job_has_a_timeout`.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
         with:

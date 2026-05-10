@@ -79,7 +79,7 @@ Map cron names to their criticality + the customer-facing impact:
 
 ## ⏳ `cron stuck` — running too long alert
 
-### What just happened
+### What just happened (stuck variant)
 
 The watchdog found a row in `cron_runs` with `status='running'`
 AND `finished_at IS NULL` whose elapsed time has exceeded 3× the
@@ -103,7 +103,7 @@ until manually cleaned up. The watchdog's job is to catch that
 **before** the next instance of the same cron tries to fire and
 blocks (or worse, runs in parallel and double-processes).
 
-### Triage tree
+### Triage tree (stuck variant)
 
 1. **Open `/admin/crons/<cron_name>`** to find the stuck row's id
    and started_at. Note them.

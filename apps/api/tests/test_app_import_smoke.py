@@ -72,6 +72,14 @@ _AUTH_FREE_ROUTE_FRAGMENTS: frozenset[str] = frozenset(
         # IS still gated). Same shape as `/api/v1/public/rfq/` —
         # token-in-URL is the auth.
         "/api/v1/activity/stream",
+        # Webhook signature-verification playground —
+        # `POST /api/v1/webhooks/verify-signature`. Public on purpose:
+        # partners debug their integration BEFORE getting an API key,
+        # and the endpoint is read-only HMAC-over-user-supplied-bytes
+        # (no DB access, no tenant data). The secret used in the
+        # computation is supplied by the caller, so there's nothing
+        # to leak. See routers/webhooks.py for the full rationale.
+        "/api/v1/webhooks/verify-signature",
     }
 )
 
