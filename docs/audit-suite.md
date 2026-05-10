@@ -85,7 +85,7 @@ _File:_ `apps/api/tests/test_alembic_chain_integrity_audit.py`
 
 Audit: alembic migration chain integrity.
 
-**Tests**: `test_audit_finds_migration_files`, `test_revision_ids_are_unique`, `test_down_revisions_resolve_to_known_revisions`, `test_exactly_one_root_revision`, `test_at_most_one_head_revision_or_explicit_multi_head`, `test_no_cycle_in_migration_chain`, `test_filename_prefix_matches_revision_id`
+**Tests**: `test_audit_finds_migration_files`, `test_revision_ids_are_unique`, `test_down_revisions_resolve_to_known_revisions`, `test_exactly_one_root_revision`, `test_at_most_one_head_revision_or_explicit_multi_head`, `test_no_cycle_in_migration_chain`, `test_filename_prefix_matches_revision_id`, `test_revision_ids_fit_alembic_version_num_column`
 
 ## Assert in production <a id="assert-in-production"></a>
 _File:_ `apps/api/tests/test_assert_in_production_audit.py`
