@@ -912,9 +912,13 @@ async def _persist_exchange(
     now = datetime.now(UTC)
     sources_payload = [s.model_dump(mode="json") for s in sources]
 
+    # `organization_id` mirrors the parent thread; migration 0049 added
+    # the column as NOT NULL on `assistant_messages` so RLS can be
+    # evaluated directly without joining through `assistant_threads`.
     session.add(
         AssistantMessage(
             id=uuid4(),
+            organization_id=thread.organization_id,
             thread_id=thread.id,
             role="user",
             content=question,
@@ -927,6 +931,7 @@ async def _persist_exchange(
     session.add(
         AssistantMessage(
             id=uuid4(),
+            organization_id=thread.organization_id,
             thread_id=thread.id,
             role="assistant",
             content=answer,

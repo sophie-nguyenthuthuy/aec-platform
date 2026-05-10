@@ -148,7 +148,7 @@ async def create_estimate(
     db.add(estimate)
     await db.flush()
 
-    total = _persist_items(db, estimate.id, payload.items)
+    total = _persist_items(db, estimate.id, auth.organization_id, payload.items)
     estimate.total_vnd = int(total)
 
     await db.commit()
@@ -202,7 +202,7 @@ async def update_boq(
     new_estimate = _supersede_and_clone(db, estimate, actor_user_id=creator)
     await db.flush()  # populate new_estimate.id without committing yet
 
-    total = _persist_items(db, new_estimate.id, payload.items, recompute=payload.recompute_totals)
+    total = _persist_items(db, new_estimate.id, auth.organization_id, payload.items, recompute=payload.recompute_totals)
     new_estimate.total_vnd = int(total)
     await db.commit()
 
@@ -279,7 +279,7 @@ async def import_boq_xlsx(
     ]
 
     await db.execute(delete(BoqItem).where(BoqItem.estimate_id == estimate_id))
-    total = _persist_items(db, estimate_id, items_in, recompute=True)
+    total = _persist_items(db, estimate_id, auth.organization_id, items_in, recompute=True)
     estimate.total_vnd = int(total)
 
     # Audit before the commit so the audit row + BOQ rewrite land
@@ -1303,10 +1303,16 @@ def _supersede_and_clone(
 def _persist_items(
     db: AsyncSession,
     estimate_id: UUID,
+    organization_id: UUID,
     items: list[BoqItemIn],
     recompute: bool = True,
 ) -> Decimal:
-    """Insert items and return the root-level total (sum of items with no parent)."""
+    """Insert items and return the root-level total (sum of items with no parent).
+
+    `organization_id` mirrors the parent estimate's tenant; migration 0049
+    added the column as NOT NULL on `boq_items` so the row-level RLS policy
+    can be evaluated directly without joining through `estimates`.
+    """
     total = Decimal(0)
     id_map: dict[UUID, UUID] = {}
 
@@ -1325,6 +1331,7 @@ def _persist_items(
 
         boq = BoqItem(
             id=new_id,
+            organization_id=organization_id,
             estimate_id=estimate_id,
             parent_id=parent_id,
             sort_order=item.sort_order,

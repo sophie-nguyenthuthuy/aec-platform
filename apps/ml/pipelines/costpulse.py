@@ -627,6 +627,7 @@ async def _assemble_and_persist(
         parent_id = uuid4()
         parent = BoqItem(
             id=parent_id,
+            organization_id=organization_id,
             estimate_id=estimate_id,
             parent_id=None,
             sort_order=sort_cursor,
@@ -645,6 +646,7 @@ async def _assemble_and_persist(
             rows_out.append(
                 BoqItem(
                     id=uuid4(),
+                    organization_id=organization_id,
                     estimate_id=estimate_id,
                     parent_id=parent_id,
                     sort_order=sort_cursor,
