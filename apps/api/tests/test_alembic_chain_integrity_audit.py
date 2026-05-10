@@ -419,9 +419,7 @@ def test_revision_ids_fit_alembic_version_num_column():
     """
     chain = _build_chain()
     too_long = sorted(
-        f"{revision!r} ({len(revision)} chars)"
-        for revision in chain
-        if len(revision) > _ALEMBIC_VERSION_NUM_MAX_LEN
+        f"{revision!r} ({len(revision)} chars)" for revision in chain if len(revision) > _ALEMBIC_VERSION_NUM_MAX_LEN
     )
     assert not too_long, (
         f"These revision ids exceed alembic_version.version_num's "
