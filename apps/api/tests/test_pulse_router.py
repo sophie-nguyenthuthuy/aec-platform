@@ -140,27 +140,6 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 # ---------- Helpers ----------
 
 
-def _execute_result(
-    *,
-    scalars_all: list | None = None,
-    scalar_one_or_none: object | None = None,
-    scalar_one: object | None = None,
-    one: tuple | None = None,
-    rows: list | None = None,
-):
-    """Build a MagicMock mimicking an AsyncSession.execute() result."""
-    r = MagicMock()
-    r.scalars.return_value.all.return_value = list(scalars_all or [])
-    r.scalars.return_value.first.return_value = (scalars_all or [None])[0] if scalars_all else None
-    r.scalar_one_or_none.return_value = scalar_one_or_none
-    r.scalar_one.return_value = scalar_one if scalar_one is not None else 0
-    # For routes that do `.one()` and index into the tuple (e.g. dashboard CO row).
-    r.one.return_value = one if one is not None else (0, 0)
-    r.all.return_value = list(rows or [])
-    r.mappings.return_value.all.return_value = list(rows or [])
-    return r
-
-
 def _task_factory(**overrides):
     from models.pulse import Task as TaskModel
 
@@ -194,11 +173,11 @@ def _task_factory(**overrides):
 
 async def test_dashboard_empty_project_returns_green_rag(client, fake_db):
     # counts + overdue + milestones + COs + last_report all empty
-    fake_db.set_execute_result(_execute_result(rows=[]))  # counts
-    fake_db.set_execute_result(_execute_result(scalar_one=0))  # overdue count
-    fake_db.set_execute_result(_execute_result(scalars_all=[]))  # milestones
-    fake_db.set_execute_result(_execute_result(one=(0, 0)))  # open CO: (count, sum)
-    fake_db.set_execute_result(_execute_result(scalar_one_or_none=None))  # last report
+    fake_db.set_execute_result(make_execute_result(rows=[]))  # counts
+    fake_db.set_execute_result(make_execute_result(scalar_one=0))  # overdue count
+    fake_db.set_execute_result(make_execute_result(rows=[]))  # milestones
+    fake_db.set_execute_result(make_execute_result(one=(0, 0)))  # open CO: (count, sum)
+    fake_db.set_execute_result(make_execute_result(scalar_one_or_none=None))  # last report
 
     res = await client.get(f"/api/v1/pulse/projects/{uuid4()}/dashboard")
     assert res.status_code == 200, res.text
@@ -216,7 +195,7 @@ async def test_dashboard_empty_project_returns_green_rag(client, fake_db):
 async def test_dashboard_aggregates_counts_and_flags_overdue_red(client, fake_db):
     # 10 done, 2 in_progress, 3 todo, 5 overdue (≥5 overdue → red)
     fake_db.set_execute_result(
-        _execute_result(
+        make_execute_result(
             rows=[
                 ("done", 10),
                 ("in_progress", 2),
@@ -224,10 +203,10 @@ async def test_dashboard_aggregates_counts_and_flags_overdue_red(client, fake_db
             ]
         )
     )
-    fake_db.set_execute_result(_execute_result(scalar_one=5))  # overdue
-    fake_db.set_execute_result(_execute_result(scalars_all=[]))  # milestones
-    fake_db.set_execute_result(_execute_result(one=(0, 0)))  # open CO
-    fake_db.set_execute_result(_execute_result(scalar_one_or_none=None))  # last report
+    fake_db.set_execute_result(make_execute_result(scalar_one=5))  # overdue
+    fake_db.set_execute_result(make_execute_result(rows=[]))  # milestones
+    fake_db.set_execute_result(make_execute_result(one=(0, 0)))  # open CO
+    fake_db.set_execute_result(make_execute_result(scalar_one_or_none=None))  # last report
 
     res = await client.get(f"/api/v1/pulse/projects/{uuid4()}/dashboard")
     assert res.status_code == 200
@@ -314,7 +293,7 @@ async def test_bulk_update_tasks_applies_partial_patch(client, fake_db):
     t1 = _task_factory(id=uuid4(), status="todo", phase="design")
     t2 = _task_factory(id=uuid4(), status="todo", phase="design")
     # Router does: SELECT tasks WHERE id IN (...)  -> scalars().all()
-    fake_db.set_execute_result(_execute_result(scalars_all=[t1, t2]))
+    fake_db.set_execute_result(make_execute_result(rows=[t1, t2]))
 
     res = await client.post(
         "/api/v1/pulse/tasks/bulk",
@@ -337,7 +316,7 @@ async def test_bulk_update_tasks_applies_partial_patch(client, fake_db):
 
 async def test_bulk_update_skips_unknown_ids(client, fake_db):
     # No tasks matched → router should return [] and not error
-    fake_db.set_execute_result(_execute_result(scalars_all=[]))
+    fake_db.set_execute_result(make_execute_result(rows=[]))
 
     res = await client.post(
         "/api/v1/pulse/tasks/bulk",
@@ -798,7 +777,7 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(fake_db, fake_
         completed_at=datetime(2026, 4, 10, tzinfo=UTC),
         created_at=datetime(2026, 4, 1, tzinfo=UTC),
     )
-    fake_db.set_execute_result(_execute_result(scalars_all=[task]))
+    fake_db.set_execute_result(make_execute_result(rows=[task]))
 
     # 2) milestones
     ms = MilestoneModel(
@@ -809,7 +788,7 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(fake_db, fake_
         due_date=date(2026, 5, 1),
         status="upcoming",
     )
-    fake_db.set_execute_result(_execute_result(scalars_all=[ms]))
+    fake_db.set_execute_result(make_execute_result(rows=[ms]))
 
     # 3) open + approved change orders (300M approved, 150M submitted)
     co_approved = ChangeOrderModel(
@@ -834,7 +813,7 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(fake_db, fake_
         schedule_impact_days=0,
         created_at=datetime(2026, 4, 12, tzinfo=UTC),
     )
-    fake_db.set_execute_result(_execute_result(scalars_all=[co_approved, co_submitted]))
+    fake_db.set_execute_result(make_execute_result(rows=[co_approved, co_submitted]))
 
     # 4) progress snapshot (SiteEye)
     snap = ProgressSnapshot(
@@ -847,7 +826,7 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(fake_db, fake_
         ai_notes="Slab curing; framing next week.",
         created_at=datetime(2026, 4, 20, tzinfo=UTC),
     )
-    fake_db.set_execute_result(_execute_result(scalar_one_or_none=snap))
+    fake_db.set_execute_result(make_execute_result(scalar_one_or_none=snap))
 
     # 5) site photos (SiteEye)
     photo = SitePhoto(
@@ -860,7 +839,7 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(fake_db, fake_
         ai_analysis={"caption": "Slab on grade — day after pour"},
         created_at=datetime(2026, 4, 18, 10, 0, tzinfo=UTC),
     )
-    fake_db.set_execute_result(_execute_result(scalars_all=[photo]))
+    fake_db.set_execute_result(make_execute_result(rows=[photo]))
 
     # 6) approved estimate (CostPulse) — 10B VND baseline
     est = Estimate(
@@ -873,7 +852,7 @@ async def test_aggregate_report_inputs_with_siteeye_and_costpulse(fake_db, fake_
         total_vnd=10_000_000_000,
         created_at=datetime(2026, 3, 15, tzinfo=UTC),
     )
-    fake_db.set_execute_result(_execute_result(scalar_one_or_none=est))
+    fake_db.set_execute_result(make_execute_result(scalar_one_or_none=est))
 
     aggregated = await _aggregate_report_inputs(
         fake_db,
