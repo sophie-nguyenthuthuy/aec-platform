@@ -34,6 +34,7 @@ Run all of them with `make audit` (~5s). They also run as a pre-commit hook (`ra
 - [Idempotency contract](#idempotency-contract)
 - [Input schemas no organization id](#input-schemas-no-organization-id)
 - [Logger exception outside except](#logger-exception-outside-except)
+- [Logger lazy formatting](#logger-lazy-formatting)
 - [Logging structure](#logging-structure)
 - [Migration safety](#migration-safety)
 - [Migration upgrade downgrade symmetry](#migration-upgrade-downgrade-symmetry)
@@ -332,6 +333,19 @@ _File:_ `apps/api/tests/test_logger_exception_outside_except_audit.py`
 | `BASELINE_LOGGER_EXCEPTION_OUTSIDE_EXCEPT` | `0` |
 
 **Tests**: `test_no_logger_exception_outside_except`, `test_audit_recognises_documented_shapes`
+
+## Logger lazy formatting <a id="logger-lazy-formatting"></a>
+_File:_ `apps/api/tests/test_logger_lazy_formatting_audit.py`
+
+Logger eager-formatting audit.
+
+**Baselines**:
+
+| Constant | Value |
+|---|---|
+| `BASELINE_EAGER_LOGGER_CALLS` | `0` |
+
+**Tests**: `test_no_eager_formatted_logger_calls`, `test_audit_recognises_documented_shapes`, `test_allowlist_entries_actually_correspond_to_real_eager_calls`
 
 ## Logging structure <a id="logging-structure"></a>
 _File:_ `apps/api/tests/test_logging_structure_audit.py`
