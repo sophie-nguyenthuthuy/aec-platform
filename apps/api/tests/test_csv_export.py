@@ -16,7 +16,7 @@ Pinned seams:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from services.csv_export import (
     BOM_UTF8,
@@ -24,7 +24,6 @@ from services.csv_export import (
     format_csv_row,
     format_iso_for_csv,
 )
-
 
 # ---------- BOM_UTF8 ----------
 
@@ -177,7 +176,7 @@ def test_format_iso_strips_microseconds():
     """Microseconds are operationally noise in a CSV — pin off
     so the audit row plaintext export and the CSV agree on
     second-precision."""
-    dt = datetime(2026, 5, 9, 12, 30, 45, 123456, tzinfo=timezone.utc)
+    dt = datetime(2026, 5, 9, 12, 30, 45, 123456, tzinfo=UTC)
     assert format_iso_for_csv(dt) == "2026-05-09T12:30:45Z"
 
 

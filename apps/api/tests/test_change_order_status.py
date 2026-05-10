@@ -25,7 +25,6 @@ from services.change_order_status import (
     next_allowed,
 )
 
-
 # ---------- STATUSES ----------
 
 
@@ -35,14 +34,19 @@ def test_statuses_has_exactly_six_members():
     detector, the cost rollup, and the financial-impact Slack
     alert — pin so a sneaky add doesn't slip past four-way review."""
     assert len(STATUSES) == 6
-    assert STATUSES == frozenset({
-        "draft",
-        "submitted",
-        "reviewing",
-        "pending_signature",
-        "signed",
-        "rejected",
-    })
+    assert (
+        frozenset(
+            {
+                "draft",
+                "submitted",
+                "reviewing",
+                "pending_signature",
+                "signed",
+                "rejected",
+            }
+        )
+        == STATUSES
+    )
 
 
 def test_statuses_is_frozen():
@@ -55,7 +59,7 @@ def test_statuses_is_frozen():
 def test_terminal_statuses_canonical_set():
     """Only signed and rejected are terminal. Pending_signature
     is NOT terminal — it has an outbound transition to signed."""
-    assert TERMINAL_STATUSES == frozenset({"signed", "rejected"})
+    assert frozenset({"signed", "rejected"}) == TERMINAL_STATUSES
 
 
 def test_terminal_statuses_is_subset_of_statuses():
@@ -73,7 +77,7 @@ def test_committed_statuses_only_signed():
     """Today only `signed` counts in the cost rollup. Pin so a
     refactor that adds e.g. "tentatively_committed" doesn't
     silently inflate the committed-cost number."""
-    assert COMMITTED_STATUSES == frozenset({"signed"})
+    assert frozenset({"signed"}) == COMMITTED_STATUSES
 
 
 def test_committed_statuses_is_subset_of_terminal():
@@ -279,10 +283,12 @@ def test_next_allowed_submitted():
 def test_next_allowed_reviewing_has_two_options():
     """The reviewer's two explicit decisions: approve (move to
     pending_signature) or reject."""
-    assert next_allowed("reviewing") == frozenset({
-        "pending_signature",
-        "rejected",
-    })
+    assert next_allowed("reviewing") == frozenset(
+        {
+            "pending_signature",
+            "rejected",
+        }
+    )
 
 
 def test_next_allowed_pending_signature_has_one_option():
@@ -325,6 +331,4 @@ def test_terminal_statuses_have_no_outbound_transitions():
 
 def test_non_terminal_statuses_have_outbound_transitions():
     for status in STATUSES - TERMINAL_STATUSES:
-        assert len(ALLOWED_TRANSITIONS[status]) > 0, (
-            f"non-terminal status {status} has no outbound transitions"
-        )
+        assert len(ALLOWED_TRANSITIONS[status]) > 0, f"non-terminal status {status} has no outbound transitions"

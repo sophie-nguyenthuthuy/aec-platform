@@ -19,7 +19,6 @@ from services.format_vnd import (
     parse_vnd,
 )
 
-
 # ---------- Constants ----------
 
 

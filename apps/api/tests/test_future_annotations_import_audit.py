@@ -51,7 +51,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 # Files (relative to apps/api/) that legitimately don't need
 # the import. Most should — this list captures the genuine
 # exceptions.

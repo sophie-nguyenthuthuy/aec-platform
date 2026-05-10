@@ -23,7 +23,6 @@ from services.punchlist_status import (
     next_allowed,
 )
 
-
 # ---------- STATUSES ----------
 
 
@@ -34,14 +33,17 @@ def test_statuses_has_exactly_five_members():
     grouping — pin so a sneaky add doesn't slip past three-way
     review."""
     assert len(STATUSES) == 5
-    assert STATUSES == frozenset(
-        {
-            "open",
-            "in_progress",
-            "resolved",
-            "verified",
-            "closed",
-        }
+    assert (
+        frozenset(
+            {
+                "open",
+                "in_progress",
+                "resolved",
+                "verified",
+                "closed",
+            }
+        )
+        == STATUSES
     )
 
 
@@ -57,7 +59,7 @@ def test_statuses_is_frozen():
 def test_terminal_statuses_canonical_set():
     """Only verified and closed are terminal. Resolved is NOT
     terminal — an item can be reworked back to in_progress."""
-    assert TERMINAL_STATUSES == frozenset({"verified", "closed"})
+    assert frozenset({"verified", "closed"}) == TERMINAL_STATUSES
 
 
 def test_terminal_statuses_is_subset_of_statuses():

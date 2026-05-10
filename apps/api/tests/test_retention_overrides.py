@@ -19,7 +19,6 @@ from uuid import UUID
 
 import pytest
 
-
 pytestmark = pytest.mark.asyncio
 
 

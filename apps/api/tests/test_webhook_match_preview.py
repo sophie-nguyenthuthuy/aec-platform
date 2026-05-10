@@ -19,7 +19,6 @@ from services.webhook_match_preview import (
     match_subscription,
 )
 
-
 # ---------- _is_wildcard_pattern ----------
 
 

@@ -42,7 +42,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from typing import Any
-from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
@@ -97,27 +96,6 @@ class _CountingSession:
         self._inner.set_get(model, id_, obj)
 
 
-def _execute_result(
-    *,
-    scalars_all: list | None = None,
-    scalar_one_or_none: object | None = None,
-    scalar_one: object | None = None,
-    one: tuple | None = None,
-    rows: list | None = None,
-) -> MagicMock:
-    """Mimic an AsyncSession.execute() result. Same shape as the helper
-    in `test_pulse_router.py` — kept local to avoid importing across
-    test files."""
-    r = MagicMock()
-    r.scalars.return_value.all.return_value = list(scalars_all or [])
-    r.scalars.return_value.first.return_value = (scalars_all or [None])[0] if scalars_all else None
-    r.scalar_one.return_value = scalar_one if scalar_one is not None else 0
-    r.scalar_one_or_none.return_value = scalar_one_or_none
-    r.one.return_value = one if one is not None else (0, 0)
-    r.mappings.return_value.all.return_value = list(rows or [])
-    return r
-
-
 # ---------- App builder ----------
 
 
@@ -165,18 +143,18 @@ ROUTE_BUDGETS = {
 # ---------- /pulse routes ----------
 
 
-async def test_dashboard_query_budget(fake_auth, fake_db):
+async def test_dashboard_query_budget(fake_auth, fake_db, make_execute_result):
     """Dashboard issues 5 sequential queries (counts, overdue,
     milestones, COs, last_report). Budget = 6.
 
     A regression to a per-task overdue lookup or per-milestone
     fetch would push this past 6 even on an empty project."""
     app, counting = _build_counting_app("routers.pulse", fake_auth, fake_db)
-    counting.set_execute_result(_execute_result(rows=[]))  # counts
-    counting.set_execute_result(_execute_result(scalar_one=0))  # overdue
-    counting.set_execute_result(_execute_result(scalars_all=[]))  # milestones
-    counting.set_execute_result(_execute_result(one=(0, 0)))  # open CO
-    counting.set_execute_result(_execute_result(scalar_one_or_none=None))  # last report
+    counting.set_execute_result(make_execute_result(rows=[]))  # counts
+    counting.set_execute_result(make_execute_result(scalar_one=0))  # overdue
+    counting.set_execute_result(make_execute_result(rows=[]))  # milestones
+    counting.set_execute_result(make_execute_result(one=(0, 0)))  # open CO
+    counting.set_execute_result(make_execute_result(scalar_one_or_none=None))  # last report
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         res = await ac.get(f"/api/v1/pulse/projects/{uuid4()}/dashboard")
@@ -191,15 +169,15 @@ async def test_dashboard_query_budget(fake_auth, fake_db):
     )
 
 
-async def test_list_tasks_query_budget(fake_auth, fake_db):
+async def test_list_tasks_query_budget(fake_auth, fake_db, make_execute_result):
     """`list_tasks` issues 2 queries (count, page). Budget = 3.
 
     A regression that fetched task assignees per-row (rather than
     via a join in the page query) would explode this to ~50."""
     app, counting = _build_counting_app("routers.pulse", fake_auth, fake_db)
     # Total count + page rows.
-    counting.set_execute_result(_execute_result(scalar_one=0))
-    counting.set_execute_result(_execute_result(scalars_all=[]))
+    counting.set_execute_result(make_execute_result(scalar_one=0))
+    counting.set_execute_result(make_execute_result(rows=[]))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         res = await ac.get("/api/v1/pulse/tasks")
@@ -216,11 +194,11 @@ async def test_list_tasks_query_budget(fake_auth, fake_db):
 # ---------- /winwork routes ----------
 
 
-async def test_list_proposals_query_budget(fake_auth, fake_db):
+async def test_list_proposals_query_budget(fake_auth, fake_db, make_execute_result):
     """`list_proposals` issues 2 queries (count, page). Budget = 3."""
     app, counting = _build_counting_app("routers.winwork", fake_auth, fake_db)
-    counting.set_execute_result(_execute_result(scalar_one=0))  # count
-    counting.set_execute_result(_execute_result(scalars_all=[]))  # rows
+    counting.set_execute_result(make_execute_result(scalar_one=0))  # count
+    counting.set_execute_result(make_execute_result(rows=[]))  # rows
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         res = await ac.get("/api/v1/winwork/proposals")
@@ -235,7 +213,7 @@ async def test_list_proposals_query_budget(fake_auth, fake_db):
 # ---------- /codeguard routes ----------
 
 
-async def test_list_project_checks_query_budget(fake_auth, fake_db):
+async def test_list_project_checks_query_budget(fake_auth, fake_db, make_execute_result):
     """`list_project_checks` issues 1 query. Budget = 2.
 
     The route is a single SELECT with project + org filters and
@@ -243,7 +221,7 @@ async def test_list_project_checks_query_budget(fake_auth, fake_db):
     per check (rather than relying on the JSONB columns being
     in-row) would multiply this by N."""
     app, counting = _build_counting_app("routers.codeguard", fake_auth, fake_db)
-    counting.set_execute_result(_execute_result(scalars_all=[]))
+    counting.set_execute_result(make_execute_result(rows=[]))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         res = await ac.get(f"/api/v1/codeguard/checks/{uuid4()}")

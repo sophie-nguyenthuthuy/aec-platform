@@ -127,8 +127,7 @@ def _equal(a: Any, b: Any) -> bool:
         return True
     # NaN-self-equality. `float('nan') != float('nan')` under `==`,
     # but Object.is says they're the same. Only floats can be NaN.
-    if isinstance(a, float) and isinstance(b, float):
-        if a != a and b != b:  # both NaN
-            return True
+    if isinstance(a, float) and isinstance(b, float) and a != a and b != b:  # both NaN
+        return True
     # Default: structural equality.
     return a == b

@@ -225,12 +225,12 @@ async def update_member_role(
 # ---------- Remove ----------
 
 
-@router.delete("/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def remove_member(
     user_id: UUID,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> None:
     """Remove a member from the org. Cannot remove the last owner."""
     await _ensure_not_last_owner(db, auth.organization_id, user_id)
 

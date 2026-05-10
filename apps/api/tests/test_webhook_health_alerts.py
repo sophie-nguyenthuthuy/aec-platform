@@ -20,7 +20,6 @@ from services.webhook_health_alerts import (
     format_alert_message,
 )
 
-
 # ---------- Threshold constants ----------
 
 

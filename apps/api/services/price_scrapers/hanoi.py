@@ -10,6 +10,11 @@ procurement template) but sets `province='Hanoi'` on every row.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import httpx
+
 import logging
 import re
 

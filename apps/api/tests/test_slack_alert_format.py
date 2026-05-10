@@ -27,7 +27,6 @@ from services.slack_alert_format import (
     format_webhook_unhealthy,
 )
 
-
 # ---------- Constants ----------
 
 

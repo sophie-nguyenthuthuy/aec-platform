@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -859,7 +859,7 @@ async def export_permit_checklist_pdf(
     checklist_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> Response:
     """Render an org-owned PermitChecklist as a downloadable PDF.
 
     Uses 404 (not 403) for cross-org access so we don't leak that

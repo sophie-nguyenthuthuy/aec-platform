@@ -16,6 +16,11 @@ the listing behind a CAPTCHA) get a bespoke class in their own module.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import httpx
+
 import logging
 import re
 from dataclasses import dataclass

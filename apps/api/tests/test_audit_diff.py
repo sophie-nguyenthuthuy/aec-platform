@@ -16,7 +16,6 @@ from services.audit_diff import (
     summarize_diff,
 )
 
-
 # ---------- format_value ----------
 
 

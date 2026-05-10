@@ -42,7 +42,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
 # Files in `routers/` that don't export a `router` symbol — they
 # live in the directory for packaging but aren't FastAPI routers.
 _NOT_ROUTER_FILES: frozenset[str] = frozenset(

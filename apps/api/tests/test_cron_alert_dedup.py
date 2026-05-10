@@ -17,7 +17,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -203,7 +202,7 @@ def test_alert_kinds_vocabulary_pinned():
     set AND `services.cron_alerts._KIND` constants."""
     from services.cron_alert_dedup import ALERT_KINDS
 
-    assert ALERT_KINDS == frozenset({"cron_failure", "cron_stuck"})
+    assert frozenset({"cron_failure", "cron_stuck"}) == ALERT_KINDS
 
 
 # ---------- clear_alert ---------------------------------------------

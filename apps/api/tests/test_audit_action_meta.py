@@ -25,7 +25,6 @@ from services.audit_action_meta import (
     parse_action,
 )
 
-
 # ---------- parse_action ----------
 
 
@@ -159,7 +158,7 @@ def test_audit_modules_includes_every_existing_module_prefix():
         "admin",
         "webhooks",
     }
-    assert AUDIT_MODULES == frozenset(expected)
+    assert frozenset(expected) == AUDIT_MODULES
 
 
 def test_is_known_module_for_existing_actions():

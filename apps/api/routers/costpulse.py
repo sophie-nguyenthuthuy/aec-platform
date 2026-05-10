@@ -789,7 +789,7 @@ async def import_suppliers(
     )
 
 
-def _build_contact(row) -> dict:
+def _build_contact(row: Any) -> dict:
     """Compose the JSONB contact blob from CSV columns.
 
     Only sets keys that the row actually has — avoids overwriting an

@@ -28,7 +28,7 @@ Schemas live in `schemas/slack_deliveries.py` (also a new file) — the
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, text
@@ -51,7 +51,7 @@ async def list_slack_deliveries(
         description="Filter to delivered=true / failed=false; omit for all",
     ),
     limit: int = Query(default=50, ge=1, le=500),
-):
+) -> dict[str, Any]:
     """Recent N delivery attempts, optionally filtered by kind / outcome.
 
     Index-friendly: the `(kind, created_at DESC)` index from migration
@@ -80,7 +80,7 @@ async def list_slack_deliveries(
 async def slack_deliveries_summary(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
     days: int = Query(default=30, ge=1, le=365),
-):
+) -> dict[str, Any]:
     """Per-`kind` rollup over the last `days` days.
 
     Drives the dashboard's summary table — one row per kind with

@@ -34,7 +34,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 # Files (relative to apps/api/) where `__all__` legitimately
 # references something the static AST walker can't see — e.g.
 # names exported via runtime side-effects, dynamic re-exports.

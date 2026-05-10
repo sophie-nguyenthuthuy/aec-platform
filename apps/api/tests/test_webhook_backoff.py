@@ -23,7 +23,6 @@ from services.webhook_backoff import (
     total_window_minutes,
 )
 
-
 # ---------- Constants ----------
 
 
@@ -39,7 +38,7 @@ def test_max_attempts_matches_schedule_length():
     """MAX_ATTEMPTS = len(BACKOFF_MINUTES). Pin so a refactor that
     bumps the schedule but forgets to update the constant doesn't
     silently mark rows terminal one attempt early."""
-    assert MAX_ATTEMPTS == len(BACKOFF_MINUTES)
+    assert len(BACKOFF_MINUTES) == MAX_ATTEMPTS
     assert MAX_ATTEMPTS == 6
 
 

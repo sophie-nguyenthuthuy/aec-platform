@@ -28,7 +28,6 @@ from services.webhook_sig import (
     verify_with_trace,
 )
 
-
 # ---------- sign_payload ----------
 
 
@@ -255,12 +254,15 @@ def test_reason_codes_vocabulary_pinned():
     Pin the set so a Y2-future addition (e.g. "secret_too_short")
     is a deliberate cross-cutting touch, not a silent schema
     change."""
-    assert REASON_CODES == frozenset(
-        {
-            "timestamp_skew_exceeded",
-            "signature_mismatch",
-            "invalid_signature_format",
-        }
+    assert (
+        frozenset(
+            {
+                "timestamp_skew_exceeded",
+                "signature_mismatch",
+                "invalid_signature_format",
+            }
+        )
+        == REASON_CODES
     )
 
 

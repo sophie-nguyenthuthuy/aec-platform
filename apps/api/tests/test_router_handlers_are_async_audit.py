@@ -41,7 +41,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 # Allowlist of sync handlers that are legitimately not async.
 # Format: "<filename>::<function_name>" → rationale.
 # Today: empty. Every router handler in the codebase is async.

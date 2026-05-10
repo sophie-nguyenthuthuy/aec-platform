@@ -197,6 +197,53 @@ def fake_db() -> FakeAsyncSession:
     return FakeAsyncSession()
 
 
+@pytest.fixture
+def make_execute_result():
+    """Factory fixture for `AsyncSession.execute()` Result mocks.
+
+    Lifts the local `_execute_result` / `_make_default_result` helpers
+    that were drifting copy-pasted across 13 test files. The audit
+    `tests/test_fixture_duplication_audit.py` flags new copies; route
+    new test code through this fixture instead.
+
+    Usage::
+
+        async def test_x(make_execute_result, fake_db):
+            fake_db.set_execute_result(make_execute_result(rows=[r1, r2]))
+
+    `rows` populates `.scalars().all()`, `.scalars().first()`,
+    `.scalars().one_or_none()`, `.first()`, and `.mappings().*` —
+    enough to cover the common SELECT-list shapes. The dedicated
+    kwargs override the count / ON CONFLICT / single-row paths.
+    """
+
+    def _make(
+        *,
+        rows: list[Any] | None = None,
+        scalar_one: Any = 0,
+        scalar_one_or_none: Any = None,
+        one: tuple[Any, ...] = (0, 0),
+        one_or_none: Any = None,
+    ) -> MagicMock:
+        rows_list = list(rows or [])
+        head = rows_list[0] if rows_list else None
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = rows_list
+        r.scalars.return_value.first.return_value = head
+        r.scalars.return_value.one_or_none.return_value = head
+        r.scalar_one.return_value = scalar_one
+        r.scalar_one_or_none.return_value = scalar_one_or_none
+        r.one.return_value = one
+        r.one_or_none.return_value = one_or_none
+        r.first.return_value = head
+        r.mappings.return_value.all.return_value = rows_list
+        r.mappings.return_value.first.return_value = head
+        r.mappings.return_value.one_or_none.return_value = head
+        return r
+
+    return _make
+
+
 # ---------- App with overrides ----------
 
 

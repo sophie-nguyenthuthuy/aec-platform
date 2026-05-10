@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import io
 import uuid
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
@@ -18,6 +18,9 @@ from core.config import get_settings
 from core.envelope import ok
 from db.session import TenantAwareSession
 from middleware.auth import AuthContext, require_auth
+
+if TYPE_CHECKING:
+    from core.config import Settings
 
 router = APIRouter(prefix="/api/v1/files", tags=["files"])
 
@@ -32,7 +35,7 @@ async def upload_file(
     file: UploadFile,
     source_module: Annotated[str, Form()],
     project_id: Annotated[UUID | None, Form()] = None,
-):
+) -> dict[str, Any]:
     settings = get_settings()
     raw = await file.read()
     if len(raw) > _MAX_BYTES:
@@ -88,7 +91,7 @@ async def upload_file(
     )
 
 
-async def _make_thumbnail(settings, base_key: str, raw: bytes) -> str | None:
+async def _make_thumbnail(settings: Settings, base_key: str, raw: bytes) -> str | None:
     from PIL import Image
 
     try:
@@ -104,7 +107,7 @@ async def _make_thumbnail(settings, base_key: str, raw: bytes) -> str | None:
     return f"https://{settings.s3_bucket}.s3.{settings.aws_region}.amazonaws.com/{thumb_key}"
 
 
-async def _s3_put(settings, key: str, body: bytes, *, content_type: str) -> None:
+async def _s3_put(settings: Settings, key: str, body: bytes, *, content_type: str) -> None:
     import aioboto3
 
     session = aioboto3.Session(region_name=settings.aws_region)

@@ -323,11 +323,11 @@ async def update_normalizer_rule(
     return ok(NormalizerRuleOut.model_validate(row).model_dump(mode="json"))
 
 
-@router.delete("/normalizer-rules/{rule_id}", status_code=204)
+@router.delete("/normalizer-rules/{rule_id}", status_code=204, response_model=None)
 async def delete_normalizer_rule(
     rule_id: UUID,
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> None:
     """Hard-delete a rule.
 
     Soft-disable (PATCH `enabled=false`) is preferred when ops just

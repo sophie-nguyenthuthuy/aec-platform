@@ -14,6 +14,11 @@ provincial scrapers pick up the slack.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import httpx
+
 import logging
 import re
 from datetime import date

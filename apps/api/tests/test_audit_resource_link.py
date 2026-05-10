@@ -19,7 +19,6 @@ from services.audit_resource_link import (
     supports_deep_link,
 )
 
-
 # ---------- supports_deep_link ----------
 
 

@@ -16,7 +16,7 @@ seeder upserts on a stable natural key — title / number / name).
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 
@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/v1/onboarding", tags=["onboarding"])
 @router.post("/seed-demo", status_code=202)
 async def seed_demo_into_caller_org(
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
-):
+) -> dict[str, Any]:
     """Populate the caller's org with a sample project + cross-module
     fixtures. Admin/owner only — seeding implies write access to every
     module the script touches.

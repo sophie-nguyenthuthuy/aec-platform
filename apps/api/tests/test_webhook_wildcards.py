@@ -15,10 +15,9 @@ from __future__ import annotations
 
 from typing import Any
 from unittest.mock import MagicMock
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -87,6 +86,7 @@ def test_schema_rejects_bare_asterisk():
     likely meant empty array. Reject so a typo doesn't accidentally
     subscribe to everything."""
     import pydantic
+
     from schemas.webhooks import WebhookSubscriptionCreate
 
     with pytest.raises(pydantic.ValidationError):
@@ -100,6 +100,7 @@ def test_schema_rejects_embedded_asterisk():
     """`costpulse.*.approve` mid-segment wildcards aren't supported.
     Reject so the matcher doesn't have to handle the case."""
     import pydantic
+
     from schemas.webhooks import WebhookSubscriptionCreate
 
     with pytest.raises(pydantic.ValidationError):
@@ -114,6 +115,7 @@ def test_schema_rejects_wildcard_without_terminal_dot():
     is the only valid form. Reject so the matching rule stays
     simple."""
     import pydantic
+
     from schemas.webhooks import WebhookSubscriptionCreate
 
     with pytest.raises(pydantic.ValidationError):

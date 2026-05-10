@@ -14,17 +14,17 @@ Pinned seams:
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from typing import Any, AsyncIterator
+from typing import Any
 from unittest.mock import MagicMock
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from middleware.auth import AuthContext, require_auth
-
 
 pytestmark = pytest.mark.asyncio
 

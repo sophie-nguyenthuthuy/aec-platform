@@ -36,8 +36,11 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
+
+if TYPE_CHECKING:
+    from arq import ArqRedis
 
 logger = logging.getLogger(__name__)
 

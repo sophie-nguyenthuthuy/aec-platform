@@ -49,7 +49,6 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-
 # Allowlist of tenant-bearing tables that legitimately have no
 # CREATE POLICY (RLS is enforced elsewhere or the table is too
 # new to have a policy yet). Each entry needs a rationale comment.

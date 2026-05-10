@@ -23,10 +23,13 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+if TYPE_CHECKING:
+    from arq import ArqRedis
 from fastapi.responses import StreamingResponse
 
 from core.envelope import ok
@@ -51,7 +54,7 @@ router = APIRouter(prefix="/api/v1/activity", tags=["activity"])
 async def mint_stream_ticket(
     auth: Annotated[AuthContext, Depends(require_auth)],
     project_id: Annotated[UUID | None, Query()] = None,
-):
+) -> dict[str, Any]:
     """Mint a one-shot ticket bound to the caller's (user, org,
     project). Returns 503 when Redis is unavailable so the frontend
     can fall back to polling instead of silently breaking.
@@ -132,7 +135,7 @@ async def stream_activity(
 
 
 async def _event_stream(
-    redis,
+    redis: ArqRedis | None,
     organization_id: UUID,
     project_id: UUID | None,
 ) -> AsyncIterator[bytes]:

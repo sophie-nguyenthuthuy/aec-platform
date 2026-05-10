@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import TextClause
+
+if TYPE_CHECKING:
+    pass
 
 from core.envelope import ok, paginated
 from db.session import TenantAwareSession
@@ -492,7 +496,7 @@ def _row_to_photo(row: dict) -> SitePhoto:
     return SitePhoto.model_validate(data)
 
 
-def pg_insert_site_visit(**values):
+def pg_insert_site_visit(**values: Any) -> TextClause:
     from sqlalchemy import text
 
     return text(

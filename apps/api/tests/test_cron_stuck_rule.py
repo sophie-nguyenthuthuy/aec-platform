@@ -20,7 +20,6 @@ from services.cron_stuck_rule import (
     stuck_threshold_ms,
 )
 
-
 # ---------- Constants ----------
 
 

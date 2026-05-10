@@ -10,6 +10,7 @@ module for the selected project.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from typing import Annotated, Any
@@ -166,7 +167,7 @@ async def get_project_detail(
     project_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     project = (
         await db.execute(
             select(Project).where(
@@ -245,7 +246,7 @@ async def get_project_detail(
 
 
 @asynccontextmanager
-async def _scoped_session(organization_id: UUID):
+async def _scoped_session(organization_id: UUID) -> AsyncIterator[AsyncSession]:
     """Give each parallel helper its own tenant-scoped session.
 
     Lives here (not as a fixture / dependency) because it's tightly

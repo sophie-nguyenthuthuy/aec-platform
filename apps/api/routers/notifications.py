@@ -141,12 +141,12 @@ async def create_watch(
 # ---------- Delete a watch ----------
 
 
-@router.delete("/watches/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/watches/{project_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_watch(
     project_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> None:
     """Unsubscribe. Idempotent — deleting a non-existent watch is a 204
     (the desired end state is "you're not watching it" either way)."""
     watch = (

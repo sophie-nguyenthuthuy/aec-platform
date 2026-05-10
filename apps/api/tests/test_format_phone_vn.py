@@ -18,13 +18,12 @@ from services.format_phone_vn import (
     parse_phone_vn,
 )
 
-
 # ---------- Constants ----------
 
 
 def test_mobile_prefixes_match_mic_2018_allowlist():
     """Pin to {3, 5, 7, 8, 9} per the MIC 2018 mobile reorg."""
-    assert VN_MOBILE_PREFIXES == frozenset({"3", "5", "7", "8", "9"})
+    assert frozenset({"3", "5", "7", "8", "9"}) == VN_MOBILE_PREFIXES
 
 
 def test_mobile_prefixes_excludes_pre_2018_one():

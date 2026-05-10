@@ -91,8 +91,5 @@ def format_iso_for_csv(dt: datetime | None) -> str:
     """
     if dt is None:
         return ""
-    if dt.tzinfo is None:
-        d = dt.replace(tzinfo=UTC)
-    else:
-        d = dt.astimezone(UTC)
+    d = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
     return d.strftime("%Y-%m-%dT%H:%M:%SZ")

@@ -74,7 +74,7 @@ _SCAN_DIRS = [_API_ROOT / "routers", _API_ROOT / "services"]
 
 
 # Today's baseline. Filled in on first run.
-BASELINE_UNTYPED_SLOTS = 39  # 2026-05: 58 → 56 → 39 after further typing passes across routers/services
+BASELINE_UNTYPED_SLOTS = 0  # 2026-05: 204 → 0 — every router + service function in scope now declares arg + return types. ✅ Ratchet at zero; new offenders red-gate immediately.
 
 
 # Per-(relative_path, function_name) allowlist. Each entry needs

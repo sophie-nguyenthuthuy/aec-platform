@@ -107,7 +107,7 @@ async def list_audit_events(
     since_days: Annotated[int | None, Query(ge=1, le=365)] = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-):
+) -> dict[str, Any]:
     """Recent audit events for the caller's org. Admin/owner only.
 
     Filter params compose: pass `resource_type=change_orders` +
@@ -224,7 +224,7 @@ async def export_audit_events_csv(
     action: str | None = None,
     actor_kind: Annotated[str | None, Query(pattern="^(user|api_key|system)$")] = None,
     since_days: Annotated[int | None, Query(ge=1, le=365)] = None,
-):
+) -> StreamingResponse:
     """Stream a CSV of the matching audit events.
 
     Same filter surface as `GET /events` so a reviewer can preview in

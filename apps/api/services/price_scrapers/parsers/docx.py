@@ -16,6 +16,7 @@ from __future__ import annotations
 import io
 import logging
 from datetime import date
+from typing import Any
 
 from ..base import ScrapedPrice, ScrapeError
 from .table import extract_effective_date, extract_prices_from_table

@@ -108,10 +108,7 @@ def _admin_gate_in_dep_tree(dep) -> bool:
     # Recurse — admin-gate is often nested under require_auth
     # (which is the outer dep that resolves AuthContext, then the
     # admin gate wraps it).
-    for sub_dep in getattr(dep, "dependencies", []) or []:
-        if _admin_gate_in_dep_tree(sub_dep):
-            return True
-    return False
+    return any(_admin_gate_in_dep_tree(sub_dep) for sub_dep in getattr(dep, "dependencies", []) or [])
 
 
 def test_every_admin_route_has_admin_role_gate():
@@ -186,7 +183,7 @@ def test_admin_route_audit_catches_at_least_one_route():
     app = create_app()
     admin_count = sum(1 for r in app.routes if isinstance(r, APIRoute) and r.path.startswith("/api/v1/admin/"))
     assert admin_count >= 1, (
-        f"Audit scanned 0 admin routes. The audit's prefix filter "
+        "Audit scanned 0 admin routes. The audit's prefix filter "
         "(`/api/v1/admin/`) might no longer match any route — "
         "either the prefix was renamed (update this filter) or "
         "the admin routers aren't being mounted in main.create_app()."

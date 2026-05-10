@@ -30,7 +30,7 @@ Schemas live in `schemas/webhook_deliveries.py` (also a new file).
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -76,7 +76,7 @@ async def list_webhook_deliveries(
         description="Filter to one subscription (per-receiver health view)",
     ),
     limit: int = Query(default=50, ge=1, le=500),
-):
+) -> dict[str, Any]:
     """Recent N webhook deliveries across all orgs, optionally filtered.
 
     Index-friendly: the `(status, next_retry_at)` index from migration
@@ -119,7 +119,7 @@ async def list_webhook_deliveries(
 async def webhook_deliveries_summary(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
     days: int = Query(default=7, ge=1, le=90),
-):
+) -> dict[str, Any]:
     """Per-event-type rollup over the last `days` days.
 
     Drives the dashboard's summary cards. Sorted by delivery rate
@@ -219,7 +219,7 @@ async def webhook_deliveries_summary(
 async def get_webhook_delivery_detail(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
     delivery_id: UUID,
-):
+) -> dict[str, Any]:
     """One delivery's full forensic detail — payload, latest response,
     retry breadcrumb. Drives the `/admin/webhook-deliveries/[id]`
     drilldown page.

@@ -23,6 +23,11 @@ would be rude (and give us nothing new once a URL is known).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import httpx
+
 import argparse
 import asyncio
 import json

@@ -276,7 +276,7 @@ async def get_document_file(
     document_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> RedirectResponse:
     """Redirect to the signed file URL for a document.
 
     Saves clients an extra round-trip: instead of `GET /documents/{id}` →

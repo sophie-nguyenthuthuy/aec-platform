@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from services.strip_vn_diacritics import strip_vn_diacritics
 
-
 # ---------- Common cases ----------
 
 

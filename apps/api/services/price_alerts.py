@@ -10,13 +10,18 @@ again for the same movement.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import text
 
 from db.session import AdminSessionFactory
 from services.mailer import send_mail
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 

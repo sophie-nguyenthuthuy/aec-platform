@@ -23,7 +23,6 @@ from services.submittal_status import (
     next_allowed,
 )
 
-
 # ---------- STATUSES ----------
 
 
@@ -33,15 +32,18 @@ def test_statuses_has_exactly_six_members():
     + the stuck-review detector + the deadline-overrun Slack
     alert. Pin so a sneaky add doesn't slip past three-way review."""
     assert len(STATUSES) == 6
-    assert STATUSES == frozenset(
-        {
-            "draft",
-            "submitted",
-            "under_review",
-            "revision_requested",
-            "approved",
-            "rejected",
-        }
+    assert (
+        frozenset(
+            {
+                "draft",
+                "submitted",
+                "under_review",
+                "revision_requested",
+                "approved",
+                "rejected",
+            }
+        )
+        == STATUSES
     )
 
 
@@ -55,7 +57,7 @@ def test_statuses_is_frozen():
 def test_terminal_statuses_canonical_set():
     """Only approved and rejected are terminal. Revision_requested
     is NOT terminal — author can resubmit."""
-    assert TERMINAL_STATUSES == frozenset({"approved", "rejected"})
+    assert frozenset({"approved", "rejected"}) == TERMINAL_STATUSES
 
 
 def test_terminal_statuses_is_subset_of_statuses():

@@ -10,6 +10,11 @@ still logged and skipped — no parser for those yet.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import httpx
+
 import logging
 import re
 from urllib.parse import urlparse

@@ -24,7 +24,6 @@ from services.audit_pin_csv import (
     shape_pinned_row_safe,
 )
 
-
 # ---------- Column shape ----------
 
 

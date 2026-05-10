@@ -423,7 +423,7 @@ OpenAPI route documentation completeness audit.
 | Constant | Value |
 |---|---|
 | `BASELINE_UNDOCUMENTED_NAME` | `131` |
-| `BASELINE_NO_RESPONSE_MODEL` | `30` |
+| `BASELINE_NO_RESPONSE_MODEL` | `1` |
 
 **Tests**: `test_every_route_has_summary_or_docstring`, `test_every_route_has_response_model_or_is_allowlisted`, `test_response_model_allowlist_entries_actually_match_routes`
 
@@ -688,7 +688,7 @@ Untyped function-signature audit.
 
 | Constant | Value |
 |---|---|
-| `BASELINE_UNTYPED_SLOTS` | `39` |
+| `BASELINE_UNTYPED_SLOTS` | `0` |
 
 **Tests**: `test_untyped_function_slot_count_does_not_grow`, `test_audit_recognises_documented_shapes`, `test_allowlist_entries_actually_correspond_to_real_functions`
 

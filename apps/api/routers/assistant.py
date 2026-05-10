@@ -41,12 +41,15 @@ RBAC posture (the branch's named feature):
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from fastapi.responses import StreamingResponse
 
 from core.envelope import ok
 from db.deps import get_db
@@ -113,7 +116,7 @@ async def ask_about_project_stream(
     payload: AskRequest,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.MEMBER))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> StreamingResponse:
     """SSE streaming version of `/ask`. Frame format:
 
       event: meta  → `{"thread_id": "..."}` (always first)
@@ -229,12 +232,12 @@ async def get_thread(
 # ---------- Delete thread ----------
 
 
-@router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_thread(
     thread_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> None:
     """Idempotent delete — non-existent threads return 204."""
     thread = (
         await db.execute(

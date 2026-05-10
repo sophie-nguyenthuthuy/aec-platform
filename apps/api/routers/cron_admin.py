@@ -159,7 +159,7 @@ def _description_from_doc(coro: Any) -> str:
 @router.get("/crons")
 async def list_crons(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> dict[str, Any]:
     """Cron-job registry + last-run telemetry.
 
     Combines two sources:
@@ -215,7 +215,7 @@ async def list_crons(
 async def list_cron_runs(
     cron_name: str,
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> dict[str, Any]:
     """Recent runs for one cron — newest first, capped at 20.
 
     Drives the per-cron drilldown / sparkline. Path param is the
@@ -237,7 +237,7 @@ async def list_cron_runs(
 async def run_cron_now(
     cron_name: str,
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> dict[str, Any]:
     """Enqueue an arq job that runs `cron_name` immediately.
 
     Closes the incident-triage loop: an operator looking at a failed

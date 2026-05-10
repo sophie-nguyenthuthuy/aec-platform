@@ -109,6 +109,4 @@ def _is_wildcard_pattern(entry: str) -> bool:
     prefix = entry[:-2]
     if not prefix:
         return False
-    if "*" in prefix:
-        return False
-    return True
+    return "*" not in prefix

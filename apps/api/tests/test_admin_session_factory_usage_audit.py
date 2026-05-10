@@ -51,7 +51,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 # Allowlist of router files permitted to use AdminSessionFactory.
 # Each entry needs a rationale comment naming WHY cross-tenant
 # (BYPASSRLS) access is necessary for that surface. New additions

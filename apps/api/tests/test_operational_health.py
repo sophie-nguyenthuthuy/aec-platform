@@ -13,7 +13,6 @@ Pinned seams:
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
@@ -22,7 +21,6 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from middleware.auth import AuthContext, require_auth
-
 
 pytestmark = pytest.mark.asyncio
 

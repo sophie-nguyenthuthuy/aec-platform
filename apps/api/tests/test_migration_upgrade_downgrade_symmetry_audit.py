@@ -53,7 +53,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 # Allowlist of migration filenames that legitimately have empty
 # (or trivially `pass`) downgrades. Each entry needs a rationale
 # comment naming WHY the migration is forward-only. PR review of

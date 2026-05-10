@@ -58,7 +58,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 # Allowlist for `<rel_path>:<line>` entries where a mutable
 # default is intentional and the immutable-sentinel pattern
 # isn't applicable. Today: empty.

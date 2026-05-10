@@ -13,7 +13,7 @@ Three seams pinned:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
@@ -21,7 +21,6 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from middleware.auth import AuthContext, require_auth
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -135,7 +134,7 @@ async def test_clear_dedup_state_happy_path(monkeypatch):
     monkeypatch.setattr(audit_mod, "record", _fake_audit)
 
     class _FakeSession:
-        async def __aenter__(self) -> "_FakeSession":
+        async def __aenter__(self) -> _FakeSession:
             return self
 
         async def __aexit__(self, *exc: Any) -> None:
@@ -197,7 +196,7 @@ async def test_clear_dedup_state_returns_false_when_no_row(monkeypatch):
     monkeypatch.setattr(audit_mod, "record", _noop_audit)
 
     class _FakeSession:
-        async def __aenter__(self) -> "_FakeSession":
+        async def __aenter__(self) -> _FakeSession:
             return self
 
         async def __aexit__(self, *exc: Any) -> None:

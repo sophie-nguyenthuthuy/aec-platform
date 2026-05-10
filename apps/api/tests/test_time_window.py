@@ -16,7 +16,7 @@ Pinned seams (mirror of `apps/web/lib/__tests__/time-window.test.ts`):
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from services.time_window import (
     DEFAULT_SINCE_DAYS,
@@ -27,7 +27,6 @@ from services.time_window import (
     parse_since_days,
 )
 
-
 # ---------- Constants ----------
 
 
@@ -36,12 +35,12 @@ def test_time_window_options_canonical_order():
     sequence so a user moving between pages sees the same layout.
     A refactor that swaps "24h" and "7d" would silently shift the
     chip layout across every page."""
-    assert TIME_WINDOW_OPTIONS == (
+    assert (
         TimeWindowOption(value=1, label="24h"),
         TimeWindowOption(value=7, label="7d"),
         TimeWindowOption(value=30, label="30d"),
         TimeWindowOption(value=None, label="Tất cả"),
-    )
+    ) == TIME_WINDOW_OPTIONS
 
 
 def test_time_window_options_includes_null_sentinel():
@@ -149,7 +148,7 @@ def test_parse_since_days_rejects_unhashable_or_weird():
 
 
 # Pin a deterministic "now" so the threshold tests aren't flaky.
-NOW = datetime(2026, 5, 9, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 5, 9, 12, 0, 0, tzinfo=UTC)
 
 
 def test_format_relative_age_vua_xong_under_60s():
