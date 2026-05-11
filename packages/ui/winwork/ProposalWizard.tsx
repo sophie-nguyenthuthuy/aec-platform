@@ -20,6 +20,7 @@ const DISCIPLINES: Discipline[] = ["architecture", "structural", "mep", "civil"]
 
 export function ProposalWizard({ onGenerate, onCreated, generating }: ProposalWizardProps) {
   const [step, setStep] = useState<Step>("brief");
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const disciplineId = useId();
   const projectTypeId = useId();
@@ -45,9 +46,14 @@ export function ProposalWizard({ onGenerate, onCreated, generating }: ProposalWi
   }
 
   async function submit() {
-    const result = await onGenerate(form);
-    const id = "proposal" in result ? result.proposal.id : result.id;
-    onCreated(id);
+    setSubmitError(null);
+    try {
+      const result = await onGenerate(form);
+      const id = "proposal" in result ? result.proposal.id : result.id;
+      onCreated(id);
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "Failed to generate proposal.");
+    }
   }
 
   return (
@@ -171,6 +177,9 @@ export function ProposalWizard({ onGenerate, onCreated, generating }: ProposalWi
               <Row label="Location" value={form.location} />
               <Row label="Scope items" value={form.scope_items.join(", ")} />
             </div>
+            {submitError ? (
+              <p className="text-sm text-red-600">{submitError}</p>
+            ) : null}
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep("scope")} disabled={generating}>
                 Back

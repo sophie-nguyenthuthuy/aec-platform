@@ -40,11 +40,20 @@ export default function VisitsPage() {
             projectId={projectId}
             submitting={createM.isPending}
             onSubmit={async (payload) => {
-              const visit = await createM.mutateAsync(payload);
-              setShowForm(false);
-              router.push(`/siteeye/visits/${visit.id}`);
+              try {
+                const visit = await createM.mutateAsync(payload);
+                setShowForm(false);
+                router.push(`/siteeye/visits/${visit.id}`);
+              } catch {
+                // createM.isError + createM.error displayed below
+              }
             }}
           />
+          {createM.isError ? (
+            <p className="mt-2 text-sm text-red-600">
+              {createM.error?.message ?? "Failed to create visit."}
+            </p>
+          ) : null}
         </div>
       ) : null}
 

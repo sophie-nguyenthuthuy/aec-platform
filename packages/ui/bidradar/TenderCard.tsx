@@ -63,9 +63,9 @@ export const TenderCard: FC<Props> = ({ match, onSave, onPass, onCreateProposal 
         <p className="line-clamp-3 text-sm text-slate-600">{rec.reasoning}</p>
       ) : null}
 
-      {rec && (rec.strengths.length > 0 || rec.risks.length > 0) ? (
+      {rec && ((rec.strengths?.length ?? 0) > 0 || (rec.risks?.length ?? 0) > 0) ? (
         <div className="grid grid-cols-2 gap-3 text-xs">
-          {rec.strengths.length > 0 ? (
+          {(rec.strengths?.length ?? 0) > 0 ? (
             <div>
               <p className="mb-1 font-medium text-emerald-700">Strengths</p>
               <ul className="list-inside list-disc space-y-0.5 text-slate-600">
@@ -75,7 +75,7 @@ export const TenderCard: FC<Props> = ({ match, onSave, onPass, onCreateProposal 
               </ul>
             </div>
           ) : null}
-          {rec.risks.length > 0 ? (
+          {(rec.risks?.length ?? 0) > 0 ? (
             <div>
               <p className="mb-1 font-medium text-rose-700">Risks</p>
               <ul className="list-inside list-disc space-y-0.5 text-slate-600">

@@ -18,6 +18,7 @@ export function ClientEmailModal({ open, onOpenChange, defaultSubject = "", onSe
   const [subject, setSubject] = useState(defaultSubject);
   const [message, setMessage] = useState("");
   const [cc, setCc] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const subjectId = useId();
   const messageId = useId();
@@ -48,18 +49,26 @@ export function ClientEmailModal({ open, onOpenChange, defaultSubject = "", onSe
             placeholder="ops@firm.com, lead@firm.com"
           />
         </div>
+        {sendError ? (
+          <p className="text-sm text-red-600">{sendError}</p>
+        ) : null}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={sending}>
             Cancel
           </Button>
           <Button
             onClick={async () => {
-              await onSend({
-                subject,
-                message,
-                cc: cc.split(",").map((s) => s.trim()).filter(Boolean),
-              });
-              onOpenChange(false);
+              setSendError(null);
+              try {
+                await onSend({
+                  subject,
+                  message,
+                  cc: cc.split(",").map((s) => s.trim()).filter(Boolean),
+                });
+                onOpenChange(false);
+              } catch (e) {
+                setSendError(e instanceof Error ? e.message : "Failed to send.");
+              }
             }}
             disabled={sending}
           >

@@ -134,6 +134,11 @@ export default function EstimateEditorPage(): JSX.Element {
               Import failed: {importMut.error?.message ?? "unknown error"}
             </p>
           ) : null}
+          {approveMut.isError ? (
+            <p className="text-right text-xs text-red-600">
+              Approval failed: {approveMut.error?.message ?? "unknown error"}
+            </p>
+          ) : null}
           {exportError ? (
             <p className="text-right text-xs text-red-600">
               {exportError}
@@ -149,25 +154,35 @@ export default function EstimateEditorPage(): JSX.Element {
       />
 
       {!isReadOnly && (
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setPending(null)}
-            disabled={!pending || updateMut.isPending}
-          >
-            Discard changes
-          </Button>
-          <Button
-            onClick={async () => {
-              if (pending) {
-                await updateMut.mutateAsync(pending as typeof estimate.items);
-                setPending(null);
-              }
-            }}
-            disabled={!pending || updateMut.isPending}
-          >
-            {updateMut.isPending ? "Saving…" : "Save BOQ"}
-          </Button>
+        <div className="flex flex-col items-end gap-2">
+          {updateMut.isError ? (
+            <p className="text-xs text-red-600">
+              Save failed: {updateMut.error?.message ?? "unknown error"}
+            </p>
+          ) : null}
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setPending(null)}
+              disabled={!pending || updateMut.isPending}
+            >
+              Discard changes
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!pending) return;
+                try {
+                  await updateMut.mutateAsync(pending as typeof estimate.items);
+                  setPending(null);
+                } catch {
+                  // updateMut.isError displayed above
+                }
+              }}
+              disabled={!pending || updateMut.isPending}
+            >
+              {updateMut.isPending ? "Saving…" : "Save BOQ"}
+            </Button>
+          </div>
         </div>
       )}
     </div>

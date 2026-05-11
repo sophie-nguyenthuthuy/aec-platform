@@ -194,13 +194,17 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
 
   const onSubmit = async () => {
     if (!projectId || !name) return;
-    await create.mutateAsync({
-      project_id: projectId,
-      name,
-      walkthrough_date: walkthroughDate,
-      owner_attendees: attendees || undefined,
-    });
-    onClose();
+    try {
+      await create.mutateAsync({
+        project_id: projectId,
+        name,
+        walkthrough_date: walkthroughDate,
+        owner_attendees: attendees || undefined,
+      });
+      onClose();
+    } catch {
+      // create.isError displayed below
+    }
   };
 
   return (
@@ -236,6 +240,11 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
         </div>
+        {create.isError ? (
+          <p className="mt-3 text-xs text-red-600">
+            {create.error?.message ?? "Tạo thất bại. Vui lòng thử lại."}
+          </p>
+        ) : null}
         <div className="mt-6 flex justify-end gap-2">
           <button
             type="button"
