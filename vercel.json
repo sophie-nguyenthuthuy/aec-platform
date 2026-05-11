@@ -1,25 +1,3 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm --filter @aec/web build",
-  "installCommand": "pnpm install --frozen-lockfile || pnpm install",
-  "outputDirectory": "apps/web/.next",
-  "framework": "nextjs",
-  "functions": {
-    "api/index.py": {
-      "runtime": "@vercel/python@4.3.0",
-      "maxDuration": 60,
-      "includeFiles": "apps/api/**/*.py,apps/ml/**/*.py,apps/api/alembic/**/*"
-    }
-  },
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/index.py"
-    }
-  ],
-  "git": {
-    "deploymentEnabled": {
-      "main": true
-    }
-  }
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }
