@@ -1,44 +1,22 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-
-  "//-overview": [
-    "Monorepo deploy config for Vercel.",
-    "Build: pnpm builds the Next.js app at apps/web; output is auto-detected.",
-    "Functions: api/index.py wraps the FastAPI app as a single Python function.",
-    "Rewrite: /api/* on the frontend forwards to the function so the browser",
-    "client (which talks to a relative origin) never needs CORS."
-  ],
-
   "buildCommand": "pnpm --filter @aec/web build",
   "installCommand": "pnpm install --frozen-lockfile || pnpm install",
   "outputDirectory": "apps/web/.next",
   "framework": "nextjs",
-
   "functions": {
     "api/index.py": {
       "runtime": "@vercel/python@4.3.0",
-      "//-maxDuration": "Hobby tier caps at 60s. Long Q&A streams may hit this — fine for demo.",
       "maxDuration": 60,
-      "//-includeFiles": [
-        "Vercel's Python bundler only ships files imported from the entrypoint.",
-        "FastAPI imports submodules dynamically (`include_router` chains) so we",
-        "explicitly include the whole apps/api and apps/ml trees. Globs use",
-        "POSIX paths regardless of host OS."
-      ],
       "includeFiles": "apps/api/**/*.py,apps/ml/**/*.py,apps/api/alembic/**/*"
     }
   },
-
   "rewrites": [
     {
-      "//": "Browser fetches `/api/v1/...` → routed to the FastAPI function. Order matters: this must precede the Next.js catch-all, which Vercel handles automatically.",
       "source": "/api/(.*)",
       "destination": "/api/index.py"
     }
   ],
-
-  "//-env-note": "Environment variables are configured per-Vercel-project in the dashboard, not here — putting secrets in vercel.json would commit them to git.",
-
   "git": {
     "deploymentEnabled": {
       "main": true
