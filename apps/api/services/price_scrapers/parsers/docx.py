@@ -16,6 +16,7 @@ from __future__ import annotations
 import io
 import logging
 from datetime import date
+from typing import Any
 
 from ..base import ScrapedPrice, ScrapeError
 from .table import extract_effective_date, extract_prices_from_table
@@ -84,7 +85,7 @@ def parse_docx_bulletin(
     return []
 
 
-def _rows_from_docx_table(table) -> list[list[str]]:
+def _rows_from_docx_table(table: Any) -> list[list[str]]:
     """Flatten a python-docx Table to list[list[str]] — cells joined by newline within each cell."""
     out: list[list[str]] = []
     for row in table.rows:

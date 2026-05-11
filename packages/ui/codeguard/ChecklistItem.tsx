@@ -21,6 +21,7 @@ export function ChecklistItem({ item, onChange, disabled = false }: ChecklistIte
   const [notes, setNotes] = useState(item.notes ?? "");
 
   const checked = item.status === "done";
+  const titleId = `checklist-item-title-${item.id}`;
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -32,11 +33,12 @@ export function ChecklistItem({ item, onChange, disabled = false }: ChecklistIte
           onChange={(e) =>
             onChange({ status: e.target.checked ? "done" : "pending", notes })
           }
+          aria-labelledby={titleId}
           className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
         />
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h4 className={`font-medium ${checked ? "text-slate-500 line-through" : "text-slate-900"}`}>
+            <h4 id={titleId} className={`font-medium ${checked ? "text-slate-500 line-through" : "text-slate-900"}`}>
               {item.title}
             </h4>
             {item.required && (
@@ -58,6 +60,7 @@ export function ChecklistItem({ item, onChange, disabled = false }: ChecklistIte
               value={item.status}
               disabled={disabled}
               onChange={(e) => onChange({ status: e.target.value as ChecklistItemStatus, notes })}
+              aria-label="Trạng thái"
               className="rounded border border-slate-300 px-2 py-1 text-xs"
             >
               {STATUS_OPTIONS.map((o) => (

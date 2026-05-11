@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { Discipline, ProposalGenerateRequest } from "@aec/types/winwork";
 
 import { Button } from "../primitives/button";
@@ -20,6 +20,16 @@ const DISCIPLINES: Discipline[] = ["architecture", "structural", "mep", "civil"]
 
 export function ProposalWizard({ onGenerate, onCreated, generating }: ProposalWizardProps) {
   const [step, setStep] = useState<Step>("brief");
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const disciplineId = useId();
+  const projectTypeId = useId();
+  const areaId = useId();
+  const floorsId = useId();
+  const locationId = useId();
+  const briefId = useId();
+  const scopeId = useId();
+
   const [form, setForm] = useState<ProposalGenerateRequest>({
     project_type: "residential_villa",
     area_sqm: 200,
@@ -36,9 +46,14 @@ export function ProposalWizard({ onGenerate, onCreated, generating }: ProposalWi
   }
 
   async function submit() {
-    const result = await onGenerate(form);
-    const id = "proposal" in result ? result.proposal.id : result.id;
-    onCreated(id);
+    setSubmitError(null);
+    try {
+      const result = await onGenerate(form);
+      const id = "proposal" in result ? result.proposal.id : result.id;
+      onCreated(id);
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "Failed to generate proposal.");
+    }
   }
 
   return (
@@ -58,8 +73,9 @@ export function ProposalWizard({ onGenerate, onCreated, generating }: ProposalWi
           <>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
-                <Label>Discipline</Label>
+                <Label htmlFor={disciplineId}>Discipline</Label>
                 <select
+                  id={disciplineId}
                   className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                   value={form.discipline}
                   onChange={(e) => update("discipline", e.target.value as Discipline)}
@@ -72,35 +88,43 @@ export function ProposalWizard({ onGenerate, onCreated, generating }: ProposalWi
                 </select>
               </div>
               <div className="space-y-1">
-                <Label>Project type</Label>
+                <Label htmlFor={projectTypeId}>Project type</Label>
                 <Input
+                  id={projectTypeId}
                   value={form.project_type}
                   onChange={(e) => update("project_type", e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <Label>Area (m²)</Label>
+                <Label htmlFor={areaId}>Area (m²)</Label>
                 <Input
+                  id={areaId}
                   type="number"
                   value={form.area_sqm}
                   onChange={(e) => update("area_sqm", Number(e.target.value || 0))}
                 />
               </div>
               <div className="space-y-1">
-                <Label>Floors</Label>
+                <Label htmlFor={floorsId}>Floors</Label>
                 <Input
+                  id={floorsId}
                   type="number"
                   value={form.floors}
                   onChange={(e) => update("floors", Number(e.target.value || 1))}
                 />
               </div>
               <div className="col-span-2 space-y-1">
-                <Label>Location</Label>
-                <Input value={form.location} onChange={(e) => update("location", e.target.value)} />
+                <Label htmlFor={locationId}>Location</Label>
+                <Input
+                  id={locationId}
+                  value={form.location}
+                  onChange={(e) => update("location", e.target.value)}
+                />
               </div>
               <div className="col-span-2 space-y-1">
-                <Label>Client brief</Label>
+                <Label htmlFor={briefId}>Client brief</Label>
                 <Textarea
+                  id={briefId}
                   rows={6}
                   value={form.client_brief}
                   onChange={(e) => update("client_brief", e.target.value)}
@@ -119,8 +143,9 @@ export function ProposalWizard({ onGenerate, onCreated, generating }: ProposalWi
         {step === "scope" && (
           <>
             <div className="space-y-1">
-              <Label>Scope items (one per line)</Label>
+              <Label htmlFor={scopeId}>Scope items (one per line)</Label>
               <Textarea
+                id={scopeId}
                 rows={8}
                 value={form.scope_items.join("\n")}
                 onChange={(e) =>
@@ -152,6 +177,9 @@ export function ProposalWizard({ onGenerate, onCreated, generating }: ProposalWi
               <Row label="Location" value={form.location} />
               <Row label="Scope items" value={form.scope_items.join(", ")} />
             </div>
+            {submitError ? (
+              <p className="text-sm text-red-600">{submitError}</p>
+            ) : null}
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep("scope")} disabled={generating}>
                 Back

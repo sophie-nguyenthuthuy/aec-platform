@@ -12,7 +12,7 @@ ordered by timestamp and paginated as a flat stream.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -322,7 +322,7 @@ async def get_activity_feed(
     since_days: int = Query(default=30, ge=1, le=365),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-):
+) -> dict[str, Any]:
     """Chronological cross-module event feed for the caller's org.
 
     Returns events from the last `since_days` days across change orders,

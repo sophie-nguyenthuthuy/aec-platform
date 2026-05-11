@@ -205,6 +205,37 @@ codeguard_quota_drift_rows = _register(
 )
 
 
+# ---------- External metric names ----------
+#
+# Some Prometheus series the platform emits don't come through this
+# registry — `routers/ops.py::_build_metrics_text` writes them
+# directly as text from per-scrape DB queries (webhook outbox lag,
+# api-key calls, audit volume, etc). Registering them here as proper
+# Gauge objects would require a sampling-callback hook in the metric
+# render path; that's a follow-up the ops router docstring already
+# notes. For now, document the names so:
+#
+#   * `scripts/validate_prometheus_rules.py` recognises them when
+#     resolving alert-rule `expr` references.
+#   * Anyone reading core/metrics.py sees the full list of metric
+#     names the platform emits, even if some are produced elsewhere.
+#
+# Keep this in sync with `routers/ops.py::_build_metrics_text` —
+# adding/removing a gauge there REQUIRES updating this set.
+EXTERNAL_METRIC_NAMES: frozenset[str] = frozenset(
+    {
+        # DB-driven gauges emitted by the ops router's /metrics path.
+        # Each is a per-scrape SELECT with a 5-minute lookback window.
+        "aec_webhook_deliveries_total",
+        "aec_webhook_outbox_lag_seconds",
+        "aec_webhook_outbox_pending",
+        "aec_api_key_calls_total",
+        "aec_search_queries_total",
+        "aec_audit_events_total",
+    }
+)
+
+
 # ---------- Renderer ----------
 
 

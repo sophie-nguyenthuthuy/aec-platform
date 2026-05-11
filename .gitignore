@@ -28,6 +28,14 @@ test-results/
 playwright-report/
 /apps/web/playwright/.cache/
 
+# Mutation-testing + property-testing tool caches
+.hypothesis/
+.mutmut-cache
+.mutmut-cache.*
+
+# Local backup files (e.g. `.bak` from in-place editor undo).
+*.bak
+
 # IDE
 .vscode/
 .idea/

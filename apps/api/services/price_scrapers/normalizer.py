@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from .base import NormalisedPrice, ScrapedPrice
@@ -234,7 +235,7 @@ class NormalisationResult:
     unmatched: list[ScrapedPrice]
     rule_hits: dict[str, int]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[list[NormalisedPrice] | list[ScrapedPrice]]:
         # 2-tuple unpacking — matches the historic return signature.
         # `for x in result` is meaningless here; this is solely for
         # `matched, unmatched = normalise(rows)` callers.

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { CalendarRange, Plus } from "lucide-react";
 
+import { EmptyState } from "@/components/EmptyState";
 import { useCreateSchedule, useSchedules } from "@/hooks/schedule";
 import type { ScheduleListFilters } from "@/hooks/schedule";
 
@@ -78,13 +79,17 @@ export default function SchedulesPage() {
       ) : isError ? (
         <p className="text-sm text-red-600">Không thể tải danh sách lịch.</p>
       ) : !data?.data.length ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-12 text-center">
-          <CalendarRange size={32} className="mx-auto mb-3 text-slate-400" aria-hidden />
-          <p className="text-sm text-slate-500">Chưa có lịch nào.</p>
-          <p className="mt-1 text-xs text-slate-400">
-            Tạo một lịch mới để bắt đầu lập tiến độ và theo dõi baseline.
-          </p>
-        </div>
+        <EmptyState
+          icon={CalendarRange}
+          title="Chưa có lịch nào"
+          body={
+            <>
+              SchedulePilot lập tiến độ thi công với đường găng (critical path)
+              và mô phỏng kịch bản trễ hạn. Tạo lịch đầu tiên để chốt baseline
+              và bắt đầu theo dõi tiến độ thực tế.
+            </>
+          }
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {data.data.map((s) => (

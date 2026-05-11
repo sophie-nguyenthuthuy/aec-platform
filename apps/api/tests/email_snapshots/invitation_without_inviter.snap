@@ -1,0 +1,43 @@
+SUBJECT: [AEC Platform] Quản trị viên mời bạn tham gia Marina Tower JV
+---TEXT---
+Chào bạn,
+
+Quản trị viên đã mời bạn tham gia tổ chức "Marina Tower JV" trên AEC Platform với vai trò admin.
+
+Mở liên kết sau, đặt mật khẩu, và bạn có thể bắt đầu sử dụng ngay:
+
+  https://app.aec.local/invitations/abc123
+
+Liên kết này dùng được một lần và sẽ hết hạn sau 7 ngày.
+
+Nếu bạn không yêu cầu lời mời này, bỏ qua email này một cách an toàn.
+
+— AEC Platform
+---HTML---
+<!DOCTYPE html>
+<html lang="vi">
+<head><meta charset="utf-8"><title>[AEC Platform] Quản trị viên mời bạn tham gia Marina Tower JV</title></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 560px; margin: 24px auto; color: #1e293b;">
+  <h1 style="font-size: 18px; color: #0f172a;">Lời mời tham gia Marina Tower JV</h1>
+  <p>Chào bạn,</p>
+  <p>
+    <strong>Quản trị viên</strong> đã mời bạn tham gia tổ chức
+    <strong>Marina Tower JV</strong> trên AEC Platform với vai trò
+    <strong>admin</strong>.
+  </p>
+  <p style="margin: 24px 0;">
+    <a href="https://app.aec.local/invitations/abc123"
+       style="display: inline-block; padding: 10px 18px; background: #0f172a; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
+      Chấp nhận lời mời
+    </a>
+  </p>
+  <p style="font-size: 13px; color: #475569;">
+    Hoặc dán liên kết này vào trình duyệt:<br>
+    <code style="font-size: 12px; color: #334155;">https://app.aec.local/invitations/abc123</code>
+  </p>
+  <p style="font-size: 12px; color: #64748b; margin-top: 32px;">
+    Liên kết dùng được một lần và hết hạn sau 7 ngày. Nếu bạn không yêu cầu
+    lời mời này, bỏ qua email một cách an toàn.
+  </p>
+</body>
+</html>

@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import TextClause
+
+if TYPE_CHECKING:
+    pass
 
 from core.envelope import ok, paginated
 from db.session import TenantAwareSession
@@ -53,7 +57,7 @@ async def _session(auth: AuthContext) -> AsyncSession:
 async def create_visit(
     payload: SiteVisitCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         result = await session.execute(
             pg_insert_site_visit(
@@ -80,7 +84,7 @@ async def list_visits(
     date_to: date | None = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> dict[str, Any]:
     filters = VisitListFilters(project_id=project_id, date_from=date_from, date_to=date_to, limit=limit, offset=offset)
     async with TenantAwareSession(auth.organization_id) as session:
         from sqlalchemy import text
@@ -111,7 +115,7 @@ async def list_visits(
 async def upload_photos(
     payload: PhotoBatchUploadRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     from workers.queue import enqueue_photo_analysis
 
     photo_ids: list[UUID] = []
@@ -166,7 +170,7 @@ async def list_photos(
     date_to: date | None = None,
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> dict[str, Any]:
     filters = PhotoListFilters(
         project_id=project_id,
         site_visit_id=site_visit_id,
@@ -203,7 +207,7 @@ async def progress_timeline(
     project_id: UUID,
     date_from: date | None = None,
     date_to: date | None = None,
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         from sqlalchemy import text
 
@@ -255,7 +259,7 @@ async def list_safety_incidents(
     date_to: date | None = None,
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> dict[str, Any]:
     filters = SafetyIncidentFilters(
         project_id=project_id,
         status=status_,
@@ -300,7 +304,7 @@ async def acknowledge_incident(
     incident_id: UUID,
     payload: AcknowledgeIncidentRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     now = datetime.now(UTC)
     new_status = IncidentStatus.resolved if payload.resolve else IncidentStatus.acknowledged
     async with TenantAwareSession(auth.organization_id) as session:
@@ -344,7 +348,7 @@ async def acknowledge_incident(
 async def generate_report(
     payload: WeeklyReportGenerateRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     if payload.week_end < payload.week_start:
         raise HTTPException(status_code=400, detail="week_end must be on or after week_start")
 
@@ -365,7 +369,7 @@ async def list_reports(
     project_id: UUID | None = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> dict[str, Any]:
     filters = WeeklyReportListFilters(project_id=project_id, limit=limit, offset=offset)
     async with TenantAwareSession(auth.organization_id) as session:
         from sqlalchemy import text
@@ -402,7 +406,7 @@ async def send_report(
     report_id: UUID,
     payload: SendReportRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     from ml.pipelines.siteeye import email_weekly_report
 
     sent = await email_weekly_report(
@@ -492,7 +496,7 @@ def _row_to_photo(row: dict) -> SitePhoto:
     return SitePhoto.model_validate(data)
 
 
-def pg_insert_site_visit(**values):
+def pg_insert_site_visit(**values: Any) -> TextClause:
     from sqlalchemy import text
 
     return text(

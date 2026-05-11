@@ -23,7 +23,7 @@ that forgets to validate.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
@@ -61,7 +61,7 @@ async def preview_import(
     entity: EntityName,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     file: UploadFile,
-):
+) -> dict[str, Any]:
     """Parse + validate a CSV/XLSX upload. Persists the result to a
     new `import_jobs` row in `previewed` state and returns the
     summary + the validation errors for the preview table."""
@@ -134,7 +134,7 @@ async def preview_import(
 async def get_import_job(
     job_id: UUID,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
-):
+) -> dict[str, Any]:
     """Re-fetch a previewed/committed job. RLS keeps the lookup
     tenant-scoped — a forged ID from another org returns 404."""
     async with TenantAwareSession(auth.organization_id) as session:
@@ -174,7 +174,7 @@ async def get_import_job(
 async def commit_import_job(
     job_id: UUID,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
-):
+) -> dict[str, Any]:
     """Run the upsert for a previewed job. Returns the count of rows
     written. Idempotent: re-calling on a job that's already been
     committed returns the prior committed_count instead of re-running

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { Discipline, FeeEstimateRequest, FeeEstimateResponse } from "@aec/types/winwork";
 
 import { Button } from "../primitives/button";
@@ -32,16 +32,27 @@ export function FeeCalculator({ onEstimate, loading }: FeeCalculatorProps) {
   const [areaSqm, setAreaSqm] = useState(200);
   const [province, setProvince] = useState("");
   const [result, setResult] = useState<FeeEstimateResponse | null>(null);
+  const [estimateError, setEstimateError] = useState<string | null>(null);
+
+  const disciplineId = useId();
+  const projectTypeId = useId();
+  const areaId = useId();
+  const provinceId = useId();
 
   async function run() {
-    const res = await onEstimate({
-      discipline,
-      project_type: projectType,
-      area_sqm: areaSqm,
-      country_code: "VN",
-      province: province || undefined,
-    });
-    setResult(res);
+    setEstimateError(null);
+    try {
+      const res = await onEstimate({
+        discipline,
+        project_type: projectType,
+        area_sqm: areaSqm,
+        country_code: "VN",
+        province: province || undefined,
+      });
+      setResult(res);
+    } catch (e) {
+      setEstimateError(e instanceof Error ? e.message : "Estimation failed.");
+    }
   }
 
   return (
@@ -52,8 +63,9 @@ export function FeeCalculator({ onEstimate, loading }: FeeCalculatorProps) {
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
-            <Label>Discipline</Label>
+            <Label htmlFor={disciplineId}>Discipline</Label>
             <select
+              id={disciplineId}
               className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
               value={discipline}
               onChange={(e) => setDiscipline(e.target.value as Discipline)}
@@ -66,8 +78,9 @@ export function FeeCalculator({ onEstimate, loading }: FeeCalculatorProps) {
             </select>
           </div>
           <div className="space-y-1">
-            <Label>Project type</Label>
+            <Label htmlFor={projectTypeId}>Project type</Label>
             <select
+              id={projectTypeId}
               className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
               value={projectType}
               onChange={(e) => setProjectType(e.target.value)}
@@ -80,21 +93,25 @@ export function FeeCalculator({ onEstimate, loading }: FeeCalculatorProps) {
             </select>
           </div>
           <div className="space-y-1">
-            <Label>Area (m²)</Label>
+            <Label htmlFor={areaId}>Area (m²)</Label>
             <Input
+              id={areaId}
               type="number"
               value={areaSqm}
               onChange={(e) => setAreaSqm(Number(e.target.value || 0))}
             />
           </div>
           <div className="space-y-1">
-            <Label>Province (optional)</Label>
-            <Input value={province} onChange={(e) => setProvince(e.target.value)} />
+            <Label htmlFor={provinceId}>Province (optional)</Label>
+            <Input id={provinceId} value={province} onChange={(e) => setProvince(e.target.value)} />
           </div>
         </div>
         <Button onClick={run} disabled={loading}>
           {loading ? "Estimating…" : "Estimate"}
         </Button>
+        {estimateError ? (
+          <p className="text-sm text-red-600">{estimateError}</p>
+        ) : null}
         {result && (
           <div className="rounded-md border bg-muted/20 p-4">
             <div className="mb-2 text-xs uppercase text-muted-foreground">

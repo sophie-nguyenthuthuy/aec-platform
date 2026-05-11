@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Copy,
   ExternalLink,
+  KeyRound,
   Plug,
   Send,
   Trash2,
@@ -35,8 +36,17 @@ import {
 // events" which the API encodes as an empty array.
 const EVENT_GROUPS: Array<{ label: string; events: Array<[string, string]> }> = [
   {
+    label: "Dự án",
+    events: [["project.created", "Tạo dự án mới"]],
+  },
+  {
     label: "CostPulse",
-    events: [["costpulse.estimate.approve", "Duyệt dự toán"]],
+    events: [
+      ["costpulse.estimate.approve", "Duyệt dự toán"],
+      ["costpulse.boq.import", "Nhập BOQ"],
+      ["costpulse.suppliers.import", "Nhập danh sách NCC"],
+      ["costpulse.rfq.slots_expired", "RFQ hết hạn"],
+    ],
   },
   {
     label: "ProjectPulse",
@@ -56,6 +66,19 @@ const EVENT_GROUPS: Array<{ label: string; events: Array<[string, string]> }> = 
     ],
   },
   {
+    label: "Submittals",
+    events: [
+      ["submittals.review.approve", "Duyệt submittal"],
+      ["submittals.review.approve_as_noted", "Duyệt có ghi chú"],
+      ["submittals.review.revise_resubmit", "Yêu cầu nộp lại"],
+      ["submittals.review.reject", "Từ chối submittal"],
+    ],
+  },
+  {
+    label: "Punch list",
+    events: [["punchlist.list.sign_off", "Ký nghiệm thu punch list"]],
+  },
+  {
     label: "Handover",
     events: [
       ["handover.package.deliver", "Bàn giao gói"],
@@ -65,6 +88,24 @@ const EVENT_GROUPS: Array<{ label: string; events: Array<[string, string]> }> = 
   {
     label: "SiteEye",
     events: [["siteeye.safety_incident.detected", "Phát hiện sự cố ATLĐ"]],
+  },
+  {
+    label: "Thông báo",
+    events: [["notifications.preference.update", "Đổi tuỳ chọn thông báo"]],
+  },
+  {
+    label: "Webhooks",
+    events: [["webhooks.subscription.rotate_secret", "Xoay secret webhook"]],
+  },
+  {
+    label: "Quản trị nền tảng",
+    events: [
+      ["admin.normalizer_rule.create", "Tạo luật chuẩn hoá"],
+      ["admin.normalizer_rule.update", "Sửa luật chuẩn hoá"],
+      ["admin.normalizer_rule.delete", "Xoá luật chuẩn hoá"],
+      ["admin.cron.run_now", "Chạy cron thủ công"],
+      ["admin.cron.dedup_clear", "Xoá trạng thái dedup cron"],
+    ],
   },
 ];
 
@@ -365,6 +406,19 @@ function SubscriptionRow({ sub }: { sub: WebhookSubscription }) {
               {sub.failure_count} lỗi liên tiếp
             </span>
           )}
+          {sub.secret_previous_active && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+              title={
+                "Subscription đang trong cửa sổ chuyển đổi secret. " +
+                "Mỗi delivery mang đồng thời X-AEC-Signature (secret mới) và " +
+                "X-AEC-Signature-Previous (secret cũ). Receiver verify khớp một trong hai."
+              }
+            >
+              <KeyRound size={10} />
+              grace {formatGrace(sub.secret_previous_grace_seconds_remaining)}
+            </span>
+          )}
         </button>
         <div className="flex items-center gap-2">
           <Link
@@ -476,6 +530,27 @@ function DeliveryRow({ delivery }: { delivery: WebhookDelivery }) {
       </div>
     </li>
   );
+}
+
+
+// ---------- Pure helpers ----------
+
+
+/**
+ * Format the rotation grace seconds remaining into a compact label
+ * the badge can carry alongside an icon. The thresholds (hours vs.
+ * minutes) match the granularity a partner is reasoning about during
+ * the rollover — "23h" is fine for the morning-after view; "8m" is
+ * what they want in the last hour before the dispatcher stops
+ * emitting the previous signature.
+ */
+function formatGrace(seconds: number): string {
+  if (seconds <= 0) return "expired";
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60 * 60) return `${Math.round(seconds / 60)}m`;
+  // Round down to the hour so "23h 59m left" doesn't show as "24h"
+  // — the partner expects the badge to monotonically decrease.
+  return `${Math.floor(seconds / 3600)}h`;
 }
 
 

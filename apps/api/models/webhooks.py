@@ -32,6 +32,14 @@ class WebhookSubscription(Base):
     )
     url: Mapped[str] = mapped_column(Text, nullable=False)
     secret: Mapped[str] = mapped_column(Text, nullable=False)
+    # Dual-secret rotation columns (migration 0043). Both NULL means
+    # no rotation has happened (or the previous secret has been cleared
+    # post-grace). The dispatcher emits a second `X-AEC-Signature-
+    # Previous` header iff `secret_previous IS NOT NULL` AND
+    # `secret_previous_expires_at > NOW()`. See services.webhooks.
+    # rotate_secret + the dispatcher's `_deliver_one` for the read path.
+    secret_previous: Mapped[str | None] = mapped_column(Text)
+    secret_previous_expires_at: Mapped[datetime | None] = mapped_column(TZ)
     event_types: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_delivery_at: Mapped[datetime | None] = mapped_column(TZ)

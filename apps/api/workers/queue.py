@@ -22,6 +22,7 @@ from core.config import get_settings
 # only imports drawbridge models — but Document.project_id FK references
 # core.Project, which would otherwise never be registered.
 from models import register_all as _register_all_models
+from services.cron_telemetry import cron_telemetry_wrap as _telemetry
 
 _register_all_models()
 
@@ -468,6 +469,9 @@ async def codeguard_quota_reconcile_cron(ctx: dict) -> dict:
     every org's rows. Weekly cadence (not daily): drift is an
     attribution-loss signal, not a hot-path correctness check.
     """
+    # cron-mutex: read-only gauge publisher. Two replicas computing
+    # the same COUNT and calling `.set(same_value)` is genuinely
+    # idempotent — no advisory lock needed.
     from sqlalchemy import text as sql_text
 
     from core.metrics import codeguard_quota_drift_rows
@@ -532,6 +536,112 @@ def _JSONB():
     return JSONB
 
 
+# ---------- Cron-failure watchdog ----------
+
+
+async def run_cron_by_name_job(ctx: dict, cron_name: str) -> dict:
+    """Execute one cron NOW, on demand, by its registered name.
+
+    Powers the `POST /admin/crons/{name}/run` endpoint (cycle O2). An
+    operator triaging "did this cron actually do anything?" can fire
+    it without waiting for the next schedule tick.
+
+    Why a separate arq job rather than a direct in-process await:
+
+      * The cron's coroutine in `WorkerSettings.cron_jobs` is already
+        wrapped via `cron_telemetry_wrap` — running it through arq
+        means the wrapper writes a `cron_runs` row (status running →
+        succeeded/failed) just like a scheduled tick. The dashboard
+        + watchdog then see the manual run in the same shape as a
+        natural one. Awaiting in-process bypasses the wrapper.
+
+      * arq enforces `job_timeout` (15 min) and `max_jobs` so a stuck
+        manual run can't pin an event-loop thread for hours. The HTTP
+        request returns the moment the job is enqueued; the operator
+        watches the result on the drilldown page (which polls every
+        30s).
+
+      * Worker-side execution keeps the API process free of the
+        cron's side effects (DB writes, S3 uploads, downstream HTTP).
+
+    Idempotency / safety:
+
+      * Repeated POSTs with the same `Idempotency-Key` cache the same
+        job_id (via `IdempotentRoute` on the admin router). Without
+        the header, every click enqueues a fresh job — which IS the
+        correct behaviour: an operator deliberately "running it
+        again" should run it again.
+
+      * Concurrent runs of the same cron are technically possible
+        (manual + scheduled tick overlapping). Each cron's body is
+        responsible for its own concurrency safety — most of ours
+        use SELECT ... FOR UPDATE SKIP LOCKED or are read-only
+        gauge writers, so a duplicate run is at worst inefficient.
+
+    Lookup by `name`:
+
+      * `cron_name` matches the value in
+        `WorkerSettings.cron_jobs[i].name` — the same value the
+        dashboard renders. Operators paste it from the URL.
+      * Unknown names raise so the JobResult log carries the
+        diagnostic; arq's retry policy doesn't apply (the lookup
+        deterministically fails on every retry).
+    """
+    target = None
+    for entry in WorkerSettings.cron_jobs:
+        if entry.name == cron_name:
+            target = entry
+            break
+    if target is None:
+        raise ValueError(f"unknown cron_name: {cron_name!r}")
+    # `target.coroutine` is the already-_telemetry-wrapped coroutine
+    # arq uses on the schedule. Awaiting it here threads through the
+    # exact same telemetry path — `cron_runs` row writes, error
+    # truncation, duration timing — as a natural tick.
+    return await target.coroutine(ctx)
+
+
+async def cron_failure_watchdog_cron(ctx: dict) -> dict:
+    """Every 5 minutes, alert Slack on fresh `cron_runs` failures
+    AND on cron runs stuck in `running` past 3× their rolling p95.
+
+    Two concerns rolled into one cron because:
+      * Both fire at the same 5-minute cadence; splitting them into
+        two crons doubles arq scheduling overhead for no benefit.
+      * Both write to the same Slack channel via the same
+        `record_delivery_attempt` path; failures of one shouldn't
+        block the other from running, so we run them sequentially
+        with independent try/except.
+
+    Cadence (5 min) MUST match
+    `services.cron_alerts._FRESH_FAILURE_WINDOW_MINUTES`. Otherwise
+    the watchdog's window doesn't tile cleanly with the schedule —
+    failures fall between the cracks (window < cadence) or get
+    re-alerted (window > cadence).
+
+    Returns the merged summary so arq's JobResult log carries both
+    counts.
+    """
+    from services.cron_alerts import check_failing_crons, check_stuck_crons
+
+    # Run both in sequence, catching independently. Either failing
+    # shouldn't prevent the other from emitting alerts.
+    failures: dict = {}
+    stuck: dict = {}
+    try:
+        failures = await check_failing_crons()
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning("cron_watchdog: failure check raised: %s", exc)
+        failures = {"error": str(exc)}
+    try:
+        stuck = await check_stuck_crons()
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning("cron_watchdog: stuck check raised: %s", exc)
+        stuck = {"error": str(exc)}
+
+    return {"failures": failures, "stuck": stuck}
+
+
 # ---------- Worker settings ----------
 
 
@@ -545,41 +655,62 @@ class WorkerSettings:
         drawbridge_ingest_job,
         scrape_prices_job,
         scrape_all_prices_job,
+        # Operator-triggered manual cron run (cycle O2). Registered
+        # in `functions` rather than `cron_jobs` because it's an
+        # arq-job-by-name target, not a scheduled task.
+        run_cron_by_name_job,
     ]
     cron_jobs = [
+        # Every cron is wrapped via `_telemetry(...)` so each invocation
+        # writes a row to `cron_runs` (status running → succeeded/failed,
+        # duration_ms, error_message). The wrapper preserves __name__ /
+        # __module__ / __doc__ so the `/admin/crons` dashboard still
+        # reads the underlying function metadata.
         # Every Monday 06:00 UTC (~13:00 ICT) generate reports for the prior week.
-        cron(weekly_report_cron, weekday="mon", hour=6, minute=0),
+        cron(_telemetry(weekly_report_cron), weekday="mon", hour=6, minute=0),
         # Nightly 22:00 UTC (~05:00 ICT) — evaluate CostPulse price alerts.
-        cron(price_alerts_evaluate_job, hour=22, minute=0),
+        cron(_telemetry(price_alerts_evaluate_job), hour=22, minute=0),
         # 2nd of each month 01:00 UTC (~08:00 ICT) — most provinces have
         # published the prior month's bulletin by then. Fan-out enqueues
         # one `scrape_prices_job` per registered province.
-        cron(scrape_all_prices_job, day=2, hour=1, minute=0),
+        cron(_telemetry(scrape_all_prices_job), day=2, hour=1, minute=0),
         # Every day 00:00 UTC (~07:00 ICT) — push activity digest emails
         # to every user who has watched at least one project. Empty
         # digests are skipped so a quiet day produces zero email noise.
-        cron(daily_activity_digest_cron, hour=0, minute=0),
+        cron(_telemetry(daily_activity_digest_cron), hour=0, minute=0),
         # Every day 01:00 UTC (~08:00 ICT) — auto-expire RFQ slots whose
         # deadline (+1 day grace) has passed. Without this, the buyer's
         # inbox carries dispatched-but-never-quoted slots forever and
         # status filters lose their meaning.
-        cron(rfq_deadlines_cron, hour=1, minute=0),
+        cron(_telemetry(rfq_deadlines_cron), hour=1, minute=0),
         # Every minute — drain the webhook outbox. A 1-minute floor
         # bounds retry latency for transient receiver failures. Idempotent
         # via `SELECT … FOR UPDATE SKIP LOCKED` so two workers running
         # concurrently won't double-deliver.
-        cron(webhook_drain_cron, minute={i for i in range(60)}),
+        cron(_telemetry(webhook_drain_cron), minute={i for i in range(60)}),
         # Daily 03:00 UTC (~10:00 ICT) — prune unbounded telemetry
         # tables (audit_events, search_queries, import_jobs,
         # delivered/failed webhook_deliveries) per `RETENTION_POLICIES`.
         # Capped at 10k rows per table per run so a backed-up tenant
         # catches up over multiple days without locking up the table.
-        cron(retention_prune_cron, hour=3, minute=0),
+        cron(_telemetry(retention_prune_cron), hour=3, minute=0),
         # Every Monday 04:00 UTC (~11:00 ICT) — reconcile codeguard
         # org-level vs per-user usage. Sets `codeguard_quota_drift_rows`;
         # `CodeguardQuotaUsageDrift` alerts on sustained nonzero values.
         # Weekly: drift is attribution loss, not hot-path correctness.
-        cron(codeguard_quota_reconcile_cron, weekday="mon", hour=4, minute=0),
+        cron(_telemetry(codeguard_quota_reconcile_cron), weekday="mon", hour=4, minute=0),
+        # Every 5 minutes — scan `cron_runs` for failures freshly
+        # written in the last 5 minutes, post one Slack message per
+        # affected cron. The 5-min cadence MUST match
+        # `services.cron_alerts._FRESH_FAILURE_WINDOW_MINUTES` —
+        # mismatched values either drop alerts (cadence > window) or
+        # double-alert (cadence < window).
+        #
+        # Self-wrapped via `_telemetry` so the watchdog ITSELF shows
+        # up in `/admin/crons`. If the alerter is failing, ops sees
+        # the watchdog row red and can fall back to checking the
+        # registry manually.
+        cron(_telemetry(cron_failure_watchdog_cron), minute={i for i in range(0, 60, 5)}),
     ]
     max_jobs = 8
     job_timeout = 900  # 15 min — weekly report with PDF rendering can be slow

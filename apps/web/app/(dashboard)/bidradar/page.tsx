@@ -2,8 +2,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
+import { Radar } from "lucide-react";
 import { MatchFilters, TenderCard } from "@aec/ui/bidradar";
 import type { MatchStatus } from "@aec/ui/bidradar";
+
+import { EmptyState } from "@/components/EmptyState";
 import {
   useMatches,
   useUpdateMatchStatus,
@@ -77,9 +80,18 @@ export default function BidRadarMatchesPage() {
           Loading matches…
         </div>
       ) : items.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-          No matches yet. Set up your firm profile and scrape a source to get started.
-        </div>
+        <EmptyState
+          icon={Radar}
+          title="Chưa có cơ hội đấu thầu nào"
+          body={
+            <>
+              BidRadar quét các cổng thông tin đấu thầu công và so khớp với hồ
+              sơ năng lực của bạn. Để bắt đầu, hoàn thiện profile rồi chạy
+              "Scrape now" — kết quả mới sẽ được chấm điểm tự động.
+            </>
+          }
+          cta={{ label: "Cập nhật profile", href: "/bidradar/profile" }}
+        />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {items.map((m) => (

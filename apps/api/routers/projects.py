@@ -10,9 +10,10 @@ module for the selected project.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -23,6 +24,9 @@ from core.envelope import ok, paginated
 from db.deps import get_db
 from db.session import TenantAwareSession
 from middleware.auth import AuthContext, require_auth
+from middleware.idempotency_route import IdempotentRoute
+from middleware.rbac import Role
+from middleware.rbac import require_min_role as _require_min_role
 from models.changeorder import ChangeOrderCandidate
 from models.codeguard import ComplianceCheck, PermitChecklist
 from models.core import Project
@@ -57,7 +61,14 @@ from schemas.projects import (
     WinworkStatus,
 )
 
-router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
+# Idempotency on POST/PATCH/DELETE — see `/docs/api#idempotency`.
+# Project creation is a likely retry target: partner's CI provisions
+# a project, network blip, retry would otherwise create two.
+router = APIRouter(
+    prefix="/api/v1/projects",
+    tags=["projects"],
+    route_class=IdempotentRoute,
+)
 
 
 # ---------- List (card grid) ----------
@@ -72,7 +83,7 @@ async def list_projects(
     q: str | None = None,
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=20, ge=1, le=100),
-):
+) -> dict[str, Any]:
     """List projects for the caller's org with cheap per-card counters.
 
     The counters (`open_tasks`, `open_change_orders`, `document_count`) are
@@ -158,7 +169,7 @@ async def get_project_detail(
     project_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     project = (
         await db.execute(
             select(Project).where(
@@ -237,7 +248,7 @@ async def get_project_detail(
 
 
 @asynccontextmanager
-async def _scoped_session(organization_id: UUID):
+async def _scoped_session(organization_id: UUID) -> AsyncIterator[AsyncSession]:
     """Give each parallel helper its own tenant-scoped session.
 
     Lives here (not as a fixture / dependency) because it's tightly
@@ -612,4 +623,59 @@ async def _punchlist_status(db: AsyncSession, project_id: UUID) -> PunchlistStat
         open_items=int(item_counts.open_items or 0),
         verified_items=int(item_counts.verified or 0),
         high_severity_open_items=int(item_counts.high_open or 0),
+    )
+
+
+# ---------- Project operational health (cycle V3) ----------
+
+
+@router.get("/{project_id}/operational-health")
+async def project_operational_health(
+    project_id: UUID,
+    auth: Annotated[AuthContext, Depends(_require_min_role(Role.MEMBER))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    """Four live counts for the project widget. Member-and-above; defensive zero-on-failure."""
+    from sqlalchemy import text as _text
+
+    async def _count(sql: str) -> int:
+        try:
+            r = await db.execute(
+                _text(sql),
+                {"org": str(auth.organization_id), "project_id": str(project_id)},
+            )
+            return int(r.scalar_one())
+        except Exception:
+            return 0
+
+    overdue_punch_items = await _count(
+        "SELECT COUNT(*) FROM punch_items pi"
+        " JOIN punch_lists pl ON pl.id = pi.list_id"
+        " WHERE pl.organization_id = :org AND pl.project_id = :project_id"
+        "   AND pi.due_date < NOW() AND pi.status NOT IN ('done', 'verified')"
+    )
+    pending_submittals = await _count(
+        "SELECT COUNT(*) FROM submittals"
+        " WHERE organization_id = :org AND project_id = :project_id"
+        "   AND status NOT IN ('approved', 'rejected', 'void')"
+    )
+    expired_rfqs = await _count(
+        "SELECT COUNT(*) FROM rfqs"
+        " WHERE organization_id = :org AND project_id = :project_id"
+        "   AND deadline < NOW() AND status NOT IN ('closed', 'awarded')"
+    )
+    pending_change_orders = await _count(
+        "SELECT COUNT(*) FROM change_orders"
+        " WHERE organization_id = :org AND project_id = :project_id"
+        "   AND status NOT IN ('approved', 'rejected', 'void')"
+    )
+    from core.envelope import ok as _ok
+
+    return _ok(
+        {
+            "overdue_punch_items": overdue_punch_items,
+            "pending_submittals": pending_submittals,
+            "expired_rfqs": expired_rfqs,
+            "pending_change_orders": pending_change_orders,
+        }
     )

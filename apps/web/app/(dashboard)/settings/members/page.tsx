@@ -249,18 +249,24 @@ function MemberRow({
         {member.role}
       </span>
 
-      <select
-        value={member.role}
-        onChange={(e) => onRoleChange(e.target.value as Role)}
-        disabled={rolePending}
-        className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs disabled:opacity-50"
-      >
-        {ROLES.map((r) => (
-          <option key={r.value} value={r.value}>
-            {r.label}
-          </option>
-        ))}
-      </select>
+      {member.role === "owner" ? (
+        <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-500">
+          Owner
+        </span>
+      ) : (
+        <select
+          value={member.role}
+          onChange={(e) => onRoleChange(e.target.value as Role)}
+          disabled={rolePending}
+          className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs disabled:opacity-50"
+        >
+          {ROLES.map((r) => (
+            <option key={r.value} value={r.value}>
+              {r.label}
+            </option>
+          ))}
+        </select>
+      )}
 
       <button
         type="button"

@@ -41,10 +41,11 @@ RBAC posture (the branch's named feature):
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -75,7 +76,7 @@ async def ask_about_project(
     payload: AskRequest,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.MEMBER))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Answer a natural-language question about one of the caller's projects.
 
     Threads:
@@ -107,13 +108,13 @@ async def ask_about_project(
 # ---------- Ask (streaming variant) ----------
 
 
-@router.post("/projects/{project_id}/ask/stream")
+@router.post("/projects/{project_id}/ask/stream", response_class=StreamingResponse)
 async def ask_about_project_stream(
     project_id: UUID,
     payload: AskRequest,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.MEMBER))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> StreamingResponse:
     """SSE streaming version of `/ask`. Frame format:
 
       event: meta  → `{"thread_id": "..."}` (always first)
@@ -133,8 +134,6 @@ async def ask_about_project_stream(
     standard 4xx; the in-band error frame mechanism is only for
     post-stream-open errors (cross-tenant project, DB blip mid-LLM).
     """
-    from fastapi.responses import StreamingResponse
-
     generator = assistant_ask_stream(
         db,
         organization_id=auth.organization_id,
@@ -162,7 +161,7 @@ async def list_threads(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(default=30, ge=1, le=100),
-):
+) -> dict[str, Any]:
     """Recent threads for the calling user on this project, ordered by
     `last_message_at DESC` so the most recently active conversation is
     on top."""
@@ -194,7 +193,7 @@ async def get_thread(
     thread_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Full thread transcript. Cross-tenant or cross-user → 404 (existence
     is hidden across orgs)."""
     thread = (
@@ -229,12 +228,12 @@ async def get_thread(
 # ---------- Delete thread ----------
 
 
-@router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_thread(
     thread_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> None:
     """Idempotent delete — non-existent threads return 204."""
     thread = (
         await db.execute(

@@ -10,13 +10,18 @@ again for the same movement.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import text
 
 from db.session import AdminSessionFactory
 from services.mailer import send_mail
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +123,7 @@ async def evaluate_price_alerts() -> dict:
     return summary
 
 
-async def _update_baseline(session, alert_id: UUID, current: Decimal) -> None:
+async def _update_baseline(session: AsyncSession, alert_id: UUID, current: Decimal) -> None:
     await session.execute(
         text("UPDATE price_alerts SET last_price_vnd = :p WHERE id = :id"),
         {"p": current, "id": str(alert_id)},
@@ -134,7 +139,7 @@ async def _notify(
     baseline: Decimal,
     current: Decimal,
     delta_pct: Decimal,
-    effective_date,
+    effective_date: date,
 ) -> None:
     direction = "↑" if delta_pct > 0 else "↓"
     province_label = province or "nationwide"

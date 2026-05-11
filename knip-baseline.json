@@ -1,0 +1,7 @@
+{
+  "//": "Knip dead-code baseline. Captured 2026-05-04 from `pnpm exec knip --reporter json`. Reductions ratchet down (drop the count in the same PR that fixes the dead code); additions red-gate via scripts/check-knip-baseline.mjs. The 4th file is the baseline-checker script itself — knip can't introspect that the Makefile invokes it; the cost of an `entry` glob to fix this exceeded the cost of carrying it as a known +1 in the baseline.",
+  "files": 6,
+  "dependencies": 10,
+  "exports": 65,
+  "types": 253
+}

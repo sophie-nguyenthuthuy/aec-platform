@@ -11,11 +11,19 @@ export default function WeeklyReportDetailPage() {
   const send = useSendReport();
   const [recipients, setRecipients] = useState("");
   const [ok, setOk] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  if (listQ.isLoading) {
+    return <p className="text-sm text-gray-500">Loading…</p>;
+  }
+  if (listQ.isError) {
+    return <p className="text-sm text-red-600">Failed to load report: {listQ.error?.message}</p>;
+  }
 
   const report = listQ.data?.data.find((r) => r.id === id);
 
   if (!report) {
-    return <p className="text-sm text-gray-500">Loading…</p>;
+    return <p className="text-sm text-gray-500">Report not found.</p>;
   }
 
   async function handleSend() {
@@ -24,9 +32,14 @@ export default function WeeklyReportDetailPage() {
       .map((s) => s.trim())
       .filter(Boolean);
     if (list.length === 0) return;
-    await send.mutateAsync({ reportId: id, recipients: list });
-    setOk(`Sent to ${list.join(", ")}`);
-    setRecipients("");
+    setSendError(null);
+    try {
+      await send.mutateAsync({ reportId: id, recipients: list });
+      setOk(`Sent to ${list.join(", ")}`);
+      setRecipients("");
+    } catch (e) {
+      setSendError(e instanceof Error ? e.message : "Failed to send report.");
+    }
   }
 
   return (
@@ -53,6 +66,7 @@ export default function WeeklyReportDetailPage() {
           </button>
         </div>
         {ok ? <p className="mt-2 text-sm text-emerald-600">{ok}</p> : null}
+        {sendError ? <p className="mt-2 text-sm text-red-600">{sendError}</p> : null}
       </section>
     </div>
   );

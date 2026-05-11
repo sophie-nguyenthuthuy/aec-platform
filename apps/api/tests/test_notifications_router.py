@@ -251,11 +251,9 @@ async def test_delete_watch_is_idempotent_for_missing(client, fake_db):
 # ---------- Notification preferences ----------
 
 
-async def test_list_preferences_prefills_known_keys_with_off_defaults(client, fake_db):
+async def test_list_preferences_prefills_known_keys_with_off_defaults(client, fake_db, make_execute_result):
     """Empty DB → response still has every known alert kind, all off."""
-    q = MagicMock()
-    q.scalars.return_value.all.return_value = []
-    fake_db.push(q)
+    fake_db.push(make_execute_result(rows=[]))
 
     res = await client.get("/api/v1/notifications/preferences")
 

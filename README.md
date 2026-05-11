@@ -16,6 +16,12 @@ check code compliance, automate drawing QA, and hand over assets to clients.
 | 6 | **ProjectPulse** | `pulse` | Task Kanban, milestones, change orders, meeting notes → AI client reports (HTML + PDF). |
 | 7 | **Drawbridge** | `drawbridge` | Drawing-set Q&A and markup compliance — pgvector HNSW over drawing text. |
 | 8 | **Handover** | `handover` | Client-facing handover package: O&M manuals, warranties, as-builts. |
+| 9 | **SchedulePilot** | `schedulepilot` | CPM scheduling, baseline + actual comparison, what-if delay simulation. |
+| 10 | **Submittals** | `submittals` | Materials/sample approval workflow between contractor + supervising consultant. |
+| 11 | **DailyLog** | `dailylog` | Site-diary entries with photos + GPS + weather; one-click PDF export. |
+| 12 | **ChangeOrder** | `changeorder` | CO lifecycle (draft → submitted → approved/rejected → executed) with cost + schedule impact. |
+| 13 | **Punchlist** | `punchlist` | Snag-list workflow from defect-found through verified-resolved; pre-handover. |
+| 14 | **Activity** | `activity` | Cross-module event feed with SSE push; one source-of-truth for "what's happening on this project". |
 
 ## Monorepo layout
 
@@ -100,6 +106,70 @@ CI also runs a non-blocking **security** job that posts `pnpm audit` +
   CO approvals, task bulk edits.
 - **Graceful degradation** — PDF export, site photos, budget integration all fall
   back to "skip this section" rather than 5xx'ing the caller.
+
+## Partner / integrator surface
+
+The platform exposes a public API for partner integrations (CRM, ERP, ETL).
+
+- **REST API** — auth via per-org API keys, rate-limited per key, scoped by a closed
+  vocabulary (`projects:read`, `defects:write`, `*`, etc). Test-mode keys route to a
+  synthetic-data layer so partners can build end-to-end without polluting real data.
+  Per-project allowlists scope keys to specific projects (migration `0039`).
+  Idempotency-Key header for retry-safe writes.
+- **Webhooks** — HMAC-SHA256 signed event delivery with exponential-backoff retry
+  (1m → 5m → 30m → 2h → 12h → 6 attempts). Subscribe via
+  `POST /api/v1/webhooks` with `event_types[]`. Cross-tenant ops surface at
+  `/admin/webhook-deliveries` for platform-side triage.
+- **Public docs at `/docs`** — `/docs/api` (auth, scopes, rate limits, errors,
+  idempotency, sandbox mode), `/docs/webhooks` (signing, retries, dead-letter),
+  `/docs/webhooks/events` (auto-rendered catalog of every event type with payload
+  samples — pulled from `services/webhooks.EVENT_CATALOG`), `/docs/ops` (health
+  probes, Prometheus scrape).
+- **TypeScript SDK** at `packages/sdk` (`@aec/sdk`) — typed client auto-generated
+  from the OpenAPI snapshot, with `AecClient` wrapper handling 429/5xx retries +
+  envelope unwrap + `AecApiError` for typed catch blocks. CI gate
+  (`drift-check.mjs`) ensures the SDK stays in sync with the snapshot.
+
+## Surface contracts (rollback defense)
+
+The codebase has historically suffered from an aggressive linter / reformat pass
+that silently reverts router includes, dataclass fields, and migration-backed
+columns mid-development. Two **surface-snapshot tests** pin the structural contract
+so a revert fails CI rather than landing silently:
+
+- `apps/api/tests/test_codeguard_surface_snapshot.py` — codeguard router routes,
+  metric registry entries, cron registrations, retention policies.
+- `apps/api/tests/test_integrator_surface_snapshot.py` — `Settings.metrics_token`,
+  `AuthContext.api_key_mode/api_key_id/api_key_project_ids`, `mint_key(mode=,
+  project_ids=)`, `KEY_MODES`, the ops/webhook-deliveries-admin/slack-deliveries/
+  cron-admin routers being mounted, `WebhookDeliveryOut.subscription_id`, the
+  `EVENT_CATALOG ⊆ _KNOWN_EVENT_TYPES` invariant, audit-log JOINs, the
+  cron-telemetry decorator preserving `__name__`/`__doc__`, the `cron_runs`
+  retention policy.
+
+Both run on every PR via dedicated CI jobs (`codeguard-surface`, `integrator-surface`)
+AND as pre-commit hooks via `.pre-commit-config.yaml` so a revert is caught at
+`git commit` time, not mid-PR. When adding a new surface that's load-bearing for
+the frontend or partners, extend the snapshot pattern — comments at the top of
+each test file explain how.
+
+## Admin surface
+
+The dashboard's `/admin` hub is the platform-ops view (admin-role gated):
+
+| Page | What |
+|------|------|
+| `/admin/api-usage` | Cross-org API key leaderboard + per-key drilldown with hour-bucketed sparkline |
+| `/admin/webhook-deliveries` | Cross-tenant webhook outbox health; per-event-type rate; per-delivery payload + error drilldown |
+| `/admin/slack-deliveries` | Platform-Slack-webhook telemetry per delivery kind |
+| `/admin/crons` | Static cron registry + last-run telemetry per cron (success/failed/duration/error) |
+| `/admin/scrapers` | Provincial bulletin scraper drift trends |
+| `/admin/normalizer-rules` | DB-backed material-name regex rules merged on top of the in-code normaliser |
+
+The "own router file per admin surface" pattern — `routers/slack_deliveries.py`,
+`routers/webhook_deliveries_admin.py`, `routers/cron_admin.py` — is a deliberate
+dodge of the rollback pattern that targets `routers/admin.py`. New cross-tenant
+admin routes go in their own file.
 
 ## Development conventions
 

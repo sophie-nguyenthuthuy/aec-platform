@@ -190,14 +190,20 @@ async def test_rls_blocks_cross_org_boq_read(engine, two_orgs):
     boq_a = uuid4()
     boq_b = uuid4()
     async with factory() as s:
+        # `organization_id` mirrors the parent estimate's tenant; migration
+        # 0049 made it NOT NULL on `boq_items` so RLS can be evaluated
+        # directly on the row without joining through `estimates`.
         await s.execute(
             text(
-                "INSERT INTO boq_items (id, estimate_id, description) VALUES (:ia, :ea, 'A item'), (:ib, :eb, 'B item')"
+                "INSERT INTO boq_items (id, organization_id, estimate_id, description) VALUES "
+                "(:ia, :oa, :ea, 'A item'), (:ib, :ob, :eb, 'B item')"
             ),
             {
                 "ia": str(boq_a),
+                "oa": str(two_orgs["org_a"]),
                 "ea": str(two_orgs["estimate_a"]),
                 "ib": str(boq_b),
+                "ob": str(two_orgs["org_b"]),
                 "eb": str(two_orgs["estimate_b"]),
             },
         )

@@ -1011,7 +1011,7 @@ def test_persist_items_recomputes_line_total_when_qty_and_unit_price_set():
             material_code="CONC_C30",
         )
     ]
-    total = _persist_items(sink, uuid4(), items, recompute=True)
+    total = _persist_items(sink, uuid4(), uuid4(), items, recompute=True)
 
     # 120 * 2_000_000 = 240_000_000 — recompute wins over the stale 999.
     assert total == Decimal("240000000")
@@ -1047,7 +1047,7 @@ def test_persist_items_keeps_explicit_total_when_recompute_false():
             material_code=None,
         )
     ]
-    total = _persist_items(sink, uuid4(), items, recompute=False)
+    total = _persist_items(sink, uuid4(), uuid4(), items, recompute=False)
 
     # qty*unit_price = 1000, but recompute is off → explicit 9999 kept.
     assert total == Decimal("9999")
@@ -1082,7 +1082,7 @@ def test_persist_items_skips_recompute_when_qty_or_unit_price_missing():
             material_code=None,
         )
     ]
-    total = _persist_items(sink, uuid4(), items, recompute=True)
+    total = _persist_items(sink, uuid4(), uuid4(), items, recompute=True)
 
     # No qty * price math possible → keeps the explicit total.
     assert total == Decimal("5000000")
@@ -1130,7 +1130,7 @@ def test_persist_items_only_top_level_rolls_up_to_estimate_total():
             unit="m3",
         ),
     ]
-    total = _persist_items(sink, uuid4(), items, recompute=True)
+    total = _persist_items(sink, uuid4(), uuid4(), items, recompute=True)
 
     # Only the parent (no parent_id) contributes — sub-items are
     # children of an existing line.

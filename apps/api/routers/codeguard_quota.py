@@ -44,7 +44,7 @@ they did when those routes lived inline.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text as sa_text
@@ -75,7 +75,7 @@ async def get_codeguard_quota_audit(
     action: str | None = None,
     before: str | None = None,
     format: str = "json",
-):
+) -> dict[str, Any]:
     """Return the caller's org's quota-mutation audit log, most-recent first.
 
     Tenant-facing surface — closes the loop on "who raised our cap
@@ -186,7 +186,7 @@ async def get_codeguard_quota_top_users(
     db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = 10,
     breakdown: bool = False,
-):
+) -> dict[str, Any]:
     """Top consumers of the org's monthly token cap, sorted by combined
     spend descending.
 

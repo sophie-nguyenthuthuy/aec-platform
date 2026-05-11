@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -422,7 +422,7 @@ async def codeguard_query(
     return ok(result)
 
 
-@router.post("/query/stream")
+@router.post("/query/stream", response_class=StreamingResponse)
 async def codeguard_query_stream(
     payload: QueryRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
@@ -609,7 +609,7 @@ async def codeguard_scan(
     return ok(response)
 
 
-@router.post("/scan/stream")
+@router.post("/scan/stream", response_class=StreamingResponse)
 async def codeguard_scan_stream(
     payload: ScanRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
@@ -765,7 +765,7 @@ async def create_permit_checklist(
     return ok(PermitChecklist.model_validate(record))
 
 
-@router.post("/permit-checklist/stream")
+@router.post("/permit-checklist/stream", response_class=StreamingResponse)
 async def codeguard_permit_checklist_stream(
     payload: PermitChecklistRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
@@ -859,7 +859,7 @@ async def export_permit_checklist_pdf(
     checklist_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> Response:
     """Render an org-owned PermitChecklist as a downloadable PDF.
 
     Uses 404 (not 403) for cross-org access so we don't leak that

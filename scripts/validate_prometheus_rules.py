@@ -108,6 +108,15 @@ def _load_metric_registry() -> set[str]:
             names.add(f"{m.name}_bucket")
             names.add(f"{m.name}_sum")
             names.add(f"{m.name}_count")
+    # Pick up DB-driven gauges that don't come through the registry.
+    # The ops router emits these as raw text per scrape (webhook
+    # outbox lag, api-key calls, audit volume, etc); they're real
+    # series Prometheus sees, but they don't have a Gauge instance
+    # in `_REGISTRY` because the value source is per-scrape SQL.
+    # `core.metrics.EXTERNAL_METRIC_NAMES` documents them — merge
+    # here so alert rules referencing them resolve cleanly.
+    external = getattr(_metrics, "EXTERNAL_METRIC_NAMES", frozenset())
+    names |= set(external)
     return names
 
 

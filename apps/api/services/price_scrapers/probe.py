@@ -23,6 +23,11 @@ would be rude (and give us nothing new once a URL is known).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import httpx
+
 import argparse
 import asyncio
 import json
@@ -114,7 +119,7 @@ class ProbeResult:
         return self.status == 200 and self.has_bulletin_link
 
 
-async def probe_url(slug: str, url: str, *, http_client) -> ProbeResult:
+async def probe_url(slug: str, url: str, *, http_client: httpx.AsyncClient) -> ProbeResult:
     """Probe one candidate URL. Never raises; transport failures → status=None."""
     start = time.monotonic()
     try:
@@ -139,7 +144,7 @@ async def probe_url(slug: str, url: str, *, http_client) -> ProbeResult:
         )
 
 
-async def probe_slug(slug: str, *, http_client) -> ProbeResult | None:
+async def probe_slug(slug: str, *, http_client: httpx.AsyncClient) -> ProbeResult | None:
     """Try every candidate URL for `slug` until one matches.
 
     Returns the first matching ProbeResult, or `None` if every

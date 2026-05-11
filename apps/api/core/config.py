@@ -135,7 +135,113 @@ class Settings(BaseSettings):
     sentry_dsn: str | None = Field(default=None, validation_alias="SENTRY_DSN")
     sentry_traces_sample_rate: float = Field(default=0.1, validation_alias="SENTRY_TRACES_SAMPLE_RATE")
 
+    metrics_token: str | None = Field(default=None, validation_alias="AEC_METRICS_TOKEN")
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+# ---------- Prod-env boot validation ----------
+
+
+def validate_prod_settings(settings: Settings) -> list[str]:
+    """Return a list of human-readable issues with the current `settings`
+    when `environment == 'production'`. Empty list = safe to boot.
+
+    `main.py` calls this at app construction and raises `RuntimeError`
+    listing every issue if any are found. The function is split out so
+    the test suite can exercise it directly without spinning up the
+    full FastAPI app.
+
+    Each rule is conservative — it fails on a default that's CLEARLY
+    a dev value (localhost, http://, hardcoded ID-like literal). It
+    intentionally does NOT try to validate "looks like a real prod
+    URL" — that would tip into rejecting legitimate staging
+    deployments. Better to fail-fast on obvious dev defaults than to
+    second-guess every URL.
+
+    The list is returned (not raised) so the caller can format all
+    issues in a single error message — tells an operator EVERY thing
+    they need to fix in one boot failure, not "fix this, redeploy,
+    discover the next one, fix it, redeploy."
+    """
+    if settings.environment != "production":
+        return []
+
+    issues: list[str] = []
+
+    # JWT secret — the original gate. Even if other dev tokens leak,
+    # this is the one that lets ANY caller mint a JWT against a
+    # well-known string.
+    if settings.supabase_jwt_secret == "dev-secret-change-me":
+        issues.append(
+            "SUPABASE_JWT_SECRET is the dev default 'dev-secret-change-me' — "
+            "ANY caller can mint a valid JWT against it. Set a real secret "
+            "(64+ random chars) or migrate to Supabase JWKS via SUPABASE_URL."
+        )
+
+    # CORS origins — `["http://localhost:3000"]` is the dev default in
+    # the field declaration. A prod deploy that forgot to override
+    # would either reject every legitimate request or, if the dev
+    # origin happens to be in scope, silently allow localhost-bound
+    # malicious tabs to pivot through CORS.
+    if settings.cors_origins == ["http://localhost:3000"]:
+        issues.append(
+            "CORS_ORIGINS still at the dev default ['http://localhost:3000']. "
+            "Set to your production web origin(s) — comma-separated in env."
+        )
+    if any("localhost" in origin or "127.0.0.1" in origin for origin in settings.cors_origins):
+        issues.append(
+            "CORS_ORIGINS contains a localhost / 127.0.0.1 entry — these "
+            "should never be reachable from production callers. Remove them "
+            "from the prod manifest."
+        )
+
+    # web_base_url — used in email bodies and Slack messages.
+    # http:// → links sent to customers are insecure; localhost
+    # in the URL → links don't work outside the dev machine.
+    if settings.web_base_url.startswith("http://"):
+        issues.append(
+            f"WEB_BASE_URL is http:// ({settings.web_base_url!r}) — emails / "
+            "Slack messages link to an insecure URL. Use https:// in prod."
+        )
+    if "localhost" in settings.web_base_url:
+        issues.append(
+            f"WEB_BASE_URL contains 'localhost' ({settings.web_base_url!r}) — links sent to customers won't resolve."
+        )
+
+    # public_web_url — RFQ supplier-portal links land here. Same
+    # rationale as web_base_url, different field.
+    if settings.public_web_url.startswith("http://") and "localhost" in settings.public_web_url:
+        issues.append(
+            f"PUBLIC_WEB_URL is the dev default ({settings.public_web_url!r}). "
+            "Suppliers receive RFQ links pointing there — set to the "
+            "customer-facing domain."
+        )
+
+    # /metrics — open by design in dev (so a local Prometheus just
+    # works). In prod, missing token = ops counters readable from any
+    # network-reachable client. Either set a token or front the route
+    # with a network-level allowlist (which is fine — explicit choice
+    # the operator can make by setting AEC_METRICS_TOKEN_OK_TO_OMIT=1
+    # if they really want it open behind a private LB).
+    if settings.metrics_token is None:
+        issues.append(
+            "AEC_METRICS_TOKEN is unset — /metrics is openly readable. "
+            "Set a token (any 32+ char random string) so Prometheus scrapes "
+            "via ?token=… and unauthenticated callers get 401."
+        )
+
+    # SiteEye Ray Serve — service-discovery URL. The dev default
+    # points at a docker-compose hostname that doesn't exist outside
+    # the local stack.
+    if "siteeye-safety:8000" in settings.siteeye_ray_serve_url:
+        issues.append(
+            f"SITEEYE_RAY_SERVE_URL is the docker-compose default "
+            f"({settings.siteeye_ray_serve_url!r}). Set to the prod "
+            "Ray-Serve endpoint or the safety-detection module 502s."
+        )
+
+    return issues

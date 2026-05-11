@@ -43,6 +43,9 @@ const ACTION_FILTERS: Array<{ value: string; label: string }> = [
   { value: "admin.normalizer_rule.create",     label: "Tạo luật chuẩn hoá" },
   { value: "admin.normalizer_rule.update",     label: "Sửa luật chuẩn hoá" },
   { value: "admin.normalizer_rule.delete",     label: "Xoá luật chuẩn hoá" },
+  { value: "admin.cron.run_now",               label: "Chạy cron thủ công" },
+  { value: "admin.cron.dedup_clear",             label: "Xoá trạng thái dedup cron" },
+  { value: "webhooks.subscription.rotate_secret", label: "Xoay secret webhook" },
 ];
 
 const RESOURCE_FILTERS: Array<{ value: string; label: string }> = [
@@ -89,6 +92,9 @@ const ACTION_TONE: Record<string, string> = {
   "admin.normalizer_rule.create":       "bg-indigo-100 text-indigo-800",
   "admin.normalizer_rule.update":       "bg-indigo-100 text-indigo-800",
   "admin.normalizer_rule.delete":       "bg-rose-100 text-rose-800",
+  "admin.cron.run_now":                 "bg-indigo-100 text-indigo-800",
+  "admin.cron.dedup_clear":               "bg-indigo-100 text-indigo-800",
+  "webhooks.subscription.rotate_secret":"bg-amber-100 text-amber-800",
 };
 
 const PER_PAGE = 50;
@@ -277,14 +283,28 @@ function AuditRow({ event }: { event: AuditEvent }) {
             >
               {actionLabel}
             </span>
-            {/* Cron-driven events have a null actor (e.g.
-                `costpulse.rfq.slots_expired`). Render them as a
-                visually distinct badge so admins skimming the log can
-                tell "the system did this" from "Bob did this." Without
-                it the row read as "blank user email" — looks like a
-                bug, not a feature. */}
+            {/* Three actor flavours — render each distinctly so
+                admins skimming the log can tell at a glance which
+                kind did the action:
+                  * Human (actor_email present) → plain email text.
+                  * API key (actor_api_key_name present) → blue
+                    "key" badge with the key's name. Partner
+                    integrations look obviously different from
+                    human actions.
+                  * System (both null) → grey "system" badge.
+                    Cron-driven events read as "system" rather than
+                    "blank email", which used to look like a bug. */}
             {event.actor_email ? (
-              <span className="text-xs text-slate-500">{event.actor_email}</span>
+              <span className="text-xs text-slate-500">
+                {event.actor_email}
+              </span>
+            ) : event.actor_api_key_name ? (
+              <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[11px] text-blue-800">
+                <span className="font-mono text-[9px] uppercase tracking-wide">
+                  key
+                </span>
+                <span className="font-medium">{event.actor_api_key_name}</span>
+              </span>
             ) : (
               <span className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-slate-700">
                 system

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from typing import Annotated, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -67,7 +68,7 @@ async def export_entity(
     province: Annotated[str | None, Query()] = None,
     verified: Annotated[str | None, Query()] = None,
     since: Annotated[str | None, Query()] = None,
-):
+) -> StreamingResponse:
     """Stream the requested entity as CSV (default) or XLSX.
 
     The CSV path is genuinely streaming — bytes flush as Postgres
@@ -154,7 +155,7 @@ def _disposition(entity: str, ext: str) -> str:
 
 async def _csv_stream(
     *,
-    organization_id,
+    organization_id: UUID,
     entity: str,
     filters: dict[str, str | None],
     headers: list[str],
@@ -196,7 +197,7 @@ async def _csv_stream(
 
 async def _build_xlsx(
     *,
-    organization_id,
+    organization_id: UUID,
     entity: str,
     filters: dict[str, str | None],
     headers: list[str],

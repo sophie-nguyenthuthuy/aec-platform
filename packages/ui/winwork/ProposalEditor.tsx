@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { FeeBreakdown, Proposal, ScopeOfWork } from "@aec/types/winwork";
 
 import { Button } from "../primitives/button";
@@ -39,6 +39,10 @@ export function ProposalEditor({
   const [scope, setScope] = useState<ScopeOfWork>(proposal.scope_of_work ?? EMPTY_SCOPE);
   const [fees, setFees] = useState<FeeBreakdown>(proposal.fee_breakdown ?? EMPTY_FEES);
 
+  const clientNameId = useId();
+  const clientEmailId = useId();
+  const notesLabelId = useId();
+
   useEffect(() => {
     setTitle(proposal.title);
     setClientName(proposal.client_name ?? "");
@@ -64,7 +68,12 @@ export function ProposalEditor({
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} className="w-[480px] text-lg font-semibold" />
+          <Input
+            aria-label="Proposal title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="w-[480px] text-lg font-semibold"
+          />
           <div className="flex items-center gap-2">
             <WinLossTag status={proposal.status} />
             {proposal.ai_generated && <AIConfidenceBadge confidence={proposal.ai_confidence} />}
@@ -96,12 +105,17 @@ export function ProposalEditor({
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
-            <Label>Name</Label>
-            <Input value={clientName} onChange={(e) => setClientName(e.target.value)} />
+            <Label htmlFor={clientNameId}>Name</Label>
+            <Input id={clientNameId} value={clientName} onChange={(e) => setClientName(e.target.value)} />
           </div>
           <div className="space-y-1">
-            <Label>Email</Label>
-            <Input type="email" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} />
+            <Label htmlFor={clientEmailId}>Email</Label>
+            <Input
+              id={clientEmailId}
+              type="email"
+              value={clientEmail}
+              onChange={(e) => setClientEmail(e.target.value)}
+            />
           </div>
         </CardContent>
       </Card>
@@ -126,10 +140,15 @@ export function ProposalEditor({
 
       <Card>
         <CardHeader>
-          <CardTitle>Notes</CardTitle>
+          <CardTitle id={notesLabelId}>Notes</CardTitle>
         </CardHeader>
         <CardContent>
-          <Textarea rows={5} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <Textarea
+            aria-labelledby={notesLabelId}
+            rows={5}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
         </CardContent>
       </Card>
     </div>

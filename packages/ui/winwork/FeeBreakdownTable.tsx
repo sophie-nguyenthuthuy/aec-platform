@@ -48,7 +48,11 @@ export function FeeBreakdownTable({ value, onChange, readOnly }: FeeBreakdownTab
             <th className="py-2">Phase</th>
             <th>Label</th>
             <th className="text-right">Amount (VND)</th>
-            {!readOnly && <th className="w-8" />}
+            {!readOnly && (
+              <th className="w-8">
+                <span className="sr-only">Actions</span>
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -58,14 +62,22 @@ export function FeeBreakdownTable({ value, onChange, readOnly }: FeeBreakdownTab
                 {readOnly ? (
                   line.phase
                 ) : (
-                  <Input value={line.phase} onChange={(e) => update(idx, { phase: e.target.value })} />
+                  <Input
+                    aria-label={`Phase, row ${idx + 1}`}
+                    value={line.phase}
+                    onChange={(e) => update(idx, { phase: e.target.value })}
+                  />
                 )}
               </td>
               <td className="pr-3 align-top">
                 {readOnly ? (
                   line.label
                 ) : (
-                  <Input value={line.label} onChange={(e) => update(idx, { label: e.target.value })} />
+                  <Input
+                    aria-label={`Label, row ${idx + 1}`}
+                    value={line.label}
+                    onChange={(e) => update(idx, { label: e.target.value })}
+                  />
                 )}
               </td>
               <td className="pr-3 text-right align-top">
@@ -76,6 +88,7 @@ export function FeeBreakdownTable({ value, onChange, readOnly }: FeeBreakdownTab
                     type="number"
                     inputMode="numeric"
                     className="text-right"
+                    aria-label={`Amount in VND, row ${idx + 1}`}
                     value={line.amount_vnd}
                     onChange={(e) => update(idx, { amount_vnd: Number(e.target.value || 0) })}
                   />

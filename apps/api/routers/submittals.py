@@ -55,7 +55,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
 async def create_submittal(
     payload: SubmittalCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Create a submittal package + its first revision.
 
     If `package_number` is omitted, auto-assign the next sequential number
@@ -129,7 +129,7 @@ async def list_submittals(
     csi_division: str | None = None,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-):
+) -> dict[str, Any]:
     where = ["organization_id = :org"]
     params: dict[str, Any] = {"org": str(auth.organization_id)}
     if project_id:
@@ -175,7 +175,7 @@ async def list_submittals(
 async def get_submittal(
     submittal_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         sub = (
             await session.execute(
@@ -210,7 +210,7 @@ async def update_submittal(
     submittal_id: UUID,
     payload: SubmittalUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     fields = payload.model_dump(exclude_none=True)
     if not fields:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
@@ -245,7 +245,7 @@ async def create_revision(
     submittal_id: UUID,
     payload: SubmittalRevisionCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Add a new revision (e.g. after a "revise & resubmit" cycle).
 
     Bumps `submittals.current_revision`, resets status to pending_review,
@@ -309,7 +309,7 @@ async def review_revision(
     payload: SubmittalRevisionReview,
     auth: Annotated[AuthContext, Depends(require_auth)],
     request: Request,
-):
+) -> dict[str, Any]:
     """Designer files a review verdict on a specific revision.
 
     Side effect: the parent submittal's `status` and `ball_in_court` move
@@ -381,30 +381,29 @@ async def review_revision(
         # the submittal stays open.
         from services import audit as _audit
 
-        verdict_to_action: dict[str, str] = {
-            "approved": "submittals.review.approve",
-            "approved_as_noted": "submittals.review.approve_as_noted",
-            "revise_resubmit": "submittals.review.revise_resubmit",
-            "rejected": "submittals.review.reject",
-        }
-        verdict_action = verdict_to_action.get(payload.review_status.value)
-        if verdict_action is not None:
-            await _audit.record(
-                session,
-                organization_id=auth.organization_id,
-                auth=auth,
-                action=verdict_action,  # type: ignore[arg-type]
-                resource_type="submittals",
-                resource_id=rev_d["submittal_id"],
-                before={"revision_id": str(revision_id)},
-                after={
-                    "review_status": payload.review_status.value,
-                    "submittal_status": new_sub_status,
-                    "ball_in_court": new_bic,
-                    "reviewer_notes": payload.reviewer_notes,
-                },
-                request=request,
-            )
+        _audit_kwargs = dict(
+            organization_id=auth.organization_id,
+            auth=auth,
+            resource_type="submittals",
+            resource_id=rev_d["submittal_id"],
+            before={"revision_id": str(revision_id)},
+            after={
+                "review_status": payload.review_status.value,
+                "submittal_status": new_sub_status,
+                "ball_in_court": new_bic,
+                "reviewer_notes": payload.reviewer_notes,
+            },
+            request=request,
+        )
+        verdict_value = payload.review_status.value
+        if verdict_value == "approved":
+            await _audit.record(session, action="submittals.review.approve", **_audit_kwargs)
+        elif verdict_value == "approved_as_noted":
+            await _audit.record(session, action="submittals.review.approve_as_noted", **_audit_kwargs)
+        elif verdict_value == "revise_resubmit":
+            await _audit.record(session, action="submittals.review.revise_resubmit", **_audit_kwargs)
+        elif verdict_value == "rejected":
+            await _audit.record(session, action="submittals.review.reject", **_audit_kwargs)
 
         await session.commit()
 
@@ -430,7 +429,7 @@ async def find_similar_rfis_endpoint(
     rfi_id: UUID,
     payload: RfiSimilarRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Search for past RFIs whose embedding is close to this one.
 
     Lazy-imports the pipeline so test fixtures can stub `ml.pipelines.rfi`
@@ -482,7 +481,7 @@ async def find_similar_rfis_endpoint(
 async def embed_rfi_endpoint(
     rfi_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Compute and persist the embedding for an RFI.
 
     Idempotent — the underlying pipeline upserts on (rfi_id) so this is
@@ -517,7 +516,7 @@ async def draft_rfi_response_endpoint(
     rfi_id: UUID,
     payload: RfiDraftRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Generate a grounded draft response. Cached for `cache_minutes`."""
     from ml.pipelines.rfi import draft_rfi_response
 
@@ -587,7 +586,7 @@ async def accept_draft(
     draft_id: UUID,
     payload: AcceptDraftRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Promote a draft to the RFI's `response` column and stamp accepted_at."""
     async with TenantAwareSession(auth.organization_id) as session:
         draft = (

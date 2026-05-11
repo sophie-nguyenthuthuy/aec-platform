@@ -124,7 +124,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_embeddings_source", "embeddings", ["organization_id", "source_module", "source_id"])
     # pgvector ANN indexes (ivfflat, hnsw) cap at 2000 dims and embedding is 3072.
-    # TODO: pick a strategy — halfvec(3072) + hnsw, or reduce dims to 1536 — then add index.
+    # TODO(triage 2026-05): pick a strategy — halfvec(3072) + hnsw, or reduce dims to 1536 — then add index.
 
     op.create_table(
         "ai_jobs",

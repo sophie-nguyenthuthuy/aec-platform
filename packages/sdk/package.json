@@ -1,0 +1,24 @@
+{
+  "name": "@aec/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the AEC Platform API. Auto-generated from /openapi.json on every backend deploy.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "drift:check": "node scripts/drift-check.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vitest": "^2.1.0"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  }
+}

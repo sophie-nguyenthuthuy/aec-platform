@@ -42,7 +42,7 @@ async def my_inbox(
     auth: Annotated[AuthContext, Depends(require_auth)],
     project_id: UUID | None = None,
     limit_per_source: int = Query(default=20, ge=1, le=50),
-):
+) -> dict[str, Any]:
     """Aggregate pending items across modules for the calling user.
 
     `project_id` is optional — when set, every source filters to that

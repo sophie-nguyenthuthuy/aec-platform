@@ -170,6 +170,17 @@ async def _maybe_send_slack(*, slug: str, summary: dict) -> bool:
         logger.warning("ops_alerts.drift: slack send raised: %s", exc)
         return False
 
+    # Best-effort persistence of the attempt for the
+    # `/admin/slack-deliveries` dashboard. Failures inside the
+    # helper are logged + swallowed; we never let a missed
+    # telemetry row block the alert path.
+    try:
+        from services.slack_telemetry import record_delivery_attempt
+
+        await record_delivery_attempt(kind="scraper_drift", text=text, result=result)
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning("ops_alerts.drift: slack telemetry raised: %s", exc)
+
     if result.get("delivered"):
         return True
     reason = result.get("reason")

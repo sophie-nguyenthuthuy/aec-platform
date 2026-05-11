@@ -149,21 +149,63 @@ def test_render_histogram_emits_bucket_sum_count_lines():
 # ---------- End-to-end ----------
 
 
-async def test_metrics_endpoint_returns_prometheus_text(monkeypatch):
-    """Hit /health, then /metrics. The middleware should have ticked
-    the http_requests_total counter for /health."""
+def _stub_metrics_external_deps(monkeypatch) -> None:
+    """Disconnect /metrics from Redis + Postgres so the endpoint
+    tests run offline.
 
-    # Stub the queue-depth probe — we don't want it touching Redis.
+    The /metrics endpoint touches three external systems on every
+    scrape:
+      1. `_sample_queue_depth()` → Redis (arq queue size).
+      2. `_build_metrics_text()` → Postgres (webhook lag, api-key
+         calls, audit volume gauges via `AdminSessionFactory`).
+      3. The middleware-driven counters are pure in-process, so
+         they need no stubbing.
+
+    Each metrics-endpoint test calls this once. The DB-driven
+    gauges' rendering logic is tested separately in unit-level
+    tests over `_build_metrics_text`'s text output; these end-to-
+    end tests are about the renderer + middleware integration,
+    so swapping out the DB-touching helper for a no-op string is
+    semantically correct.
+
+    Without this stub, every metrics endpoint test fails offline
+    with `asyncpg.InvalidPasswordError` or a connection-refused
+    against `127.0.0.1:5432`. That's been a regression-line
+    splinter for many batches; pinning the stub at fixture level
+    closes it.
+    """
+    from core.metrics import arq_queue_depth
+
     async def _fake_sample():
-        from core.metrics import arq_queue_depth
-
+        # Mimic the live behaviour: set the gauge to 0 so the
+        # `arq_queue_depth` series shows up in the rendered output.
         arq_queue_depth.set(0.0)
 
     monkeypatch.setattr("core.metrics._sample_queue_depth", _fake_sample)
 
-    # Patch sample point in main.py too — it imports lazily inside the
-    # endpoint so monkeypatching the module-level attr in core.metrics
-    # is the one that matters.
+    async def _fake_build_metrics_text() -> str:
+        # Return a minimal valid Prometheus exposition fragment so
+        # downstream parsing in the renderer concatenation stays
+        # well-formed. The DB-driven gauges' content isn't what
+        # these tests pin; only their presence + the integration
+        # plumbing.
+        return (
+            "# HELP aec_webhook_deliveries_total Webhook deliveries (stubbed).\n"
+            "# TYPE aec_webhook_deliveries_total gauge\n"
+            'aec_webhook_deliveries_total{status="pending"} 0\n'
+        )
+
+    # Tolerate the path not existing (older revert state where the
+    # `/metrics` endpoint lived directly in main.py without a
+    # `routers.ops` indirection) — the Redis stub alone may be
+    # enough in that case.
+    monkeypatch.setattr("routers.ops._build_metrics_text", _fake_build_metrics_text, raising=False)
+
+
+async def test_metrics_endpoint_returns_prometheus_text(monkeypatch):
+    """Hit /health, then /metrics. The middleware should have ticked
+    the http_requests_total counter for /health."""
+    _stub_metrics_external_deps(monkeypatch)
 
     import main
 
@@ -206,11 +248,12 @@ async def test_metrics_endpoint_returns_prometheus_text(monkeypatch):
 #     LLM mock fixture for what's a metrics-renderer pin.
 
 
-async def test_metrics_endpoint_advertises_codeguard_quota_metrics():
+async def test_metrics_endpoint_advertises_codeguard_quota_metrics(monkeypatch):
     """Both cap-check metrics announce themselves via HELP/TYPE lines
     even before any cap-check has fired — `_register` makes them visible
     at module import. Pin the names + types so a regression that renames
     them silently breaks every dashboard that scrapes by name."""
+    _stub_metrics_external_deps(monkeypatch)
     import main
 
     transport = ASGITransport(app=main.app)
@@ -234,12 +277,13 @@ async def test_metrics_endpoint_advertises_codeguard_quota_metrics():
     )
 
 
-async def test_metrics_endpoint_renders_429_counter_after_cap_check_fires():
+async def test_metrics_endpoint_renders_429_counter_after_cap_check_fires(monkeypatch):
     """After firing the cap-check helper directly with an over-limit
     stub, /metrics shows the labelled `{limit_kind="input"}` series and
     the histogram emits bucket/sum/count lines. End-to-end pin: the
     instrumentation in `_check_quota_or_raise` actually flows through
     the renderer all the way to the scrape body."""
+    _stub_metrics_external_deps(monkeypatch)
     from uuid import uuid4
 
     import main

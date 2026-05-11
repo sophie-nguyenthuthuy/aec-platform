@@ -12,7 +12,7 @@ real action to happen in the platform.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.envelope import ok
 from db.deps import get_db
 from middleware.auth import AuthContext
+from middleware.idempotency_route import IdempotentRoute
 from middleware.rbac import Role, require_min_role
 from models.webhooks import WebhookDelivery, WebhookSubscription
 from schemas.webhooks import (
@@ -32,9 +33,133 @@ from schemas.webhooks import (
     WebhookSubscriptionOut,
     WebhookSubscriptionUpdate,
 )
-from services.webhooks import enqueue_event, generate_secret
+from services.webhooks import (
+    DEFAULT_ROTATION_GRACE_SECONDS,
+    EVENT_CATALOG,
+    enqueue_event,
+    generate_secret,
+    rotate_secret,
+)
 
-router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
+# Idempotency on POST/PATCH/DELETE — `/docs/api#idempotency`.
+# Two write paths benefit most:
+#   * `POST /webhooks` (subscription create) — partner CI retries
+#     should NOT register two subscribers receiving duplicate events.
+#   * `POST /webhooks/{id}/test` — flaky network on the test-fire
+#     should not double-fire test events to the partner's receiver.
+# `POST /webhooks/deliveries/{id}/redeliver` is also covered as a
+# bonus — operator double-clicks shouldn't enqueue two re-deliveries.
+router = APIRouter(
+    prefix="/api/v1/webhooks",
+    tags=["webhooks"],
+    route_class=IdempotentRoute,
+)
+
+
+# ---------- Event catalog (public docs) ----------
+
+
+# ---------- Signature verification playground (cycle Q2) ----------
+#
+# Closes the #1 partner support inquiry: "I'm receiving webhooks but
+# my receiver rejects every signature." The endpoint takes the same
+# inputs the receiver sees (secret, raw body, timestamp, signature
+# header) and returns a structured diagnosis — clock skew, signature
+# mismatch, malformed format — rather than just "didn't match."
+#
+# Public on purpose — partners debug their integration BEFORE getting
+# an API key. The endpoint is read-only: it computes HMAC over user-
+# supplied bytes and returns the answer. No persistence; no rate
+# limit beyond the platform's standard middleware.
+#
+# Why a debug endpoint vs. just publishing the verification recipe:
+# partners DO read the docs, but a misplaced byte (CRLF vs. LF in
+# the body, integer-vs-string timestamp parse) is invisible until
+# they have a side-by-side comparison. This gives them that.
+
+
+from pydantic import BaseModel as _PdBaseModel  # noqa: E402
+
+
+class _VerifySignatureRequest(_PdBaseModel):
+    """Wire-shape for `POST /verify-signature`."""
+
+    secret: str
+    body: str  # raw receiver body — can contain newlines, JSON, etc.
+    timestamp: int  # `X-AEC-Timestamp` value the receiver saw
+    signature: str  # `X-AEC-Signature` value (with or without `sha256=`)
+    # Optional: override the freshness skew window. Default matches
+    # `verify_payload_with_trace`'s 300s. Lets partners diagnose
+    # "would this verify if we accept up to 1h skew?" without changing
+    # their production policy.
+    max_skew_seconds: int = 300
+
+
+@router.post("/verify-signature")
+async def verify_signature(payload: _VerifySignatureRequest) -> dict[str, Any]:
+    """Diagnose a receiver-side signature verification.
+
+    Returns the same dict shape `services.webhooks.verify_payload_with_trace`
+    produces — verified bool, expected vs provided signature,
+    clock-skew seconds, structured reason code on failure.
+
+    No auth: partners debug their integration BEFORE getting a key.
+    The endpoint computes HMAC over user-supplied bytes — there's
+    nothing tenant-scoped to leak (the secret is supplied by the
+    caller, not looked up).
+
+    The frontend `/docs/webhooks/verify` UI plays this back inline:
+    paste your secret, body, timestamp, and signature; see whether
+    it would verify, plus the side-by-side digest comparison so a
+    one-byte diff is immediately visible.
+    """
+    import time as _time
+
+    from services.webhooks import verify_payload_with_trace
+
+    # `now` is server-side wall-clock — partners debugging late at
+    # night may have a stale `ts` because the integration is paused.
+    # Pin to current server time so the skew measurement is honest
+    # (not "compute against a time the partner picked").
+    trace = verify_payload_with_trace(
+        payload.secret,
+        payload.body.encode("utf-8"),
+        payload.timestamp,
+        payload.signature,
+        now=int(_time.time()),
+        max_skew_seconds=payload.max_skew_seconds,
+    )
+    return ok(trace)
+
+
+@router.get("/event-types")
+async def list_event_types() -> dict[str, Any]:
+    """Public catalog of every webhook event type the platform emits,
+    each with a human description and a payload sample. Drives the
+    `/docs/webhooks/events` partner-docs page.
+
+    Public on purpose — partners evaluating the platform read this
+    BEFORE getting an API key. No auth dependency. The data is
+    documentation, not tenant-scoped.
+
+    Returned as a sorted list of `{event_type, description,
+    payload_sample}` so the frontend can render alphabetically without
+    re-sorting in JS. Pinned by the integrator-surface snapshot — a
+    revert that drops the route or shrinks the catalog goes red on
+    the next commit.
+    """
+    items = sorted(
+        (
+            {
+                "event_type": event_type,
+                "description": meta["description"],
+                "payload_sample": meta["payload_sample"],
+            }
+            for event_type, meta in EVENT_CATALOG.items()
+        ),
+        key=lambda x: x["event_type"],
+    )
+    return ok(items)
 
 
 # ---------- Create ----------
@@ -45,7 +170,7 @@ async def create_webhook(
     payload: WebhookSubscriptionCreate,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Register a new webhook subscription.
 
     Returns the generated secret in the response — the only time the
@@ -93,7 +218,7 @@ async def create_webhook(
 async def list_webhooks(
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Every webhook in the caller's org. Secret is intentionally
     never included — see the module docstring."""
     rows = (
@@ -119,7 +244,7 @@ async def update_webhook(
     payload: WebhookSubscriptionUpdate,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     sub = (
         await db.execute(
             select(WebhookSubscription).where(
@@ -147,12 +272,12 @@ async def update_webhook(
 # ---------- Delete ----------
 
 
-@router.delete("/{webhook_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{webhook_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_webhook(
     webhook_id: UUID,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> None:
     sub = (
         await db.execute(
             select(WebhookSubscription).where(
@@ -168,6 +293,97 @@ async def delete_webhook(
     return None
 
 
+# ---------- Secret rotation ----------
+
+
+@router.post("/{webhook_id}/rotate-secret")
+async def rotate_webhook_secret(
+    webhook_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    """Issue a NEW HMAC secret for this webhook, retaining the old one
+    for a 24h grace window.
+
+    During the grace, the dispatcher emits TWO signature headers per
+    delivery:
+
+      * `X-AEC-Signature` — signed with the new secret.
+      * `X-AEC-Signature-Previous` — signed with the old secret.
+
+    Receivers verify whichever matches. This lets the customer roll
+    their receiver to the new secret without a flag-day deploy: ship
+    the new-secret config, smoke-test, then retire the old. Same shape
+    as Stripe's webhook rollover.
+
+    Like creation, the new secret is returned in the response body
+    EXACTLY ONCE — there's no "show secret" endpoint. If the customer
+    loses it before pasting into their receiver, the path forward is
+    another rotation.
+
+    Idempotency contract:
+      * `Idempotency-Key` (via `IdempotentRoute`) replays the cached
+        202 within the 24h dedup window. Two clicks in quick succession
+        with the same key get the SAME new secret rather than burning
+        through two rotations.
+      * Without the header, two rapid rotations DO produce two new
+        secrets — the second discards the first as `secret_previous`.
+        Receivers running on the original old secret may stop verifying
+        sooner than expected. We document this in the response note.
+
+    Audit: writes `webhooks.subscription.rotate_secret` so admins
+    answering "did someone rotate this in the last incident?" have a
+    durable record. Secret material is NOT logged (before/after empty).
+    """
+    new_secret = await rotate_secret(
+        db,
+        subscription_id=webhook_id,
+        organization_id=auth.organization_id,
+    )
+    if new_secret is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Webhook not found")
+
+    # Audit AFTER the commit inside rotate_secret — a partial write
+    # would leave an audit row pointing at a rotation that didn't
+    # happen. The audit's own commit is in `db.commit()` below; the
+    # rotation is already durable, so a failure here doesn't unwind
+    # the secret swap (the customer would still see the new secret
+    # in their response). That's the safer asymmetry — losing an
+    # audit row is recoverable from app logs; losing the rotation
+    # would mean the customer's receiver and our DB diverge.
+    from services.audit import record as audit_record
+
+    await audit_record(
+        db,
+        organization_id=auth.organization_id,
+        auth=auth,
+        action="webhooks.subscription.rotate_secret",
+        resource_type="webhook_subscription",
+        resource_id=webhook_id,
+        # Empty before/after — secret material is never persisted to
+        # the audit log even in hashed form. The row is the timestamp
+        # + actor; the durable "secret rotated to ..." artefact is the
+        # one-shot HTTP response the admin captures.
+        before={},
+        after={"grace_seconds": DEFAULT_ROTATION_GRACE_SECONDS},
+    )
+    await db.commit()
+
+    return ok(
+        {
+            "id": str(webhook_id),
+            "secret": new_secret,
+            "grace_seconds": DEFAULT_ROTATION_GRACE_SECONDS,
+            "note": (
+                "Save this secret immediately — it will not be shown "
+                "again. The previous secret keeps verifying for "
+                f"{DEFAULT_ROTATION_GRACE_SECONDS // 3600} hours so "
+                "receivers can roll forward without downtime."
+            ),
+        }
+    )
+
+
 # ---------- Test fire ----------
 
 
@@ -176,7 +392,7 @@ async def test_webhook(
     webhook_id: UUID,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Enqueue a synthetic `webhook.test` event so the customer can
     verify their receiver responds correctly. The receiver sees the
     same shape as a real event — there's no special "this is a test"
@@ -221,7 +437,7 @@ async def list_deliveries(
     status_filter: Annotated[DeliveryStatus | None, Query(alias="status")] = None,
     since_days: Annotated[int, Query(ge=1, le=90)] = 7,
     limit: int = 50,
-):
+) -> dict[str, Any]:
     """Recent delivery attempts — debug aid when a customer says
     "your webhook didn't fire." Includes status code + error +
     response snippet.
@@ -254,7 +470,7 @@ async def deliveries_histogram(
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
     days: Annotated[int, Query(ge=1, le=30)] = 7,
-):
+) -> dict[str, Any]:
     """Day-bucketed delivery counts by status. Drives the small
     histogram on `/settings/webhooks/[id]` so admins can spot failure
     spikes at a glance.
@@ -296,12 +512,41 @@ async def deliveries_histogram(
     return ok(list(by_day.values()))
 
 
+@router.get("/deliveries/dead-letter")
+async def list_dead_letter(
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    since_days: Annotated[int, Query(ge=1, le=90)] = 7,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> dict[str, Any]:
+    """Cross-subscription dead-letter feed (status='failed') for the
+    calling org. Pinned by tests/test_integrator_surface_snapshot.py
+    — do not remove without updating that test."""
+    rows = (
+        (
+            await db.execute(
+                select(WebhookDelivery)
+                .where(
+                    WebhookDelivery.organization_id == auth.organization_id,
+                    WebhookDelivery.status == "failed",
+                    WebhookDelivery.created_at >= datetime.now(UTC) - timedelta(days=since_days),
+                )
+                .order_by(WebhookDelivery.created_at.desc())
+                .limit(min(limit, 200))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return ok([WebhookDeliveryOut.model_validate(r).model_dump(mode="json") for r in rows])
+
+
 @router.post("/deliveries/{delivery_id}/redeliver", status_code=status.HTTP_202_ACCEPTED)
 async def redeliver(
     delivery_id: UUID,
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Re-enqueue a delivery — usually called on a `failed` row that
     the customer's receiver was down for. We don't mutate the original
     row (it's audit history); we INSERT a fresh delivery with the same
@@ -359,3 +604,63 @@ def _json_dumps(v: object) -> str:
     import json
 
     return json.dumps(v, default=str)
+
+
+# ---------- Subscription health endpoint (cycle T1) ----------
+
+
+@router.get("/{webhook_id}/health")
+async def webhook_subscription_health(
+    webhook_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    """7-day delivery health stats for a subscription (cross-tenant → 404)."""
+    sub = (
+        await db.execute(
+            text("SELECT id FROM webhook_subscriptions WHERE id = :id AND organization_id = :org"),
+            {"id": str(webhook_id), "org": str(auth.organization_id)},
+        )
+    ).scalar_one_or_none()
+    if sub is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "webhook_subscription_not_found")
+
+    row = (
+        (
+            await db.execute(
+                text(
+                    """
+                SELECT
+                    COUNT(*) AS total_7d,
+                    COUNT(*) FILTER (WHERE status = 'delivered') AS delivered_7d,
+                    COUNT(*) FILTER (WHERE status = 'failed') AS failed_7d,
+                    MAX(CASE WHEN status = 'failed' THEN created_at END) AS last_failure_at,
+                    PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY attempt_count) AS p95_attempts
+                FROM webhook_deliveries
+                WHERE subscription_id = :sub_id
+                  AND organization_id = :org
+                  AND created_at >= NOW() - INTERVAL '7 days'
+                """
+                ),
+                {"sub_id": str(webhook_id), "org": str(auth.organization_id)},
+            )
+        )
+        .mappings()
+        .one()
+    )
+
+    delivered = int(row["delivered_7d"] or 0)
+    failed = int(row["failed_7d"] or 0)
+    terminal = delivered + failed
+    rate_7d = (delivered / terminal) if terminal > 0 else None
+
+    return ok(
+        {
+            "total_7d": int(row["total_7d"] or 0),
+            "delivered_7d": delivered,
+            "failed_7d": failed,
+            "rate_7d": rate_7d,
+            "last_failure_at": row["last_failure_at"],
+            "p95_attempts": row["p95_attempts"],
+        }
+    )

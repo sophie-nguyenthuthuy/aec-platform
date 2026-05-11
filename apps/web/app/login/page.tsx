@@ -1,20 +1,30 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
+import Link from "next/link";
+
+import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 /**
- * Email/password sign-in. Minimal form; no signup flow yet — dev users are
- * provisioned via the Supabase dashboard or admin API. After a successful
- * sign-in the middleware sees the freshly-set cookie and lets the user
- * through to whatever URL was queued via `?next=`.
+ * Email/password sign-in. Strings come from `marketing.auth.login.*`
+ * via `useTranslations` so an EN partner clicking through from the
+ * marketing landing doesn't hit a Vietnamese form mid-evaluation.
+ *
+ * The locale-switcher component (top-right) lets either language
+ * toggle without leaving the page; the marketing pages and dashboard
+ * each have their own switcher already, but this auth surface
+ * historically had none — partners arriving via a localised link
+ * couldn't change locale until they were inside the app.
  */
 export default function LoginPage() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") || "/";
+  const t = useTranslations("marketing.auth");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -32,6 +42,9 @@ export default function LoginPage() {
     });
     setSubmitting(false);
     if (signInError) {
+      // Supabase error messages come back in English — they're surfaced
+      // verbatim because translating them would require a fragile error-
+      // code → key map and the user can paste them into a search engine.
       setError(signInError.message);
       return;
     }
@@ -43,18 +56,27 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      {/* Locale switcher — top-right, fixed-position, available
+          regardless of the form's vertical centering. Auth pages
+          have no nav row, so this is the only escape hatch for a
+          user who wants the OTHER locale. */}
+      <div className="fixed right-4 top-4 z-10">
+        <LocaleSwitcher />
+      </div>
       <form
         onSubmit={onSubmit}
         className="w-full max-w-sm space-y-5 rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
       >
         <div>
           <h1 className="text-xl font-semibold text-slate-900">AEC Platform</h1>
-          <p className="text-sm text-slate-600">Đăng nhập để tiếp tục</p>
+          <p className="text-sm text-slate-600">{t("login.subtitle")}</p>
         </div>
 
         <div className="space-y-3">
           <label className="block">
-            <span className="block text-xs font-medium text-slate-700">Email</span>
+            <span className="block text-xs font-medium text-slate-700">
+              {t("email_label")}
+            </span>
             <input
               type="email"
               required
@@ -66,7 +88,9 @@ export default function LoginPage() {
           </label>
 
           <label className="block">
-            <span className="block text-xs font-medium text-slate-700">Mật khẩu</span>
+            <span className="block text-xs font-medium text-slate-700">
+              {t("password_label")}
+            </span>
             <input
               type="password"
               required
@@ -87,8 +111,14 @@ export default function LoginPage() {
           disabled={submitting}
           className="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {submitting ? "Đang đăng nhập…" : "Đăng nhập"}
+          {submitting ? t("login.submitting") : t("login.submit")}
         </button>
+
+        <p className="text-center text-xs text-slate-500">
+          <Link href="/forgot-password" className="text-slate-700 hover:underline">
+            {t("login.forgot_password")}
+          </Link>
+        </p>
       </form>
     </div>
   );

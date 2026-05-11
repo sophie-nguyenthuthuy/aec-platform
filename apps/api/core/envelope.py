@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Generic, TypeVar
 
 from fastapi import HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -79,6 +80,75 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
             ],
         },
         headers=exc.headers,
+    )
+
+
+def _format_loc(loc: tuple[Any, ...]) -> str | None:
+    """Convert FastAPI's `loc` tuple (`("body", "items", 0, "name")`)
+    into a dotted path the TS client can use to highlight the offending
+    form field (`"items.0.name"`).
+
+    The first element is the source — `body` / `query` / `path` /
+    `header` / `cookie`. We strip it: the TS form-error renderer cares
+    about the field path inside the body, not whether it came from the
+    body or the query string. If the only `loc` element IS the source
+    (e.g. `("body",)` for a missing-body case), we keep the source so
+    the field has *something* — a null `field` would deny the renderer
+    a target.
+    """
+    if not loc:
+        return None
+    if len(loc) == 1:
+        return str(loc[0])
+    rest = loc[1:]
+    return ".".join(str(p) for p in rest)
+
+
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Handler for `RequestValidationError` — Pydantic-driven 422s
+    from FastAPI's request parsing.
+
+    Without this, FastAPI emits its default `{"detail": [...]}` shape,
+    which the TS client's envelope unwrapper can't parse — every form
+    submission with a validation error lands in the "unknown error"
+    bucket, no field-level highlighting. This handler maps each
+    `errors()` entry into the standard envelope shape, preserving the
+    `loc` path as `field` so the form renderer can highlight which
+    input went wrong.
+
+    Each Pydantic error becomes ONE entry in `errors[]`. A request
+    with three missing fields produces three entries — the TS client
+    can render all three highlighted at once instead of forcing the
+    user through one-at-a-time submit cycles.
+    """
+    errors_out: list[dict[str, Any]] = []
+    for err in exc.errors():
+        loc = err.get("loc") or ()
+        msg = err.get("msg") or "Invalid value"
+        errors_out.append(
+            {
+                "code": "validation_error",
+                "message": str(msg),
+                "field": _format_loc(tuple(loc)),
+                "details_url": None,
+            }
+        )
+    if not errors_out:
+        # Defensive: a RequestValidationError with no `errors()` is
+        # rare but not impossible (custom raisers). Surface a generic
+        # entry rather than an empty array so the TS client's
+        # `errors[0]` access doesn't crash.
+        errors_out.append(
+            {
+                "code": "validation_error",
+                "message": "Validation failed",
+                "field": None,
+                "details_url": None,
+            }
+        )
+    return JSONResponse(
+        status_code=422,
+        content={"data": None, "meta": None, "errors": errors_out},
     )
 
 

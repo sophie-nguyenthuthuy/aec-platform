@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -56,7 +56,7 @@ async def estimate_from_brief(
     payload: EstimateFromBriefRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """AI estimate from high-level project parameters (rough_order / preliminary)."""
     from ml.pipelines.costpulse import estimate_from_brief as pipeline_brief
 
@@ -78,7 +78,7 @@ async def estimate_from_drawings(
     payload: EstimateFromDrawingsRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """AI BOQ extraction from uploaded drawings (detailed)."""
     from ml.pipelines.costpulse import estimate_from_drawings as pipeline_drawings
 
@@ -106,7 +106,7 @@ async def list_estimates(
     status_filter: EstimateStatus | None = Query(default=None, alias="status"),
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=20, ge=1, le=100),
-):
+) -> dict[str, Any]:
     stmt = select(Estimate).where(Estimate.organization_id == auth.organization_id)
     if project_id:
         stmt = stmt.where(Estimate.project_id == project_id)
@@ -133,7 +133,7 @@ async def create_estimate(
     payload: EstimateCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     estimate = Estimate(
         id=uuid4(),
         organization_id=auth.organization_id,
@@ -148,7 +148,7 @@ async def create_estimate(
     db.add(estimate)
     await db.flush()
 
-    total = _persist_items(db, estimate.id, payload.items)
+    total = _persist_items(db, estimate.id, auth.organization_id, payload.items)
     estimate.total_vnd = int(total)
 
     await db.commit()
@@ -163,7 +163,7 @@ async def get_estimate(
     estimate_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     row = (
         await db.execute(
             select(Estimate).where(
@@ -185,7 +185,7 @@ async def update_boq(
     payload: UpdateBoqRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Save a new version of the BOQ.
 
     Each save **forks a new Estimate row** with `version = old.version + 1`
@@ -202,7 +202,7 @@ async def update_boq(
     new_estimate = _supersede_and_clone(db, estimate, actor_user_id=creator)
     await db.flush()  # populate new_estimate.id without committing yet
 
-    total = _persist_items(db, new_estimate.id, payload.items, recompute=payload.recompute_totals)
+    total = _persist_items(db, new_estimate.id, auth.organization_id, payload.items, recompute=payload.recompute_totals)
     new_estimate.total_vnd = int(total)
     await db.commit()
 
@@ -225,7 +225,7 @@ async def import_boq_xlsx(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
     file: Annotated[UploadFile, File(description="BOQ as .xlsx")],
-):
+) -> dict[str, Any]:
     """Replace the estimate's BOQ from an uploaded Excel file.
 
     Same write semantics as `PUT /boq` — wipes the existing items and
@@ -279,7 +279,7 @@ async def import_boq_xlsx(
     ]
 
     await db.execute(delete(BoqItem).where(BoqItem.estimate_id == estimate_id))
-    total = _persist_items(db, estimate_id, items_in, recompute=True)
+    total = _persist_items(db, estimate_id, auth.organization_id, items_in, recompute=True)
     estimate.total_vnd = int(total)
 
     # Audit before the commit so the audit row + BOQ rewrite land
@@ -313,7 +313,7 @@ async def export_boq_xlsx(
     estimate_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Download the estimate's BOQ as an Excel workbook."""
     rows, estimate = await _load_estimate_for_export(db, auth, estimate_id)
 
@@ -333,7 +333,7 @@ async def export_boq_pdf(
     estimate_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Download the estimate's BOQ as a PDF report."""
     rows, estimate = await _load_estimate_for_export(db, auth, estimate_id)
 
@@ -355,7 +355,7 @@ async def approve_estimate(
     # COSTPULSE → PULSE change order on variance — admin/owner only.
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     estimate = (
         await db.execute(
             select(Estimate).where(
@@ -396,7 +396,7 @@ async def lookup_prices(
     as_of: date | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-):
+) -> dict[str, Any]:
     """Returns the latest effective price per (material_code, province) as of today or `as_of`."""
     effective = as_of or date.today()
 
@@ -448,7 +448,7 @@ async def price_history(
     db: Annotated[AsyncSession, Depends(get_db)],
     province: str | None = None,
     lookback_days: int = Query(default=365, ge=7, le=3650),
-):
+) -> dict[str, Any]:
     cutoff = date.today() - timedelta(days=lookback_days)
     stmt = select(MaterialPrice).where(
         MaterialPrice.material_code == material_code,
@@ -502,7 +502,7 @@ async def override_price(
     name: str | None = None,
     unit: str | None = None,
     category: str | None = None,
-):
+) -> dict[str, Any]:
     """User-submitted price override → captured as crowdsource data point."""
     existing = (
         await db.execute(
@@ -543,7 +543,7 @@ async def list_suppliers(
     q: str | None = None,
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=20, ge=1, le=100),
-):
+) -> dict[str, Any]:
     stmt = select(Supplier)
     if category:
         stmt = stmt.where(Supplier.categories.any(category))
@@ -580,7 +580,7 @@ async def create_supplier(
     payload: SupplierCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     supplier = Supplier(
         id=uuid4(),
         organization_id=auth.organization_id,
@@ -605,7 +605,7 @@ _MAX_SUPPLIERS_UPLOAD_BYTES = 5 * 1024 * 1024
 async def export_suppliers_xlsx(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Stream the org's supplier directory as a downloadable .xlsx.
 
     Header row matches what `POST /suppliers/import` recognises, so a
@@ -618,7 +618,7 @@ async def export_suppliers_xlsx(
 async def export_suppliers_csv(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Stream the org's supplier directory as a UTF-8-with-BOM CSV."""
     return await _export_suppliers(auth=auth, db=db, fmt="csv")
 
@@ -659,7 +659,7 @@ async def import_suppliers(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
     file: UploadFile = File(...),  # noqa: B008 — FastAPI UploadFile DI
-):
+) -> dict[str, Any]:
     """Bulk-upload suppliers from a CSV or XLSX file.
 
     Idempotent on `(organization_id, lower(name))`: re-uploading the
@@ -789,7 +789,7 @@ async def import_suppliers(
     )
 
 
-def _build_contact(row) -> dict:
+def _build_contact(row: Any) -> dict:
     """Compose the JSONB contact blob from CSV columns.
 
     Only sets keys that the row actually has — avoids overwriting an
@@ -812,7 +812,7 @@ async def create_rfq(
     payload: RfqCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     from workers.queue import enqueue_rfq_dispatch
 
     rfq = Rfq(
@@ -837,7 +837,7 @@ async def list_rfq(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
     project_id: UUID | None = None,
-):
+) -> dict[str, Any]:
     stmt = select(Rfq).where(Rfq.organization_id == auth.organization_id)
     if project_id:
         stmt = stmt.where(Rfq.project_id == project_id)
@@ -853,7 +853,7 @@ async def list_estimate_versions(
     estimate_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> dict[str, Any]:
     """Return the version chain for the estimate's `(project_id, name)`.
 
     Surfaces every prior + current version of the estimate (`draft`,
@@ -904,7 +904,7 @@ async def diff_estimate_versions(
     auth: Annotated[AuthContext, Depends(require_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
     to: UUID = Query(..., description="The 'to' estimate id (newer version, typically)"),
-):
+) -> dict[str, Any]:
     """Line-by-line BOQ diff between two estimates in the same chain.
 
     Path id is the `from` baseline; query `to=` is the comparison.
@@ -1068,7 +1068,7 @@ async def cost_benchmark(
     db: Annotated[AsyncSession, Depends(get_db)],
     project_type: str | None = None,
     province: str | None = None,
-):
+) -> dict[str, Any]:
     """Compute cost/m² p25/median/p75 across approved estimates joined to projects."""
     from models.core import Project
 
@@ -1121,7 +1121,7 @@ async def create_price_alert(
     db: Annotated[AsyncSession, Depends(get_db)],
     province: str | None = None,
     threshold_pct: float = 5.0,
-):
+) -> dict[str, Any]:
     alert = PriceAlert(
         id=uuid4(),
         organization_id=auth.organization_id,
@@ -1303,10 +1303,16 @@ def _supersede_and_clone(
 def _persist_items(
     db: AsyncSession,
     estimate_id: UUID,
+    organization_id: UUID,
     items: list[BoqItemIn],
     recompute: bool = True,
 ) -> Decimal:
-    """Insert items and return the root-level total (sum of items with no parent)."""
+    """Insert items and return the root-level total (sum of items with no parent).
+
+    `organization_id` mirrors the parent estimate's tenant; migration 0049
+    added the column as NOT NULL on `boq_items` so the row-level RLS policy
+    can be evaluated directly without joining through `estimates`.
+    """
     total = Decimal(0)
     id_map: dict[UUID, UUID] = {}
 
@@ -1325,6 +1331,7 @@ def _persist_items(
 
         boq = BoqItem(
             id=new_id,
+            organization_id=organization_id,
             estimate_id=estimate_id,
             parent_id=parent_id,
             sort_order=item.sort_order,

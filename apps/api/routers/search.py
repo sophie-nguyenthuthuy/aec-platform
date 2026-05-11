@@ -12,7 +12,7 @@ rendered on the `/settings/search-analytics` page.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
@@ -36,7 +36,7 @@ async def search_endpoint(
     payload: SearchRequest,
     background: BackgroundTasks,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Cross-module hybrid search. Returns matches across the
     requested scopes (or all of them if `scopes` is omitted), ordered
     by RRF score within each scope and recency across scopes.
@@ -82,7 +82,7 @@ async def search_analytics_endpoint(
     auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
     days: Annotated[int, Query(ge=1, le=365)] = 30,
     top_n: Annotated[int, Query(ge=1, le=100)] = 20,
-):
+) -> dict[str, Any]:
     """Aggregated search-telemetry view. Admin-only — query strings
     can leak project / client names that members shouldn't see in
     aggregate.

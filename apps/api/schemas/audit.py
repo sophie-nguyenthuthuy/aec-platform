@@ -15,9 +15,15 @@ class AuditEventOut(BaseModel):
     organization_id: UUID
     actor_user_id: UUID | None
     actor_api_key_id: UUID | None = None
-    # Joined at read time: users.email for human actors, or
-    # `api_key:<name>` for api-key actors. NULL for cron / system rows.
+    # Joined at read time from `users.email`. Populated only for
+    # human actors (where `actor_user_id` is non-NULL). NULL for
+    # api-key + system rows.
     actor_email: str | None = None
+    # Joined at read time from `api_keys.name`. Populated only for
+    # api-key actors (where `actor_api_key_id` is non-NULL). The UI
+    # renders this with a "key" badge so partner integrations are
+    # visually distinct from human actions.
+    actor_api_key_name: str | None = None
     action: str
     resource_type: str
     resource_id: UUID | None

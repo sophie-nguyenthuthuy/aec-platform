@@ -9,6 +9,7 @@ what openpyxl's `wb.active` returns).
 from __future__ import annotations
 
 from io import BytesIO
+from typing import Any
 
 from .core import SupplierImportError, SupplierRow, coerce_row, detect_columns
 
@@ -69,7 +70,7 @@ def parse_suppliers_xlsx(content: bytes) -> list[SupplierRow]:
     return out
 
 
-def _cell_to_str(value) -> str:
+def _cell_to_str(value: Any) -> str:
     """openpyxl returns native types (int / datetime / None / str). The
     column-detection layer expects strings; coerce here once."""
     if value is None:

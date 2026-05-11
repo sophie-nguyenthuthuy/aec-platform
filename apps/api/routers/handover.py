@@ -56,7 +56,7 @@ router = APIRouter(prefix="/api/v1/handover", tags=["handover"])
 async def create_package(
     payload: HandoverPackageCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     from ml.pipelines.handover import seed_closeout_items
 
     async with TenantAwareSession(auth.organization_id) as session:
@@ -103,7 +103,7 @@ async def list_packages(
     package_status: PackageStatus | None = Query(None, alias="status"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> dict[str, Any]:
     filters = PackageListFilters(project_id=project_id, status=package_status, limit=limit, offset=offset)
     where, params = _package_where(filters, auth.organization_id)
     async with TenantAwareSession(auth.organization_id) as session:
@@ -162,7 +162,7 @@ async def list_packages(
 async def get_package(
     package_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         pkg_row = (
             (
@@ -214,7 +214,7 @@ async def update_package(
     payload: HandoverPackageUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
     request: Request,
-):
+) -> dict[str, Any]:
     assigns: list[str] = []
     params: dict[str, Any] = {"id": str(package_id), "org": str(auth.organization_id)}
     if payload.name is not None:
@@ -346,7 +346,7 @@ async def update_package(
 async def package_preconditions(
     package_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Read-only checklist of what blocks delivery on this package.
 
     Lets the UI render warnings before the user attempts the transition,
@@ -420,7 +420,7 @@ async def add_closeout_item(
     package_id: UUID,
     payload: CloseoutItemCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         pkg = (
             await session.execute(
@@ -467,7 +467,7 @@ async def update_closeout_item(
     item_id: UUID,
     payload: CloseoutItemUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     assigns: list[str] = ["updated_at = NOW()"]
     params: dict[str, Any] = {"id": str(item_id), "org": str(auth.organization_id)}
     if payload.status is not None:
@@ -512,7 +512,7 @@ async def update_closeout_item(
 async def register_as_built(
     payload: AsBuiltRegister,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     now = datetime.now(UTC)
     async with TenantAwareSession(auth.organization_id) as session:
         existing = (
@@ -634,7 +634,7 @@ async def list_as_builts(
     project_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
     discipline: str | None = None,
-):
+) -> dict[str, Any]:
     params: dict[str, Any] = {
         "org": str(auth.organization_id),
         "project_id": str(project_id),
@@ -669,7 +669,7 @@ async def promote_drawings_from_drawbridge(
     package_id: UUID,
     payload: PromoteDrawingsRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """DRAWBRIDGE → HANDOVER handoff: sweep the package's project for the
     latest-revision drawing per drawing_number and register each as an
     as-built. Skips documents with missing file_id or drawing_number.
@@ -898,7 +898,7 @@ async def promote_drawings_from_drawbridge(
 async def generate_om_manual(
     payload: OmManualGenerateRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     from ml.pipelines.handover import generate_om_manual as run_pipeline
 
     manual_id = uuid4()
@@ -1009,7 +1009,7 @@ async def generate_om_manual(
 async def list_om_manuals(
     package_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         rows = (
             (
@@ -1038,7 +1038,7 @@ async def list_om_manuals(
 async def extract_warranty(
     payload: WarrantyExtractRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     from ml.pipelines.handover import extract_warranty_items
 
     async with TenantAwareSession(auth.organization_id) as session:
@@ -1103,7 +1103,7 @@ async def extract_warranty(
 async def create_warranty(
     payload: WarrantyItemCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
             (
@@ -1153,7 +1153,7 @@ async def list_warranties(
     expiring_within_days: int | None = Query(None, ge=0, le=3650),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-):
+) -> dict[str, Any]:
     filters = WarrantyListFilters(
         project_id=project_id,
         package_id=package_id,
@@ -1192,7 +1192,7 @@ async def update_warranty(
     warranty_id: UUID,
     payload: WarrantyItemUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     assigns: list[str] = []
     params: dict[str, Any] = {"id": str(warranty_id), "org": str(auth.organization_id)}
     if payload.status is not None:
@@ -1236,7 +1236,7 @@ async def update_warranty(
 async def create_defect(
     payload: DefectCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
             (
@@ -1302,7 +1302,7 @@ async def list_defects(
     assignee_id: UUID | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-):
+) -> dict[str, Any]:
     filters = DefectListFilters(
         project_id=project_id,
         package_id=package_id,
@@ -1350,7 +1350,7 @@ async def update_defect(
     defect_id: UUID,
     payload: DefectUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     assigns: list[str] = []
     params: dict[str, Any] = {"id": str(defect_id), "org": str(auth.organization_id)}
     if payload.status is not None:

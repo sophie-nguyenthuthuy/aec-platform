@@ -18,13 +18,30 @@ import { readSupabaseEnv } from "./lib/supabase-env";
 
 const PUBLIC_ROUTES = [
   "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
   "/auth", // /auth/callback for magic links / OAuth
   "/invite", // /invite/{token} — set-password page; the token is the credential
   "/rfq", // supplier-portal token-auth pages
   "/api/health",
+  // Marketing + public docs surface. The (marketing) layout redirects
+  // logged-in users from `/` to /winwork; everything else (pricing,
+  // about, docs/*) renders for both authenticated and unauthenticated
+  // callers — devs reading API docs shouldn't have to sign out first.
+  "/pricing",
+  "/about",
+  "/docs", // /docs/api, /docs/webhooks, /docs/ops
 ];
 
+// `/` is a special case: public when unauthenticated (renders marketing
+// landing) and a redirect target when authenticated (the page handles
+// the bounce server-side). Called out here so the prefix-match below
+// doesn't accidentally turn every path into a public route.
+const PUBLIC_EXACT = new Set(["/"]);
+
 function isPublicRoute(pathname: string): boolean {
+  if (PUBLIC_EXACT.has(pathname)) return true;
   return PUBLIC_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 

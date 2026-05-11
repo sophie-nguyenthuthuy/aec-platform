@@ -71,6 +71,9 @@ class Estimate(Base):
 class BoqItem(Base):
     __tablename__ = "boq_items"
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    organization_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
     estimate_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("estimates.id", ondelete="CASCADE"), nullable=False
     )

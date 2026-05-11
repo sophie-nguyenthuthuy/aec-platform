@@ -94,7 +94,7 @@ def upgrade() -> None:
     op.create_index("ix_document_chunks_page", "document_chunks", ["document_id", "page_number"])
     op.create_index("ix_document_chunks_type", "document_chunks", ["chunk_type"])
     # pgvector ANN indexes cap at 2000 dims; embedding is 3072. Index deferred.
-    # TODO: halfvec(3072) + hnsw, or reduce embedding dims, then add index.
+    # TODO(triage 2026-05): halfvec(3072) + hnsw, or reduce embedding dims, then add index.
 
     op.create_table(
         "conflicts",

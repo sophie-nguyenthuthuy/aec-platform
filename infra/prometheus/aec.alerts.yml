@@ -1,0 +1,295 @@
+# Prometheus alert rules for the platform-wide ops surface.
+#
+# Sister file to `codeguard.alerts.yml`. That one covers the codeguard
+# quota subsystem; THIS one covers the rest of the platform's
+# observability gauges:
+#
+#   * Webhook outbox health (`aec_webhook_outbox_lag_seconds`,
+#     `aec_webhook_outbox_pending`, `aec_webhook_deliveries_total`)
+#   * API-key call volume (`aec_api_key_calls_total{success}`)
+#   * Audit-pipeline liveness (`aec_audit_events_total`)
+#   * Cron-failure watchdog (a meta-alert: alert when the watchdog
+#     itself goes silent)
+#   * arq queue depth (`arq_queue_depth`)
+#
+# Loaded into Prometheus via `rule_files`, same wiring as the
+# codeguard file:
+#
+#     rule_files:
+#       - /etc/prometheus/codeguard.alerts.yml
+#       - /etc/prometheus/aec.alerts.yml
+#
+# Series these rules consume are emitted by:
+#   * `apps/api/routers/ops.py::_build_metrics_text` (the DB-driven
+#     gauges that scrape per-call) — `aec_*` names.
+#   * `apps/api/core/metrics.py` (the in-process registry) —
+#     `arq_queue_depth`, `http_*`, `codeguard_*`.
+#
+# `core.metrics.EXTERNAL_METRIC_NAMES` documents the names emitted by
+# `_build_metrics_text` so `scripts/validate_prometheus_rules.py`
+# resolves them when checking these expressions.
+#
+# Threshold rationale: same posture as the codeguard file — "noisy
+# enough to catch real incidents, quiet enough on-call doesn't ignore
+# them." Tune from production data once it exists.
+
+groups:
+  # ---------- Webhook outbox ----------------------------------------
+  #
+  # The `webhook_drain_cron` runs every minute and processes pending
+  # `webhook_deliveries` rows (per-scrape gauge tracks the oldest
+  # pending row's age in seconds). Healthy state: oldest pending is
+  # <1 minute old (next-minute tick will pick it up). The alerts
+  # below tier on top of that.
+  - name: aec.webhooks
+    interval: 30s
+    rules:
+      # ---- Outbox lag ----
+      #
+      # Fires when the oldest pending delivery is >5 min old sustained
+      # for 10 min. Why 5/10 (not 1/1):
+      #   * The drain cron runs every minute; brief 60-90s spikes are
+      #     normal during a deploy or a Redis blip.
+      #   * 5 min sustained = the dispatcher genuinely isn't draining,
+      #     not a transient scrape-window edge effect.
+      # Severity warn (not page) — customers' webhooks ARE retried by
+      # the dispatcher itself with backoff; lag is recoverable. Page
+      # if it sustains an hour (escalation rule below).
+      - alert: WebhookOutboxLagging
+        expr: |
+          aec_webhook_outbox_lag_seconds > 300
+        for: 10m
+        labels:
+          severity: warn
+          service: webhooks
+          component: outbox
+        annotations:
+          summary: "Webhook outbox lag > 5 min"
+          description: |
+            The oldest pending `webhook_deliveries` row is older than
+            5 minutes. The drain cron should pick rows up within 60s.
+            Sustained lag means the dispatcher is stuck, the cron
+            isn't running, or pending volume exceeds throughput.
+
+            Triage:
+              1. Check `/admin/crons` — is `webhook_drain_cron` last_run
+                 recent + status='succeeded'?
+              2. Check `/admin/webhook-deliveries?status=in_flight` —
+                 are rows stuck in flight?
+              3. Check `aec_webhook_outbox_pending` (count) — is the
+                 backlog growing or stable?
+          runbook_url: "https://github.com/<org>/<repo>/blob/main/docs/webhooks.md"
+
+      # Page-tier escalation: the same condition for an hour. The
+      # warn fires at 10m; if ops hasn't acknowledged + ack'd within
+      # 60m, escalate to a page (someone gets woken up).
+      - alert: WebhookOutboxLaggingCritical
+        expr: |
+          aec_webhook_outbox_lag_seconds > 300
+        for: 1h
+        labels:
+          severity: page
+          service: webhooks
+          component: outbox
+        annotations:
+          summary: "Webhook outbox lag sustained > 1h — dispatcher likely down"
+          description: |
+            5-min lag has held for an hour. Customers' integrations
+            are missing events. Escalating to page tier.
+
+      # ---- High-failure-rate ----
+      #
+      # Fires when failed deliveries exceed 20% of attempts in the
+      # 5-min window AND volume is non-trivial (≥10 attempts —
+      # otherwise a single failed test-fire would trip the alert).
+      # Why 20%:
+      #   * Healthy receivers are >99% delivered; even 5% failure
+      #     means most customers' webhooks are flaky.
+      #   * 20% catches "one big customer's receiver is down" without
+      #     paging on a single-customer outage they need to fix.
+      - alert: WebhookDeliveryFailureRateHigh
+        expr: |
+          (aec_webhook_deliveries_total{status="failed"}
+           / ignoring(status) (aec_webhook_deliveries_total{status="failed"}
+                                + aec_webhook_deliveries_total{status="delivered"}))
+            > 0.2
+          and
+          (aec_webhook_deliveries_total{status="failed"}
+           + aec_webhook_deliveries_total{status="delivered"}) > 10
+        for: 15m
+        labels:
+          severity: warn
+          service: webhooks
+          component: dispatcher
+        annotations:
+          summary: "Webhook delivery failure rate > 20%"
+          description: |
+            More than 20% of webhook delivery attempts in the last
+            5 minutes failed. Likely one of:
+              * A major customer's receiver is returning 5xx or
+                timing out — drill into `/admin/webhook-deliveries`
+                filtered by status=failed and group by org.
+              * Our HMAC signing or retry-after handling regressed
+                — check recent webhook-service deploys.
+
+  # ---------- Audit pipeline ----------------------------------------
+  #
+  # `aec_audit_events_total` counts audit_events written in the last
+  # 5 minutes. On a busy platform this is always non-zero — every
+  # change-order approval, member invite, RFQ acceptance, etc. emits
+  # an audit row. Zero events for >1h on prod = the audit hook broke.
+  - name: aec.audit
+    interval: 1m
+    rules:
+      - alert: AuditPipelineSilent
+        # Compare against the absolute count over a long window.
+        # `<= 0` rather than `== 0` so a temporary metric-gap doesn't
+        # flap (Prometheus serves NaN as no-data, which `<= 0`
+        # correctly treats as "no value yet" → no alert).
+        expr: |
+          aec_audit_events_total <= 0
+        for: 1h
+        labels:
+          severity: warn
+          service: audit
+          component: writer
+        annotations:
+          summary: "Audit log silent for 1h"
+          description: |
+            No audit_events rows have been written in the last 5 min,
+            sustained for an hour. Either:
+              * The platform genuinely had zero auditable activity
+                (possible on a small-tenant deploy at 03:00 ICT — but
+                the cron `retention_prune_cron` itself emits an audit
+                row, so even an idle platform should tick).
+              * `services/audit.record()` is failing silently — check
+                worker logs for "audit.record:" warnings.
+              * Postgres write path is broken on the audit_events
+                table — check disk + locks.
+
+  # ---------- API-key abuse signal ----------------------------------
+  #
+  # `aec_api_key_calls_total{success="true|false"}` is the per-scrape
+  # rollup over the last 5 min from `api_key_calls`. Sudden spikes
+  # of 5x baseline = either a partner integration deployed a tight-
+  # loop bug OR an active credential abuse. Either way ops wants to
+  # know.
+  - name: aec.api_keys
+    interval: 30s
+    rules:
+      - alert: ApiKeyCallVolumeSpike
+        # Compare current 5-min volume to the 1-hour baseline.
+        # Threshold 5× — common heuristic for "real anomaly, not just
+        # a busy hour". The ratio falls back to NaN when the baseline
+        # is zero (brand-new platform), so the rule naturally doesn't
+        # fire on cold starts.
+        expr: |
+          aec_api_key_calls_total{success="true"}
+            > 5 * (avg_over_time(aec_api_key_calls_total{success="true"}[1h]))
+          and
+          aec_api_key_calls_total{success="true"} > 100
+        for: 10m
+        labels:
+          severity: warn
+          service: api_keys
+          component: rate_limit
+        annotations:
+          summary: "API-key call volume 5× baseline"
+          description: |
+            Successful API-key call volume is more than 5× the 1-hour
+            average, sustained over 10 minutes. Either a partner just
+            deployed an integration with a tight-loop bug, OR a leaked
+            credential is being abused.
+
+            Triage at `/admin/api-usage` — sort by volume DESC; the
+            outlier key is at the top.
+
+      # ---- Sustained high error rate on api-key auth ----
+      #
+      # `success="false"` includes 401 (bad key), 429 (rate-limited),
+      # and downstream 4xx propagated through `record_call`. Sustained
+      # high failure rate on a SINGLE platform = either we broke api-
+      # key auth, OR a concerted credential-stuffing attempt.
+      - alert: ApiKeyAuthFailureRateHigh
+        expr: |
+          (aec_api_key_calls_total{success="false"}
+           / ignoring(success) (aec_api_key_calls_total{success="true"}
+                                 + aec_api_key_calls_total{success="false"}))
+            > 0.5
+          and
+          (aec_api_key_calls_total{success="true"}
+           + aec_api_key_calls_total{success="false"}) > 50
+        for: 10m
+        labels:
+          severity: warn
+          service: api_keys
+          component: auth
+        annotations:
+          summary: "API-key auth failure rate > 50%"
+          description: |
+            More than half of API-key calls in the last 5 minutes
+            failed. Most likely a partner integration is sending an
+            expired key OR our auth path regressed. Check
+            `/admin/api-usage` for the key with the highest error_count.
+
+  # ---------- Cron-watchdog liveness --------------------------------
+  #
+  # `cron_failure_watchdog_cron` (services/cron_alerts) runs every 5
+  # min and posts Slack on fresh `cron_runs` failures. The watchdog
+  # is itself wrapped in `cron_telemetry_wrap`, so its own runs
+  # show up in `cron_runs` with cron_name='cron:cron_failure_watchdog_cron'.
+  #
+  # Meta-alert: if THE WATCHDOG goes silent, no other cron alert can
+  # fire. Detect that case directly via arq queue depth — if the
+  # arq queue is jammed, the watchdog can't tick. (A more direct
+  # telemetry signal would be better; a follow-up could publish
+  # "cron_runs_total" as a Counter so we can alert on
+  # rate(...) == 0.)
+  - name: aec.cron_watchdog
+    interval: 1m
+    rules:
+      - alert: ArqQueueDepthGrowing
+        # Sustained queue depth > 100 for 30m means the worker is
+        # behind. The watchdog cron + the every-minute webhook drain
+        # both depend on the queue running smoothly; backlog → both
+        # fall behind → blast radius is platform-wide.
+        expr: |
+          arq_queue_depth > 100
+        for: 30m
+        labels:
+          severity: warn
+          service: workers
+          component: arq
+        annotations:
+          summary: "arq queue depth > 100 for 30m"
+          description: |
+            arq's pending-job queue has more than 100 jobs and has
+            been sustained for 30 minutes. Worker capacity is below
+            the inbound rate. Either:
+              * A long-running job (weekly_report_cron, scrape
+                fan-out) is hogging the worker — check
+                `/admin/crons` for status='running' rows older
+                than the cron's typical duration.
+              * Worker pod is unhealthy (OOM, crash-looping) —
+                check `/readyz` per pod and pod logs.
+
+      # ---- arq queue UNREACHABLE ----
+      #
+      # `_sample_queue_depth` writes -1 when Redis is down. A negative
+      # value is the unambiguous "Redis unreachable" signal — flag it
+      # tighter than the warn-tier "queue growing" rule.
+      - alert: ArqQueueUnreachable
+        expr: |
+          arq_queue_depth < 0
+        for: 5m
+        labels:
+          severity: page
+          service: workers
+          component: arq
+        annotations:
+          summary: "arq Redis unreachable for 5+ min"
+          description: |
+            `arq_queue_depth = -1` (the sentinel for "Redis lookup
+            failed during scrape"). Redis is down or the worker can't
+            connect. Every cron is stalled; webhook outbox isn't
+            draining; the failure-watchdog can't tick. Page tier.

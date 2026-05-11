@@ -13,7 +13,7 @@ trends from the B.2 telemetry table to the dashboard.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -38,7 +38,7 @@ async def list_scraper_runs(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
     slug: str | None = Query(default=None, description="Filter to one scraper slug"),
     limit: int = Query(default=20, ge=1, le=200),
-):
+) -> dict[str, Any]:
     """Most-recent N runs, optionally for a single slug.
 
     Index-friendly: the `(slug, started_at DESC)` index from migration
@@ -58,7 +58,7 @@ async def list_scraper_runs(
 async def scraper_runs_summary(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
     days: int = Query(default=30, ge=1, le=365),
-):
+) -> dict[str, Any]:
     """Per-slug aggregate over the last `days` days. Drives the
     `/admin/scrapers` summary table + drift sparkline.
 
@@ -143,7 +143,7 @@ async def scraper_runs_summary(
 @router.get("/normalizer-rules")
 async def list_normalizer_rules(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> dict[str, Any]:
     """All rules (enabled + disabled), sorted by priority ASC."""
     from models.core import NormalizerRule
     from schemas.admin import NormalizerRuleOut
@@ -168,7 +168,7 @@ async def list_normalizer_rules(
 async def create_normalizer_rule(
     payload: NormalizerRuleCreate,
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> dict[str, Any]:
     """Add a new rule. Returns the persisted row.
 
     The pattern is validated as a Python regex BEFORE the row is
@@ -243,7 +243,7 @@ async def update_normalizer_rule(
     rule_id: UUID,
     payload: NormalizerRuleUpdate,
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> dict[str, Any]:
     """Partial update. Only fields present in the body get written.
 
     `pattern` is regex-validated when it changes — same 400 behaviour
@@ -323,11 +323,11 @@ async def update_normalizer_rule(
     return ok(NormalizerRuleOut.model_validate(row).model_dump(mode="json"))
 
 
-@router.delete("/normalizer-rules/{rule_id}", status_code=204)
+@router.delete("/normalizer-rules/{rule_id}", status_code=204, response_model=None)
 async def delete_normalizer_rule(
     rule_id: UUID,
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> None:
     """Hard-delete a rule.
 
     Soft-disable (PATCH `enabled=false`) is preferred when ops just
@@ -386,7 +386,7 @@ async def delete_normalizer_rule(
 @router.get("/retention/status")
 async def retention_status(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> dict[str, Any]:
     """Per-table retention metrics: row count, oldest row age, TTL,
     and how many rows the next nightly cron run will prune.
 
@@ -407,7 +407,7 @@ async def retention_status(
 @router.post("/retention/run", status_code=202)
 async def retention_run_now(
     auth: Annotated[AuthContext, Depends(require_role("admin"))],
-):
+) -> dict[str, Any]:
     """On-demand prune. Same job as the nightly cron, fired manually.
 
     Useful for: (1) initial cleanup after deploying retention to a
@@ -421,3 +421,98 @@ async def retention_run_now(
     async with AdminSessionFactory() as session:
         summaries = await run_retention_cron(session)
     return ok({"tables": summaries})
+
+
+# ---------- API-key usage telemetry --------------------------------
+#
+# Pinned by tests/test_integrator_surface_snapshot.py — do not remove
+# without updating that test. The frontend's `/admin/api-usage` page
+# breaks the moment either route disappears (useTopApiKeys +
+# useApiKeyUsage hooks 404 silently).
+
+
+@router.get("/api-keys/top")
+async def admin_top_api_keys(
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+    hours: Annotated[int, Query(ge=1, le=24 * 30)] = 24,
+    limit: Annotated[int, Query(ge=1, le=200)] = 20,
+) -> dict[str, Any]:
+    """Cross-org top API keys by call volume in the last N hours.
+    Used by `/admin/api-usage` for capacity planning + incident
+    triage. Includes revoked keys so historical activity stays
+    visible after a key is turned off."""
+    from services.api_keys import usage_top_keys
+
+    async with AdminSessionFactory() as session:
+        rows = await usage_top_keys(session, hours=hours, limit=limit)
+    return ok(rows)
+
+
+@router.get("/api-keys/{key_id}/usage")
+async def admin_api_key_usage(
+    key_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+    hours: Annotated[int, Query(ge=1, le=24 * 30)] = 24,
+) -> dict[str, Any]:
+    """Per-key usage detail — totals + hour-bucketed sparkline data.
+    Drilldown off the `/api-keys/top` leaderboard."""
+    from services.api_keys import usage_for_key
+
+    async with AdminSessionFactory() as session:
+        payload = await usage_for_key(session, api_key_id=key_id, hours=hours)
+    return ok(payload)
+
+
+# ---------- Admin operational health (cycle S2) ----------
+
+
+@router.get("/operational-health")
+async def admin_operational_health(
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+) -> dict[str, Any]:
+    """Four live counts for the ops widget: unused keys, stuck crons, pending exports, failing webhooks."""
+    from sqlalchemy import text as _text
+
+    from services import api_keys as api_keys_mod
+    from services import cron_alerts as cron_alerts_mod
+
+    # Unused API keys (30-day inactivity default).
+    async with AdminSessionFactory() as session:
+        unused_keys_list = await api_keys_mod.find_unused_keys(session, organization_id=auth.organization_id)
+    unused_api_keys = len(unused_keys_list)
+
+    # Stuck crons: running longer than 3× their p95 baseline with enough samples.
+    running = await cron_alerts_mod._running_crons_with_baseline()
+    stuck_crons = sum(
+        1
+        for r in running
+        if r.get("sample_count", 0) >= 5 and r.get("p95_ms", 0) > 0 and r.get("elapsed_ms", 0) > 3 * r["p95_ms"]
+    )
+
+    # Pending audit exports and failing webhook subscriptions (platform-global queries).
+    pending_audit_exports = 0
+    failing_webhook_subscriptions = 0
+    try:
+        async with AdminSessionFactory() as session:
+            r1 = await session.execute(
+                _text("SELECT COUNT(*) FROM webhook_subscriptions WHERE failure_count > 0 AND enabled = TRUE")
+            )
+            failing_webhook_subscriptions = int(r1.scalar_one())
+    except Exception:
+        failing_webhook_subscriptions = 0
+
+    try:
+        async with AdminSessionFactory() as session:
+            r2 = await session.execute(_text("SELECT COUNT(*) FROM audit_exports WHERE status = 'pending'"))
+            pending_audit_exports = int(r2.scalar_one())
+    except Exception:
+        pending_audit_exports = 0
+
+    return ok(
+        {
+            "unused_api_keys": unused_api_keys,
+            "stuck_crons": stuck_crons,
+            "pending_audit_exports": pending_audit_exports,
+            "failing_webhook_subscriptions": failing_webhook_subscriptions,
+        }
+    )

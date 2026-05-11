@@ -10,6 +10,11 @@ still logged and skipped — no parser for those yet.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import httpx
+
 import logging
 import re
 from urllib.parse import urlparse
@@ -36,7 +41,7 @@ class HCMCScraper(BaseScraper):
     province = "HCMC"
     slug = "hcmc"
 
-    def __init__(self, *, http_client=None) -> None:
+    def __init__(self, *, http_client: httpx.AsyncClient | None = None) -> None:
         self._http = http_client
 
     async def scrape(self) -> list[ScrapedPrice]:
@@ -85,7 +90,7 @@ class HCMCScraper(BaseScraper):
         except Exception as exc:
             raise ScrapeError(f"HCMC scrape failed: {exc}") from exc
 
-    async def _get_client(self):
+    async def _get_client(self) -> httpx.AsyncClient:
         if self._http is not None:
             return self._http
         import httpx

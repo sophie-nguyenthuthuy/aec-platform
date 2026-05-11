@@ -9,14 +9,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 
 from celery import Celery
 from celery.schedules import crontab
 
+# Read the broker URL via the FastAPI Settings layer (single source
+# of truth for env vars across api + worker processes). The
+# `apps/api` import path is already on sys.path because the task
+# bodies below call into `services/*` — adding `core.config` is
+# zero marginal import cost. Bypassing Settings (the previous
+# `os.environ.get(...)` form) skipped the prod-defaults check
+# (`validate_prod_settings`) and kept the worker invisible to the
+# `.env.example` exhaustiveness audit.
+from core.config import get_settings
+
 log = logging.getLogger(__name__)
 
-BROKER_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+BROKER_URL = get_settings().redis_url
 
 app = Celery("aec_worker", broker=BROKER_URL, backend=BROKER_URL)
 app.conf.update(

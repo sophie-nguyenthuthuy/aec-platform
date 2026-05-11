@@ -13,9 +13,12 @@ import smtplib
 import ssl
 from datetime import UTC, datetime
 from email.message import EmailMessage
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 from core.config import get_settings
+
+if TYPE_CHECKING:
+    from core.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +68,7 @@ async def send_mail(*, to: str, subject: str, text_body: str, html_body: str | N
         )
 
 
-def _send_sync(msg: EmailMessage, settings) -> None:
+def _send_sync(msg: EmailMessage, settings: Settings) -> None:
     ctx = ssl.create_default_context()
     with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as smtp:
         smtp.ehlo()

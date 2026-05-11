@@ -56,7 +56,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
 async def create_change_order(
     payload: ChangeOrderCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         number = payload.number or await _next_co_number(session, payload.project_id)
         row = (
@@ -109,7 +109,7 @@ async def list_change_orders(
     status_filter: CoStatus | None = Query(default=None, alias="status"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-):
+) -> dict[str, Any]:
     where = ["organization_id = :org"]
     params: dict[str, Any] = {"org": str(auth.organization_id)}
     if project_id:
@@ -148,7 +148,7 @@ async def list_change_orders(
 async def get_change_order(
     co_id: UUID,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         co = (
             await session.execute(
@@ -203,7 +203,7 @@ async def update_change_order(
     co_id: UUID,
     payload: ChangeOrderUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     fields = payload.model_dump(exclude_none=True)
     if not fields:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
@@ -232,7 +232,7 @@ async def add_source(
     co_id: UUID,
     payload: SourceCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
             await session.execute(
@@ -269,7 +269,7 @@ async def add_line_item(
     co_id: UUID,
     payload: LineItemCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         # cost_vnd auto-derives from quantity*unit_cost_vnd if both supplied
         # and cost_vnd wasn't.
@@ -317,7 +317,7 @@ async def update_line_item(
     li_id: UUID,
     payload: LineItemUpdate,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     fields = payload.model_dump(exclude_none=True)
     if not fields:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
@@ -349,7 +349,7 @@ async def record_approval(
     payload: ApprovalCreate,
     auth: Annotated[AuthContext, Depends(require_auth)],
     request: Request,
-):
+) -> dict[str, Any]:
     """Move a CO to a new state and append to the approval audit log."""
     async with TenantAwareSession(auth.organization_id) as session:
         co = (
@@ -430,14 +430,28 @@ async def record_approval(
         # audit_events row is the cross-module governance log keyed by
         # (organization, resource_type, resource_id) for the
         # /settings/audit + per-resource panels.
-        if new_status in ("approved", "rejected"):
+        if new_status == "approved":
             from services import audit as _audit
 
             await _audit.record(
                 session,
                 organization_id=auth.organization_id,
                 auth=auth,
-                action=("pulse.change_order.approve" if new_status == "approved" else "pulse.change_order.reject"),
+                action="pulse.change_order.approve",
+                resource_type="change_orders",
+                resource_id=co_id,
+                before={"status": from_status},
+                after={"status": new_status, "notes": payload.notes},
+                request=request,
+            )
+        elif new_status == "rejected":
+            from services import audit as _audit
+
+            await _audit.record(
+                session,
+                organization_id=auth.organization_id,
+                auth=auth,
+                action="pulse.change_order.reject",
                 resource_type="change_orders",
                 resource_id=co_id,
                 before={"status": from_status},
@@ -456,7 +470,7 @@ async def record_approval(
 async def extract_candidates_endpoint(
     payload: ExtractCandidatesRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Propose CO candidates from an RFI or pasted text."""
     from ml.pipelines.changeorder import extract_candidates
 
@@ -520,7 +534,7 @@ async def accept_candidate(
     cand_id: UUID,
     payload: AcceptCandidateRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Promote a candidate into a real CO + line items.
 
     Idempotent: if `accepted_co_id` is already set, returns the existing CO
@@ -651,7 +665,7 @@ async def reject_candidate(
     cand_id: UUID,
     payload: RejectCandidateRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     async with TenantAwareSession(auth.organization_id) as session:
         row = (
             await session.execute(
@@ -684,7 +698,7 @@ async def analyze_impact_endpoint(
     co_id: UUID,
     payload: AnalyzeImpactRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
-):
+) -> dict[str, Any]:
     """Re-estimate the parent CO's cost & schedule impact from line items."""
     from ml.pipelines.changeorder import analyze_impact
 
@@ -762,7 +776,7 @@ async def price_suggestions(
     spec_section: str | None = None,
     province: str | None = None,
     limit: int = Query(default=5, ge=1, le=20),
-):
+) -> dict[str, Any]:
     """Top-k CostPulse rows ranked by `effective_date DESC` for a CO line-item
     form hint. Matches by free-text `q` against material_code/name/category
     via case-insensitive `ILIKE`.
