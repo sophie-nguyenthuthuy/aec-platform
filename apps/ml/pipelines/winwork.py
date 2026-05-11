@@ -19,15 +19,13 @@ from datetime import UTC, datetime
 from typing import Any, TypedDict
 from uuid import UUID, uuid4
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
+from ml.llm import chat_model
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
-
-MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 # Dev-only bypass: when AEC_PIPELINE_DEV_STUB=1, swap Claude for a canned-response
 # shim so the graph can be exercised end-to-end without ANTHROPIC_API_KEY. Intended
@@ -213,7 +211,7 @@ def _llm():
     if PIPELINE_DEV_STUB:
         log.warning("WINWORK pipeline running with AEC_PIPELINE_DEV_STUB=1 — LLM calls stubbed")
         return _StubLLM()
-    return ChatAnthropic(model=MODEL_NAME, temperature=0.2, max_tokens=4096)
+    return chat_model(temperature=0.2, max_tokens=4096)
 
 
 async def _node_scope_expansion(state: PipelineState, _deps: PipelineDeps) -> PipelineState:

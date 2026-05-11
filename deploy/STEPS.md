@@ -17,15 +17,12 @@ These require your hands on a browser or your GitHub account. I can't do them fr
   - Connection pooling (Transaction mode) → save as `DATABASE_URL_VALUE` (prepend `postgresql+asyncpg://`)
   - Direct connection → save as `DATABASE_URL_SYNC_VALUE`
 - [ ] **6. Create an Upstash Redis** — https://upstash.com → Create Database (Redis) → free tier, closest region. Copy the TLS URL (starts `rediss://`) → save as `REDIS_URL_VALUE`.
-- [ ] **7. Get API keys**:
-  - Anthropic: https://console.anthropic.com → API keys → top up $5-10 → save key
-  - OpenAI: https://platform.openai.com/api-keys → top up $5 → save key
+- [ ] **7. Get a Google AI Studio key** — https://aistudio.google.com → "Get API key" → Create. Free, no card. Starts `AIza…`. This is your `GOOGLE_API_KEY`.
 - [ ] **8. Run database bootstrap from your machine** (one time):
   ```bash
   export DATABASE_URL_SYNC="<paste from step 5>"
   export DATABASE_URL="<paste from step 5>"
-  export OPENAI_API_KEY="<paste from step 7>"
-  export ANTHROPIC_API_KEY="<paste from step 7>"
+  export GOOGLE_API_KEY="<paste from step 7>"
   ./scripts/init-supabase.sh
   ```
   Takes ~3 minutes. Prints a dev JWT + org/project IDs at the end — save the org ID, you'll log in as that org's owner once auth is wired.

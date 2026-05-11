@@ -22,8 +22,8 @@ from core.config import get_settings
 from db.session import TenantAwareSession
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import JsonOutputParser
-from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
+from ml.llm import chat_model_vision
 from PIL import ExifTags, Image
 from schemas.siteeye import (
     ConstructionPhase,
@@ -678,7 +678,7 @@ async def _assemble_report(data: dict[str, Any]) -> ReportContent:
     days_remaining = (end - today).days if end else None
     schedule_status = "on_track" if delta >= 1 else ("behind" if delta < 0.5 else "unknown")
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.2, api_key=_settings.openai_api_key)
+    llm = chat_model_vision(temperature=0.2)
     parser = JsonOutputParser()
     prompt = (
         "You are a professional construction project manager in Vietnam. "
@@ -935,13 +935,8 @@ async def email_weekly_report(
 # ---------- External integrations ----------
 
 
-def _vision_llm(*, temperature: float = 0.0) -> ChatOpenAI:
-    return ChatOpenAI(
-        model="gpt-4o",
-        temperature=temperature,
-        api_key=_settings.openai_api_key,
-        timeout=60,
-    )
+def _vision_llm(*, temperature: float = 0.0):
+    return chat_model_vision(temperature=temperature)
 
 
 async def _call_yolo_safety(image_bytes: bytes) -> list[PhotoDetection]:

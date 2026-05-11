@@ -17,12 +17,11 @@ from datetime import date
 from typing import Any, Literal
 from uuid import UUID
 
-from core.config import get_settings
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, StateGraph
+from ml.llm import chat_model
 from schemas.pulse import (
     ActionItem,
     ChangeOrderAIAnalysis,
@@ -33,14 +32,8 @@ from schemas.pulse import (
 logger = logging.getLogger(__name__)
 
 
-def _llm(temperature: float = 0.2) -> ChatAnthropic:
-    settings = get_settings()
-    return ChatAnthropic(
-        model=settings.anthropic_model,
-        anthropic_api_key=settings.anthropic_api_key,
-        temperature=temperature,
-        max_tokens=4096,
-    )
+def _llm(temperature: float = 0.2):
+    return chat_model(temperature=temperature, max_tokens=4096)
 
 
 # ---------------------------------------------------------------------------

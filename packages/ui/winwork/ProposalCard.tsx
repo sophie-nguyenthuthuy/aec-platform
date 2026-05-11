@@ -17,7 +17,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
           <div>
             <CardTitle className="text-base">{proposal.title}</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              {proposal.client_name ?? "Unassigned client"}
+              {proposal.client_name ?? "Chưa có khách hàng"}
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">

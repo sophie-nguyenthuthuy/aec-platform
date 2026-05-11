@@ -56,7 +56,7 @@ export const FirmProfileForm: FC<Props> = ({ profile, onSubmit, submitting = fal
     >
       <div className="grid gap-4 md:grid-cols-2">
         <label className="space-y-1 text-sm">
-          <span className="font-medium text-slate-700">Disciplines</span>
+          <span className="font-medium text-slate-700">Bộ môn</span>
           <input
             className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
             value={form.disciplines.join(", ")}
@@ -65,7 +65,7 @@ export const FirmProfileForm: FC<Props> = ({ profile, onSubmit, submitting = fal
           />
         </label>
         <label className="space-y-1 text-sm">
-          <span className="font-medium text-slate-700">Project types</span>
+          <span className="font-medium text-slate-700">Loại dự án</span>
           <input
             className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
             value={form.project_types.join(", ")}
@@ -74,7 +74,7 @@ export const FirmProfileForm: FC<Props> = ({ profile, onSubmit, submitting = fal
           />
         </label>
         <label className="space-y-1 text-sm">
-          <span className="font-medium text-slate-700">Provinces</span>
+          <span className="font-medium text-slate-700">Tỉnh/Thành</span>
           <input
             className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
             value={form.provinces.join(", ")}
@@ -83,7 +83,7 @@ export const FirmProfileForm: FC<Props> = ({ profile, onSubmit, submitting = fal
           />
         </label>
         <label className="space-y-1 text-sm">
-          <span className="font-medium text-slate-700">Keywords</span>
+          <span className="font-medium text-slate-700">Từ khoá</span>
           <input
             className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
             value={form.keywords.join(", ")}
@@ -92,7 +92,7 @@ export const FirmProfileForm: FC<Props> = ({ profile, onSubmit, submitting = fal
           />
         </label>
         <label className="space-y-1 text-sm">
-          <span className="font-medium text-slate-700">Min budget (VND)</span>
+          <span className="font-medium text-slate-700">Ngân sách tối thiểu (VND)</span>
           <input
             type="number"
             className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -103,7 +103,7 @@ export const FirmProfileForm: FC<Props> = ({ profile, onSubmit, submitting = fal
           />
         </label>
         <label className="space-y-1 text-sm">
-          <span className="font-medium text-slate-700">Max budget (VND)</span>
+          <span className="font-medium text-slate-700">Ngân sách tối đa (VND)</span>
           <input
             type="number"
             className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -114,7 +114,7 @@ export const FirmProfileForm: FC<Props> = ({ profile, onSubmit, submitting = fal
           />
         </label>
         <label className="space-y-1 text-sm">
-          <span className="font-medium text-slate-700">Team size</span>
+          <span className="font-medium text-slate-700">Quy mô nhóm</span>
           <input
             type="number"
             className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -125,7 +125,7 @@ export const FirmProfileForm: FC<Props> = ({ profile, onSubmit, submitting = fal
           />
         </label>
         <label className="space-y-1 text-sm">
-          <span className="font-medium text-slate-700">Active capacity %</span>
+          <span className="font-medium text-slate-700">Năng lực tiếp nhận (%)</span>
           <input
             type="number"
             min={0}
@@ -145,7 +145,7 @@ export const FirmProfileForm: FC<Props> = ({ profile, onSubmit, submitting = fal
           disabled={submitting}
           className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
         >
-          {submitting ? "Saving…" : "Save profile"}
+          {submitting ? "Đang lưu…" : "Lưu hồ sơ"}
         </button>
       </div>
     </form>

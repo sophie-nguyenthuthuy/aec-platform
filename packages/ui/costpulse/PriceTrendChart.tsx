@@ -102,8 +102,8 @@ export function PriceTrendChart({
         <path d={path} fill="none" stroke="#0ea5e9" strokeWidth={2} vectorEffect="non-scaling-stroke" />
       </svg>
       <div className="flex justify-between text-xs text-slate-500">
-        <span>Min {formatVnd(min)}</span>
-        <span>Max {formatVnd(max)}</span>
+        <span>Thấp nhất {formatVnd(min)}</span>
+        <span>Cao nhất {formatVnd(max)}</span>
       </div>
     </div>
   );

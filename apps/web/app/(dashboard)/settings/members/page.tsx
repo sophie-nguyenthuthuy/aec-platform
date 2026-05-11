@@ -27,9 +27,9 @@ import {
 // Invitable roles match the api's _ASSIGNABLE_ROLES set — `owner` is
 // excluded so an admin can't promote an invitee above themselves.
 const ROLES: Array<{ value: Role; label: string; help: string }> = [
-  { value: "viewer",  label: "Viewer",  help: "Read-only across modules" },
-  { value: "member",  label: "Member",  help: "Read + write within modules" },
-  { value: "admin",   label: "Admin",   help: "Full read/write + manage members" },
+  { value: "viewer",  label: "Xem",       help: "Chỉ đọc trên tất cả module" },
+  { value: "member",  label: "Thành viên", help: "Đọc + ghi trong phạm vi module" },
+  { value: "admin",   label: "Quản trị",   help: "Toàn quyền + quản lý thành viên" },
 ];
 
 const ROLE_BADGE: Record<Role, string> = {

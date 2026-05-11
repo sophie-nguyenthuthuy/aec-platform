@@ -20,11 +20,10 @@ from datetime import date
 from typing import Any
 from uuid import UUID
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import END, StateGraph
+from ml.llm import EMBEDDING_DIM, chat_model, embeddings
 from pydantic import BaseModel, Field
 from schemas.codeguard import (
     ChecklistItem,
@@ -397,29 +396,29 @@ class _StubLLM(Runnable):
 
 
 class _StubEmbedder:
-    """Deterministic 3072-d zero vectors. Enough to make hybrid search /
+    """Deterministic zero vectors at EMBEDDING_DIM. Enough to make hybrid search /
     HyDE / RAG plumbing run; semantic recall is meaningless and that's the
     point — the smoke is about the pipeline shape, not retrieval quality."""
 
     async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
-        return [[0.0] * 3072 for _ in texts]
+        return [[0.0] * EMBEDDING_DIM for _ in texts]
 
     async def aembed_query(self, text_in: str) -> list[float]:
-        return [0.0] * 3072
+        return [0.0] * EMBEDDING_DIM
 
 
-def _llm(temperature: float = 0.1) -> ChatAnthropic | _StubLLM:
+def _llm(temperature: float = 0.1):
     if PIPELINE_DEV_STUB:
         logger.warning("CodeGuard LLM running with AEC_PIPELINE_DEV_STUB=1")
         return _StubLLM()
-    return ChatAnthropic(model=_ANTHROPIC_MODEL, temperature=temperature, max_tokens=4096)
+    return chat_model(temperature=temperature, max_tokens=4096)
 
 
-def _embedder() -> OpenAIEmbeddings | _StubEmbedder:
+def _embedder():
     if PIPELINE_DEV_STUB:
         logger.warning("CodeGuard embedder running with AEC_PIPELINE_DEV_STUB=1")
         return _StubEmbedder()
-    return OpenAIEmbeddings(model=_EMBED_MODEL)
+    return embeddings()
 
 
 # ---------- Language detection & HyDE expansion ----------

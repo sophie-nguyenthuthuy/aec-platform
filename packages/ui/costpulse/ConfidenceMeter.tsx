@@ -10,9 +10,9 @@ interface ConfidenceMeterProps {
 }
 
 const LEVELS: { key: EstimateConfidence; label: string; accuracy: string; color: string }[] = [
-  { key: "rough_order", label: "Rough order", accuracy: "±30%", color: "bg-amber-400" },
-  { key: "preliminary", label: "Preliminary", accuracy: "±15%", color: "bg-sky-500" },
-  { key: "detailed", label: "Detailed", accuracy: "±5%", color: "bg-emerald-500" },
+  { key: "rough_order", label: "Sơ bộ", accuracy: "±30%", color: "bg-amber-400" },
+  { key: "preliminary", label: "Tương đối", accuracy: "±15%", color: "bg-sky-500" },
+  { key: "detailed", label: "Chi tiết", accuracy: "±5%", color: "bg-emerald-500" },
 ];
 
 export function ConfidenceMeter({ confidence, className }: ConfidenceMeterProps): JSX.Element {
@@ -22,7 +22,7 @@ export function ConfidenceMeter({ confidence, className }: ConfidenceMeterProps)
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-center justify-between text-xs font-medium text-slate-600">
-        <span>Estimate confidence</span>
+        <span>Độ tin cậy dự toán</span>
         {active ? (
           <span className="text-slate-900">
             {active.label} · {active.accuracy}

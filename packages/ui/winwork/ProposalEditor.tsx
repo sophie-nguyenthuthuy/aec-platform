@@ -72,19 +72,19 @@ export function ProposalEditor({
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={save} disabled={saving}>
-            {saving ? "Saving…" : "Save"}
+            {saving ? "Đang lưu…" : "Lưu"}
           </Button>
           <Button onClick={onSendClick} disabled={!clientEmail}>
-            Send to client
+            Gửi cho khách
           </Button>
           {proposal.status !== "won" && (
             <Button variant="secondary" onClick={onMarkWon}>
-              Mark won
+              Đánh dấu thắng
             </Button>
           )}
           {proposal.status !== "lost" && (
             <Button variant="destructive" onClick={onMarkLost}>
-              Mark lost
+              Đánh dấu thua
             </Button>
           )}
         </div>
@@ -92,11 +92,11 @@ export function ProposalEditor({
 
       <Card>
         <CardHeader>
-          <CardTitle>Client</CardTitle>
+          <CardTitle>Khách hàng</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
-            <Label>Name</Label>
+            <Label>Tên</Label>
             <Input value={clientName} onChange={(e) => setClientName(e.target.value)} />
           </div>
           <div className="space-y-1">
@@ -108,7 +108,7 @@ export function ProposalEditor({
 
       <Card>
         <CardHeader>
-          <CardTitle>Scope of work</CardTitle>
+          <CardTitle>Phạm vi công việc</CardTitle>
         </CardHeader>
         <CardContent>
           <ScopeBuilder items={scope.items} onChange={(items) => setScope({ items })} />
@@ -117,7 +117,7 @@ export function ProposalEditor({
 
       <Card>
         <CardHeader>
-          <CardTitle>Fee breakdown</CardTitle>
+          <CardTitle>Chi tiết phí</CardTitle>
         </CardHeader>
         <CardContent>
           <FeeBreakdownTable value={fees} onChange={setFees} />
@@ -126,7 +126,7 @@ export function ProposalEditor({
 
       <Card>
         <CardHeader>
-          <CardTitle>Notes</CardTitle>
+          <CardTitle>Ghi chú</CardTitle>
         </CardHeader>
         <CardContent>
           <Textarea rows={5} value={notes} onChange={(e) => setNotes(e.target.value)} />

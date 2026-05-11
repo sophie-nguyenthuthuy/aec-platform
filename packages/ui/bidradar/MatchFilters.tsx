@@ -9,11 +9,11 @@ interface Props {
 }
 
 const STATUSES: Array<{ value: MatchStatus | "all"; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "new", label: "New" },
-  { value: "saved", label: "Saved" },
-  { value: "pursuing", label: "Pursuing" },
-  { value: "passed", label: "Passed" },
+  { value: "all", label: "Tất cả" },
+  { value: "new", label: "Mới" },
+  { value: "saved", label: "Đã lưu" },
+  { value: "pursuing", label: "Đang theo" },
+  { value: "passed", label: "Bỏ qua" },
 ];
 
 export const MatchFilters: FC<Props> = ({ status, minScore, recommendedOnly, onChange }) => {
@@ -37,7 +37,7 @@ export const MatchFilters: FC<Props> = ({ status, minScore, recommendedOnly, onC
       </div>
 
       <label className="flex items-center gap-2 text-sm text-slate-700">
-        Min score
+        Điểm tối thiểu
         <input
           type="range"
           min={0}
@@ -57,7 +57,7 @@ export const MatchFilters: FC<Props> = ({ status, minScore, recommendedOnly, onC
           onChange={(e) => onChange({ status, minScore, recommendedOnly: e.target.checked })}
           className="rounded border-slate-300"
         />
-        Recommended only
+        Chỉ hồ sơ được đề xuất
       </label>
     </div>
   );

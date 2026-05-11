@@ -37,12 +37,15 @@ pgvector==0.3.5
 python-dotenv==1.2.2
 cachetools==5.5.0
 sentry-sdk[fastapi]==2.18.0
-# AI
+# AI — Gemini-only on free-tier deploy (Anthropic/OpenAI dropped for
+# geo + cost reasons). Keep the langchain core, swap the provider:
 langchain==0.3.1
 langgraph==0.2.28
-langchain-anthropic==0.2.1
-langchain-openai==0.2.0
-anthropic==0.39.0
+langchain-google-genai==2.0.4
+# Raw SDK kept because a couple of code paths (drawbridge title-block
+# OCR, bidradar embed_tender) use the openai SDK directly and degrade
+# to no-op without a key — they're not langchain-routed, so the
+# provider swap doesn't touch them. Cost on demo traffic: zero.
 openai==1.51.0
 # Lightweight HTML parser — used by a couple of routers for sanitising
 # user-provided rich text. Pure-Python, tiny.

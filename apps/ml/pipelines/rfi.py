@@ -4,7 +4,8 @@ auto-draft responses.
 Two LLM-flavoured operations:
 
   1. **Embed & similarity** — embed `subject + description` of an RFI to a
-     3072-dim vector, persist via raw SQL into `rfi_embeddings`, and find
+     vector (current provider: Gemini text-embedding-004 @ 768 dims; see
+     ml.llm.EMBEDDING_DIM), persist via raw SQL into `rfi_embeddings`, and find
      similar past RFIs using pgvector's cosine `<=>` operator. The same
      embedding endpoint feeds both writes (when an RFI is created or
      edited) and reads (when a designer opens an RFI and asks "have we
@@ -28,14 +29,15 @@ import os
 from typing import Any
 from uuid import UUID
 
+from ml.llm import EMBEDDING_DIM, chat_model, embeddings
+
 logger = logging.getLogger(__name__)
 
-_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-# pgvector schema in this project is 3072 (matches OpenAI text-embedding-3-large
-# truncated to 3072, or Anthropic's voyage-large at 3072).
-_EMBEDDING_DIM = 3072
-_EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "openai/text-embedding-3-large")
-_DRAFT_MODEL_VERSION = f"rfi-draft/v1@{_ANTHROPIC_MODEL}"
+# Re-export the platform-wide embedding dim so the local fallbacks stay aligned
+# with the pgvector column width (see migration 0041_gemini_embedding_dim).
+_EMBEDDING_DIM = EMBEDDING_DIM
+_EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "gemini/text-embedding-004")
+_DRAFT_MODEL_VERSION = "rfi-draft/v1"
 
 
 # =============================================================================
@@ -52,35 +54,28 @@ def _format_rfi_for_embedding(subject: str, description: str | None) -> str:
 
 
 async def embed_text(text: str) -> list[float]:
-    """Return a 3072-dim embedding for `text`.
+    """Return an embedding vector for `text`.
 
-    Wraps OpenAI's `text-embedding-3-large` with a 3072-dim output cap.
-    On any failure (missing key, network), returns a deterministic
-    zero-padded fallback so callers don't have to handle None.
+    Routes through the `ml.llm.embeddings()` factory so the active provider
+    (currently Gemini `text-embedding-004` at 768 dims) is configured in
+    one place. On any failure (missing key, network, factory import), the
+    function returns a deterministic zero-padded fallback so callers don't
+    have to handle None.
     """
     if not text.strip():
         return [0.0] * _EMBEDDING_DIM
     try:
-        from openai import AsyncOpenAI
-    except ImportError:
-        logger.info("rfi.embed: openai not installed; using zero fallback")
+        embedder = embeddings()
+    except Exception as exc:  # pragma: no cover — config / import errors
+        logger.warning("rfi.embed: embedding factory unavailable: %s", exc)
         return [0.0] * _EMBEDDING_DIM
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return [0.0] * _EMBEDDING_DIM
-
-    client = AsyncOpenAI(api_key=api_key)
     try:
-        resp = await client.embeddings.create(
-            model="text-embedding-3-large",
-            input=text,
-            dimensions=_EMBEDDING_DIM,
-        )
+        vector = await embedder.aembed_query(text)
     except Exception as exc:  # pragma: no cover — network errors
         logger.warning("rfi.embed: embedding call failed: %s", exc)
         return [0.0] * _EMBEDDING_DIM
-    return list(resp.data[0].embedding)
+    return list(vector)
 
 
 async def upsert_rfi_embedding(
@@ -305,13 +300,9 @@ async def draft_rfi_response(
 
     # Best-effort LLM call.
     try:
-        from langchain_anthropic import ChatAnthropic
         from langchain_core.output_parsers import JsonOutputParser
         from langchain_core.prompts import ChatPromptTemplate
     except ImportError:
-        return _heuristic_draft(rfi, chunks)
-
-    if not os.getenv("ANTHROPIC_API_KEY"):
         return _heuristic_draft(rfi, chunks)
 
     chunk_payload = [
@@ -335,7 +326,7 @@ async def draft_rfi_response(
     prompt = ChatPromptTemplate.from_messages(
         [("system", _DRAFT_PROMPT_SYSTEM), ("human", "{payload}")]
     )
-    llm = ChatAnthropic(model=_ANTHROPIC_MODEL, temperature=0.1, max_tokens=1024)
+    llm = chat_model(temperature=0.1, max_tokens=1024)
     chain = prompt | llm | JsonOutputParser()
     try:
         out = await chain.ainvoke({"payload": payload})

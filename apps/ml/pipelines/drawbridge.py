@@ -40,13 +40,12 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
-from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import END, StateGraph
+from ml.llm import EMBEDDING_DIM, chat_model, embeddings
 from pydantic import BaseModel, Field
 from schemas.drawbridge import (
     Conflict,
@@ -72,8 +71,6 @@ logger = logging.getLogger(__name__)
 # Clients
 # ============================================================
 
-_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-_EMBED_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
 _ES_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 _RERANKER_ENDPOINT = os.getenv("RERANKER_ENDPOINT")
 _VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
@@ -184,29 +181,29 @@ class _StubLLM(Runnable):
 
 
 class _StubEmbedder:
-    """Returns deterministic 3072-d zero vectors. Enough to make ingest /
+    """Returns deterministic zero vectors at EMBEDDING_DIM. Enough to make ingest /
     search code paths run; semantic recall is meaningless and that's fine —
     the smoke is about the pipeline plumbing, not retrieval quality."""
 
     async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
-        return [[0.0] * 3072 for _ in texts]
+        return [[0.0] * EMBEDDING_DIM for _ in texts]
 
     async def aembed_query(self, text: str) -> list[float]:
-        return [0.0] * 3072
+        return [0.0] * EMBEDDING_DIM
 
 
-def _llm(temperature: float = 0.1, max_tokens: int = 4096) -> ChatAnthropic | _StubLLM:
+def _llm(temperature: float = 0.1, max_tokens: int = 4096):
     if PIPELINE_DEV_STUB:
         logger.warning("Drawbridge LLM running with AEC_PIPELINE_DEV_STUB=1")
         return _StubLLM()
-    return ChatAnthropic(model=_ANTHROPIC_MODEL, temperature=temperature, max_tokens=max_tokens)
+    return chat_model(temperature=temperature, max_tokens=max_tokens)
 
 
-def _embedder() -> OpenAIEmbeddings | _StubEmbedder:
+def _embedder():
     if PIPELINE_DEV_STUB:
         logger.warning("Drawbridge embedder running with AEC_PIPELINE_DEV_STUB=1")
         return _StubEmbedder()
-    return OpenAIEmbeddings(model=_EMBED_MODEL)
+    return embeddings()
 
 
 def _vec_literal(vec: list[float]) -> str:
@@ -502,8 +499,8 @@ async def _ingest_document(
             return
 
         # Embed + insert chunks.
-        embeddings = await _embed_batch([b.content for b in blocks])
-        for b, vec in zip(blocks, embeddings, strict=False):
+        vectors = await _embed_batch([b.content for b in blocks])
+        for b, vec in zip(blocks, vectors, strict=False):
             await session.execute(
                 text(
                     """

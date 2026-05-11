@@ -37,7 +37,7 @@ export function FeeBreakdownTable({ value, onChange, readOnly }: FeeBreakdownTab
 
   function add() {
     if (!onChange) return;
-    onChange(recalc([...rows, { phase: "Concept", label: "New line", amount_vnd: 0 }]));
+    onChange(recalc([...rows, { phase: "Ý tưởng", label: "Hạng mục mới", amount_vnd: 0 }]));
   }
 
   return (
@@ -45,9 +45,9 @@ export function FeeBreakdownTable({ value, onChange, readOnly }: FeeBreakdownTab
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-            <th className="py-2">Phase</th>
-            <th>Label</th>
-            <th className="text-right">Amount (VND)</th>
+            <th className="py-2">Giai đoạn</th>
+            <th>Hạng mục</th>
+            <th className="text-right">Số tiền (VND)</th>
             {!readOnly && <th className="w-8" />}
           </tr>
         </thead>
@@ -93,7 +93,7 @@ export function FeeBreakdownTable({ value, onChange, readOnly }: FeeBreakdownTab
         </tbody>
         <tfoot>
           <tr className="text-sm">
-            <td colSpan={2} className="py-2 pr-3 text-right text-muted-foreground">Subtotal</td>
+            <td colSpan={2} className="py-2 pr-3 text-right text-muted-foreground">Tạm tính</td>
             <td className="text-right font-medium">{fmt(value.subtotal_vnd)}</td>
             {!readOnly && <td />}
           </tr>
@@ -103,7 +103,7 @@ export function FeeBreakdownTable({ value, onChange, readOnly }: FeeBreakdownTab
             {!readOnly && <td />}
           </tr>
           <tr className="border-t text-base">
-            <td colSpan={2} className="py-2 pr-3 text-right font-semibold">Total</td>
+            <td colSpan={2} className="py-2 pr-3 text-right font-semibold">Tổng cộng</td>
             <td className="text-right font-semibold">{fmt(value.total_vnd)}</td>
             {!readOnly && <td />}
           </tr>
@@ -111,7 +111,7 @@ export function FeeBreakdownTable({ value, onChange, readOnly }: FeeBreakdownTab
       </table>
       {!readOnly && (
         <Button variant="outline" size="sm" onClick={add}>
-          Add line
+          Thêm dòng
         </Button>
       )}
     </div>

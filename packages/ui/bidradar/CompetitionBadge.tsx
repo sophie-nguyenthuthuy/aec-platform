@@ -6,10 +6,10 @@ interface Props {
 }
 
 const LABELS: Record<string, string> = {
-  low: "Low",
-  moderate: "Moderate",
-  high: "High",
-  very_high: "Very high",
+  low: "Thấp",
+  moderate: "Trung bình",
+  high: "Cao",
+  very_high: "Rất cao",
 };
 
 const STYLES: Record<string, string> = {

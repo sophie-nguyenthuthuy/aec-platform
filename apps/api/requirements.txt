@@ -31,11 +31,15 @@ cachetools==5.5.0
 # wouldn't catch it because the test path hits the no-DSN branch
 # first.
 sentry-sdk[fastapi]==2.18.0
-# AI
+# AI — Gemini factory at apps/ml/llm.py uses google-genai. Anthropic +
+# OpenAI clients kept for tests that monkeypatch them directly and for
+# the small number of raw-SDK callers (drawbridge vision OCR, bidradar
+# embed_tender) that haven't been routed through the factory yet.
 langchain==0.3.1
 langgraph==0.2.28
 langchain-anthropic==0.2.1
 langchain-openai==0.2.0
+langchain-google-genai==2.0.4
 anthropic==0.39.0
 openai==1.51.0
 

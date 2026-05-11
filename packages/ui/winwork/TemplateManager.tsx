@@ -14,7 +14,7 @@ export function TemplateManager({ templates, onSelect }: TemplateManagerProps) {
     return (
       <Card>
         <CardContent className="p-8 text-center text-sm text-muted-foreground">
-          No templates yet. Create one from an existing proposal using the ⋯ menu.
+          Chưa có mẫu nào. Tạo từ đề xuất hiện có bằng menu ⋯.
         </CardContent>
       </Card>
     );
@@ -26,12 +26,12 @@ export function TemplateManager({ templates, onSelect }: TemplateManagerProps) {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">{t.name}</CardTitle>
-              {t.is_default && <Badge variant="secondary">Default</Badge>}
+              {t.is_default && <Badge variant="secondary">Mặc định</Badge>}
             </div>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            <div>Discipline: {t.discipline ?? "any"}</div>
-            {t.project_types.length > 0 && <div>Project types: {t.project_types.join(", ")}</div>}
+            <div>Bộ môn: {t.discipline ?? "tất cả"}</div>
+            {t.project_types.length > 0 && <div>Loại dự án: {t.project_types.join(", ")}</div>}
           </CardContent>
         </Card>
       ))}

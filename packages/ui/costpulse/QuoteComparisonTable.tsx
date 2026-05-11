@@ -277,7 +277,7 @@ function PickButton({
   if (isAccepted) {
     return (
       <span className="inline-block rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
-        ✓ Accepted
+        ✓ Đã chọn
       </span>
     );
   }
@@ -294,7 +294,7 @@ function PickButton({
       disabled={disabled}
       className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
     >
-      {accepting ? "Picking…" : "Pick"}
+      {accepting ? "Đang chọn…" : "Chọn"}
     </button>
   );
 }

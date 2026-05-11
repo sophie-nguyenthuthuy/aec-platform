@@ -35,15 +35,15 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from collections import defaultdict, deque
 from datetime import date, timedelta
 from typing import Any
 
+from ml.llm import chat_model
+
 logger = logging.getLogger(__name__)
 
-_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-_MODEL_VERSION = f"schedulepilot/v1@{_ANTHROPIC_MODEL}"
+_MODEL_VERSION = "schedulepilot/v1"
 
 
 # =============================================================================
@@ -299,23 +299,15 @@ async def _narrate_risks_llm(
     """
     try:
         # Lazy import — keeps the CPM core importable in test environments
-        # that don't install langchain-anthropic.
-        from langchain_anthropic import ChatAnthropic
+        # that don't install langchain.
         from langchain_core.output_parsers import JsonOutputParser
         from langchain_core.prompts import ChatPromptTemplate
     except ImportError:
         logger.info("schedulepilot.risk: langchain not available; returning empty narration")
         return {"top_risks": [], "confidence_pct": None, "notes": None}
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        return {
-            "top_risks": [],
-            "confidence_pct": None,
-            "notes": "ANTHROPIC_API_KEY not configured; CPM-only assessment",
-        }
-
     payload = _serialise_for_llm(cpm, activities)
-    llm = ChatAnthropic(model=_ANTHROPIC_MODEL, temperature=0.1, max_tokens=2048)
+    llm = chat_model(temperature=0.1, max_tokens=2048)
     prompt = ChatPromptTemplate.from_messages(
         [("system", _RISK_PROMPT_SYSTEM), ("human", "{payload}")]
     )

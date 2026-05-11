@@ -22,14 +22,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
+
+from ml.llm import chat_model
 
 logger = logging.getLogger(__name__)
 
-_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-_EXTRACT_MODEL_VERSION = f"co-extract/v1@{_ANTHROPIC_MODEL}"
-_ANALYZE_MODEL_VERSION = f"co-analyze/v1@{_ANTHROPIC_MODEL}"
+_EXTRACT_MODEL_VERSION = "co-extract/v1"
+_ANALYZE_MODEL_VERSION = "co-analyze/v1"
 
 
 _EXTRACT_PROMPT = """\
@@ -98,16 +98,12 @@ async def extract_candidates(
         return []
 
     try:
-        from langchain_anthropic import ChatAnthropic
         from langchain_core.output_parsers import JsonOutputParser
         from langchain_core.prompts import ChatPromptTemplate
     except ImportError:
         return _heuristic_extract(text)
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        return _heuristic_extract(text)
-
-    llm = ChatAnthropic(model=_ANTHROPIC_MODEL, temperature=0.1, max_tokens=2048)
+    llm = chat_model(temperature=0.1, max_tokens=2048)
     prompt = ChatPromptTemplate.from_messages(
         [("system", _EXTRACT_PROMPT), ("human", "Source ({sk}):\n{txt}")]
     )
@@ -202,23 +198,19 @@ async def analyze_impact(
             or 0
         ),
         "rollup_method": "sum_cost+max_days" if line_items else "passthrough",
-        "assumptions": ["Heuristic rollup (no LLM)"] if not os.getenv("ANTHROPIC_API_KEY") else [],
+        "assumptions": [],
         "confidence_pct": 50,
         "summary": "Heuristic rollup",
         "model_version": _ANALYZE_MODEL_VERSION + "+fallback",
     }
 
     try:
-        from langchain_anthropic import ChatAnthropic
         from langchain_core.output_parsers import JsonOutputParser
         from langchain_core.prompts import ChatPromptTemplate
     except ImportError:
         return fallback
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        return fallback
-
-    llm = ChatAnthropic(model=_ANTHROPIC_MODEL, temperature=0.1, max_tokens=512)
+    llm = chat_model(temperature=0.1, max_tokens=512)
     prompt = ChatPromptTemplate.from_messages([("system", _ANALYZE_PROMPT), ("human", "{payload}")])
     chain = prompt | llm | JsonOutputParser()
     try:

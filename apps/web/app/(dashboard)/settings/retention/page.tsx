@@ -26,7 +26,7 @@ import {
 // admin reads "Webhook deliveries" more easily than `webhook_deliveries`.
 const TABLE_LABEL: Record<string, string> = {
   audit_events: "Nhật ký kiểm tra",
-  webhook_deliveries: "Webhook deliveries",
+  webhook_deliveries: "Giao nhận webhook",
   search_queries: "Lịch sử tìm kiếm",
   import_jobs: "Lịch sử nhập dữ liệu",
 };
@@ -51,7 +51,7 @@ export default function RetentionPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900">Retention &amp; archival</h2>
+        <h2 className="text-2xl font-bold text-slate-900">Lưu trữ &amp; dọn dẹp dữ liệu</h2>
         <p className="text-sm text-slate-600">
           Các bảng telemetry và audit tự prune theo TTL hàng đêm (cron 03:00 UTC).
           Mỗi bảng được giới hạn 10.000 dòng / lần để không lock bảng quá lâu.
@@ -84,7 +84,7 @@ export default function RetentionPage() {
           ) : (
             <PlayCircle size={14} />
           )}
-          Prune ngay
+          Chạy ngay
         </button>
       </section>
 
@@ -171,9 +171,9 @@ function TableCard({ stat }: { stat: RetentionStat }) {
           </dd>
         </div>
         <div>
-          <dt className="text-slate-500">Lần prune kế</dt>
+          <dt className="text-slate-500">Lần dọn dẹp kế</dt>
           <dd className="mt-0.5 font-semibold text-slate-800 tabular-nums">
-            {stat.projected_next_prune_count.toLocaleString("vi-VN")}
+            {stat.projected_next_prune_count.toLocaleString("vi-VN")} dòng
             {stat.projected_next_prune_count >= 10_000 && "+"}
           </dd>
         </div>

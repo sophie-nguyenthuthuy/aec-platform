@@ -171,10 +171,10 @@ export function DrawingUploader({
           }}
         />
         <div className="text-sm font-medium text-slate-700">
-          Drop drawings here or click to browse
+          Kéo thả bản vẽ vào đây hoặc nhấn để chọn file
         </div>
         <div className="mt-1 text-xs text-slate-500">
-          PDF, PNG, JPG, WEBP · up to {Math.floor(maxBytes / (1024 * 1024))} MB per file
+          PDF, PNG, JPG, WEBP · tối đa {Math.floor(maxBytes / (1024 * 1024))} MB mỗi file
         </div>
       </div>
 
@@ -192,12 +192,12 @@ export function DrawingUploader({
                 </div>
                 <div className="text-xs text-slate-500">
                   {formatSize(r.kind === "done" ? r.uploaded.size_bytes : r.size)}
-                  {r.kind === "uploading" && " · uploading…"}
+                  {r.kind === "uploading" && " · đang tải lên…"}
                   {r.kind === "error" && (
                     <span className="text-red-600"> · {r.error}</span>
                   )}
                   {r.kind === "done" && (
-                    <span className="text-emerald-600"> · uploaded</span>
+                    <span className="text-emerald-600"> · đã tải lên</span>
                   )}
                 </div>
               </div>

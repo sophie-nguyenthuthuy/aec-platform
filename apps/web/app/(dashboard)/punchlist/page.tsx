@@ -51,7 +51,7 @@ export default function PunchListPage() {
     <div className="space-y-6">
       <PageHeader
         title="Punch list"
-        description="Danh sách kiểm tra của chủ đầu tư trong các buổi đi hiện trường — khác với defect (do bên thiết kế phát hiện)."
+        description="Danh sách kiểm tra của chủ đầu tư trong các buổi đi hiện trường — khác với khiếm khuyết (do bên thiết kế phát hiện)."
         actions={
           <Button onClick={() => setCreating(true)}>
             <Plus size={16} />

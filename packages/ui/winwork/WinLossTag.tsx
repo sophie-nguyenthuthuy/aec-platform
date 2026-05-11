@@ -10,11 +10,11 @@ const VARIANT: Record<ProposalStatus, "default" | "secondary" | "success" | "war
 };
 
 const LABEL: Record<ProposalStatus, string> = {
-  draft: "Draft",
-  sent: "Sent",
-  won: "Won",
-  lost: "Lost",
-  expired: "Expired",
+  draft: "Bản nháp",
+  sent: "Đã gửi",
+  won: "Thắng",
+  lost: "Thua",
+  expired: "Hết hạn",
 };
 
 export function WinLossTag({ status }: { status: ProposalStatus }) {

@@ -151,7 +151,7 @@ export default function ProjectDetailPage() {
           href={`/pulse/${project.id}`}
           tone="blue"
           rows={[
-            ["Tasks (todo / WIP / done)",
+            ["Công việc (chờ / đang / xong)",
               `${project.pulse.tasks_todo} / ${project.pulse.tasks_in_progress} / ${project.pulse.tasks_done}`,
             ],
             ["CO mở", project.pulse.open_change_orders.toString()],
@@ -170,15 +170,15 @@ export default function ProjectDetailPage() {
           ]}
         />
         <ModuleCard
-          title="Handover"
+          title="Bàn giao"
           icon={<ClipboardList size={16} />}
           href="/handover"
           tone="purple"
           rows={[
             ["Số gói", project.handover.package_count.toString()],
-            ["Defect mở", project.handover.open_defect_count.toString()],
+            ["Khiếm khuyết mở", project.handover.open_defect_count.toString()],
             [
-              "Bảo hành (active / sắp hết)",
+              "Bảo hành (đang / sắp hết)",
               `${project.handover.warranty_active_count} / ${project.handover.warranty_expiring_count}`,
             ],
           ]}
@@ -199,8 +199,8 @@ export default function ProjectDetailPage() {
           href="/codeguard"
           tone="emerald"
           rows={[
-            ["Compliance check", project.codeguard.compliance_check_count.toString()],
-            ["Permit checklist", project.codeguard.permit_checklist_count.toString()],
+            ["Kiểm tra quy chuẩn", project.codeguard.compliance_check_count.toString()],
+            ["Danh mục giấy phép", project.codeguard.permit_checklist_count.toString()],
           ]}
         />
         <ModuleCard
@@ -223,7 +223,7 @@ export default function ProjectDetailPage() {
           ]}
         />
         <ModuleCard
-          title="Submittals"
+          title="Hồ sơ đệ trình"
           icon={<ClipboardCheck size={16} />}
           href="/submittals"
           tone="purple"
@@ -258,7 +258,7 @@ export default function ProjectDetailPage() {
           ]}
         />
         <ModuleCard
-          title="Change orders"
+          title="Lệnh thay đổi"
           icon={<Replace size={16} />}
           href="/changeorder"
           tone="amber"

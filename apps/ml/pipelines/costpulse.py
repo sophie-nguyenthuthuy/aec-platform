@@ -23,8 +23,8 @@ from uuid import UUID, uuid4
 
 from core.config import get_settings
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
+from ml.llm import chat_model, chat_model_vision
 from models.costpulse import BoqItem, Estimate, MaterialPrice
 from schemas.costpulse import (
     AiEstimateResult,
@@ -126,27 +126,18 @@ class _StubLLM:
         return _StubLLMResponse(json.dumps(payload, ensure_ascii=False))
 
 
-def _vision_llm() -> ChatOpenAI | _StubLLM:
+def _vision_llm():
     if PIPELINE_DEV_STUB:
         logger.warning("CostPulse vision pipeline running with AEC_PIPELINE_DEV_STUB=1")
         return _StubLLM()
-    return ChatOpenAI(
-        model="gpt-4o",
-        api_key=_settings.openai_api_key,
-        temperature=0,
-        max_tokens=4096,
-    )
+    return chat_model_vision(temperature=0, max_tokens=4096)
 
 
-def _text_llm() -> ChatOpenAI | _StubLLM:
+def _text_llm():
     if PIPELINE_DEV_STUB:
         logger.warning("CostPulse text pipeline running with AEC_PIPELINE_DEV_STUB=1")
         return _StubLLM()
-    return ChatOpenAI(
-        model="gpt-4o-mini",
-        api_key=_settings.openai_api_key,
-        temperature=0,
-    )
+    return chat_model(temperature=0)
 
 
 # ============================================================

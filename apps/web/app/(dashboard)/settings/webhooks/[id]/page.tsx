@@ -343,22 +343,22 @@ function StatusBadge({ status }: { status: WebhookDelivery["status"] }) {
     { label: string; tone: string; icon: React.ReactNode }
   > = {
     delivered: {
-      label: "delivered",
+      label: "Đã giao",
       tone: "bg-emerald-100 text-emerald-800",
       icon: <CheckCircle2 size={11} />,
     },
     failed: {
-      label: "failed",
+      label: "Lỗi",
       tone: "bg-rose-100 text-rose-800",
       icon: <XCircle size={11} />,
     },
     pending: {
-      label: "pending",
+      label: "Đang chờ",
       tone: "bg-amber-100 text-amber-800",
       icon: <Clock size={11} />,
     },
     in_flight: {
-      label: "in_flight",
+      label: "Đang gửi",
       tone: "bg-blue-100 text-blue-800",
       icon: <Loader2 size={11} className="animate-spin" />,
     },

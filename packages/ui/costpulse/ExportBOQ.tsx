@@ -12,7 +12,7 @@ interface ExportBOQProps {
 }
 
 function toCsv(items: BoqItem[]): string {
-  const header = ["Code", "Description", "Unit", "Quantity", "Unit Price (VND)", "Total (VND)", "Material Code", "Notes"];
+  const header = ["Mã", "Mô tả", "Đơn vị", "Khối lượng", "Đơn giá (VND)", "Thành tiền (VND)", "Mã vật liệu", "Ghi chú"];
   const rows = items
     .sort((a, b) => a.sort_order - b.sort_order)
     .map((i) =>
@@ -66,8 +66,8 @@ export function ExportBOQ({ estimate, items, className }: ExportBOQProps): JSX.E
       <style>body{font-family:sans-serif;padding:24px}table{width:100%;border-collapse:collapse}
       th,td{border:1px solid #ccc;padding:6px 8px;font-size:12px}th{background:#f5f5f5}</style></head>
       <body><h1>${escapeHtml(estimate.name)} — v${estimate.version}</h1>
-      <p>Total: <strong>${formatVnd(estimate.total_vnd)}</strong></p>
-      <table><thead><tr><th>Code</th><th>Description</th><th>Unit</th><th>Qty</th><th>Unit price</th><th>Total</th></tr></thead>
+      <p>Tổng cộng: <strong>${formatVnd(estimate.total_vnd)}</strong></p>
+      <table><thead><tr><th>Mã</th><th>Mô tả</th><th>ĐV</th><th>KL</th><th>Đơn giá</th><th>Thành tiền</th></tr></thead>
       <tbody>${rows}</tbody></table></body></html>`;
     const w = window.open("", "_blank");
     if (w) {
@@ -81,10 +81,10 @@ export function ExportBOQ({ estimate, items, className }: ExportBOQProps): JSX.E
     <div className={className}>
       <div className="flex gap-2">
         <Button size="sm" variant="outline" onClick={exportCsv}>
-          Export CSV (Excel)
+          Xuất CSV (Excel)
         </Button>
         <Button size="sm" variant="outline" onClick={exportHtmlAsPdf}>
-          Print / PDF
+          In / PDF
         </Button>
       </div>
     </div>

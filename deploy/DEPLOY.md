@@ -14,7 +14,7 @@ The existing `.github/workflows/deploy.yml` deploys to AWS ECS — that's the pr
 | Auth | **Supabase Auth** | Already wired into `apps/web/lib/supabase-browser.ts` and the FastAPI JWT middleware |
 | Redis (queue + cache) | **Upstash Redis** | Free tier covers light traffic; serverless-friendly REST API option |
 | File storage | **Supabase Storage** | Same project as DB, S3-compatible API |
-| LLM | **Anthropic + OpenAI** | Bring your own keys (pay-per-use) |
+| LLM | **Google Gemini** via [AI Studio](https://aistudio.google.com) | Free tier, Vietnam-supported, both chat + embeddings from one key |
 
 ## Caveats — what works and what doesn't
 
@@ -45,10 +45,9 @@ Be honest with yourself before starting:
 2. **Vercel account** (https://vercel.com/signup — sign in with GitHub)
 3. **Supabase account** (https://supabase.com/dashboard — free tier)
 4. **Upstash account** (https://upstash.com — free tier)
-5. **Anthropic API key** (https://console.anthropic.com — pay-per-use, ~$5 credit usually enough for demo)
-6. **OpenAI API key** (https://platform.openai.com — pay-per-use, used for embeddings)
+5. **Google AI Studio API key** — https://aistudio.google.com → "Get API key" → "Create API key". Free, no credit card required. Covers both chat + embeddings.
 
-The first 4 are free; the LLM keys are pay-per-use but very cheap for demo traffic (~$1-5/month at light usage).
+All five are free. Demo traffic stays comfortably inside Gemini's free tier (1500 req/day on Flash).
 
 ## Deployment walkthrough
 
@@ -86,10 +85,13 @@ The first 4 are free; the LLM keys are pay-per-use but very cheap for demo traff
 1. Go to https://upstash.com → "Create Database" → Redis. Pick the closest region. Tier: free.
 2. Copy the **TLS connection string** (starts with `rediss://`). This becomes `REDIS_URL`.
 
-### Step 3 — LLM keys
+### Step 3 — Google AI Studio key
 
-1. **Anthropic**: https://console.anthropic.com → API keys → create key. Copy → `ANTHROPIC_API_KEY`. Top up $5-10 credit.
-2. **OpenAI**: https://platform.openai.com/api-keys → create key. Copy → `OPENAI_API_KEY`. Top up $5 credit (embeddings are very cheap, ~$0.10 per 1M tokens).
+1. Open https://aistudio.google.com (sign in with any Google account).
+2. Top-left "Get API key" → "Create API key" → pick or create a Google Cloud project.
+3. Copy the key (starts `AIza...`) → save as `GOOGLE_API_KEY` for Step 4.
+
+Free tier on Gemini 1.5 Flash is 1500 req/day + 1M tokens/min — way more than a demo needs. No card required.
 
 ### Step 4 — Vercel deploy
 
@@ -111,8 +113,7 @@ The first 4 are free; the LLM keys are pay-per-use but very cheap for demo traff
    | `SUPABASE_URL` | `https://[ref].supabase.co` | Production, Preview |
    | `SUPABASE_SECRET_KEY` | (service_role secret) | Production, Preview |
    | `REDIS_URL` | rediss://… from Upstash | Production, Preview |
-   | `ANTHROPIC_API_KEY` | sk-ant-… | Production, Preview |
-   | `OPENAI_API_KEY` | sk-… | Production, Preview |
+   | `GOOGLE_API_KEY` | AIza… (from Step 3) | Production, Preview |
    | `AEC_ENV` | `production` | Production |
    | `WEB_BASE_URL` | `https://[your-vercel-domain].vercel.app` | Production |
    | `CORS_ORIGINS` | `["https://[your-vercel-domain].vercel.app"]` | Production |

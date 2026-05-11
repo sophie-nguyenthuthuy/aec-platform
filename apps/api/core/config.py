@@ -42,6 +42,26 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
 
+    # ---------- AI providers ----------
+    #
+    # As of the free-tier deploy pivot, the platform talks to **Google
+    # Gemini** for both chat and embeddings — the original
+    # Anthropic + OpenAI keys are kept as `Optional` for backward
+    # compatibility with old deploys / tests that monkeypatch the
+    # legacy clients directly, but no production code path reads them.
+    # The real factory lives at `apps/ml/llm.py`.
+    google_api_key: str | None = Field(default=None, validation_alias="GOOGLE_API_KEY")
+    gemini_chat_model: str = Field(
+        default="gemini-1.5-flash",
+        validation_alias="GEMINI_CHAT_MODEL",
+    )
+    gemini_embedding_model: str = Field(
+        default="models/text-embedding-004",
+        validation_alias="GEMINI_EMBEDDING_MODEL",
+    )
+
+    # Legacy / disabled — kept for tests and for an easy "switch back"
+    # path. None of these are wired into the pipeline factory anymore.
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-4-6"

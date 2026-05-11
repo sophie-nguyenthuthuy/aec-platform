@@ -61,7 +61,7 @@ export default function SubmittalsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Submittals"
+        title="Hồ sơ đệ trình"
         description="Bản vẽ thi công, mẫu vật liệu, dữ liệu sản phẩm và mock-up gửi từ nhà thầu cho đội thiết kế duyệt."
         actions={
           <Button onClick={() => setCreating(true)}>

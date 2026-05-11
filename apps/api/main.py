@@ -49,6 +49,7 @@ from routers import (  # noqa: E402
     winwork,
 )
 from routers import api_keys as api_keys_router  # noqa: E402
+from routers import design_context as design_context_router  # noqa: E402
 from routers import exports as exports_router  # noqa: E402
 from routers import imports as imports_router  # noqa: E402
 
@@ -110,6 +111,7 @@ def create_app() -> FastAPI:
     app.include_router(changeorder.router)
     app.include_router(punchlist.router)
     app.include_router(files.router)
+    app.include_router(design_context_router.router)
     # Cross-module admin / ops endpoints (gated by `admin` role).
     app.include_router(admin.router)
     # Public (no-auth) routers — token in the request *is* the auth.

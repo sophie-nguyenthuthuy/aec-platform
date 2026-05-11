@@ -14,7 +14,14 @@ import {
 import { ProposalCard } from "@aec/ui/winwork/ProposalCard";
 import { useProposals } from "@/hooks/winwork/useProposals";
 
-const STATUSES: (ProposalStatus | "all")[] = ["all", "draft", "sent", "won", "lost", "expired"];
+const STATUSES: Array<{ value: ProposalStatus | "all"; label: string }> = [
+  { value: "all", label: "Tất cả" },
+  { value: "draft", label: "Bản nháp" },
+  { value: "sent", label: "Đã gửi" },
+  { value: "won", label: "Thắng" },
+  { value: "lost", label: "Thua" },
+  { value: "expired", label: "Hết hạn" },
+];
 
 export default function WinWorkListPage() {
   const [status, setStatus] = useState<ProposalStatus | "all">("all");
@@ -28,11 +35,11 @@ export default function WinWorkListPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Proposals"
-        description="Track and manage client proposals"
+        title="Đề xuất"
+        description="Theo dõi và quản lý đề xuất dự án với khách hàng"
         actions={
           <Link href="/winwork/proposals/new" className={buttonStyles({})}>
-            New proposal
+            Đề xuất mới
           </Link>
         }
       />
@@ -41,18 +48,18 @@ export default function WinWorkListPage() {
         <div className="flex flex-wrap gap-1">
           {STATUSES.map((s) => (
             <Button
-              key={s}
-              variant={status === s ? "default" : "outline"}
+              key={s.value}
+              variant={status === s.value ? "default" : "outline"}
               size="sm"
-              onClick={() => setStatus(s)}
+              onClick={() => setStatus(s.value)}
             >
-              {s}
+              {s.label}
             </Button>
           ))}
         </div>
         <Input
           className="ml-auto w-64"
-          placeholder="Search title or client…"
+          placeholder="Tìm tiêu đề hoặc khách hàng..."
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -60,10 +67,10 @@ export default function WinWorkListPage() {
 
       {isLoading ? (
         <div className="flex justify-center py-8">
-          <Spinner label="Loading proposals" />
+          <Spinner label="Đang tải" />
         </div>
       ) : (data?.items ?? []).length === 0 ? (
-        <EmptyState title="No proposals yet." />
+        <EmptyState title="Chưa có đề xuất nào." />
       ) : (
         <div className="grid gap-3">
           {(data?.items ?? []).map((p) => (

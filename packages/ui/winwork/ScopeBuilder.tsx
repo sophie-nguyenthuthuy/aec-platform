@@ -9,11 +9,11 @@ import { Textarea } from "../primitives/textarea";
 import { Label } from "../primitives/label";
 
 const PHASES = [
-  "Concept",
-  "Schematic",
-  "Design Development",
-  "Construction Documents",
-  "Construction Administration",
+  "Ý tưởng",
+  "Sơ bộ",
+  "Phát triển thiết kế",
+  "Hồ sơ thi công",
+  "Giám sát thi công",
 ] as const;
 
 interface ScopeBuilderProps {
@@ -37,8 +37,8 @@ export function ScopeBuilder({ items, onChange }: ScopeBuilderProps) {
       ...items,
       {
         id: crypto.randomUUID(),
-        phase: "Concept",
-        title: "New deliverable",
+        phase: "Ý tưởng",
+        title: "Hạng mục mới",
         deliverables: [],
       },
     ]);
@@ -85,17 +85,17 @@ export function ScopeBuilder({ items, onChange }: ScopeBuilderProps) {
               <Input
                 value={item.title}
                 onChange={(e) => update(idx, { title: e.target.value })}
-                placeholder="Title"
+                placeholder="Tiêu đề"
               />
             </div>
             <Textarea
               value={item.description ?? ""}
               onChange={(e) => update(idx, { description: e.target.value })}
-              placeholder="Description"
+              placeholder="Mô tả"
               rows={2}
             />
             <div>
-              <Label className="text-xs text-muted-foreground">Deliverables (one per line)</Label>
+              <Label className="text-xs text-muted-foreground">Đầu ra (mỗi dòng một mục)</Label>
               <Textarea
                 value={item.deliverables.join("\n")}
                 onChange={(e) =>
@@ -112,7 +112,7 @@ export function ScopeBuilder({ items, onChange }: ScopeBuilderProps) {
       ))}
       <Button variant="outline" size="sm" onClick={add}>
         <Plus className="mr-1 h-4 w-4" />
-        Add scope item
+        Thêm hạng mục
       </Button>
     </div>
   );

@@ -28,13 +28,12 @@ from datetime import date, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from langchain_openai import OpenAIEmbeddings
+from ml.llm import embeddings
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-_EMBED_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
 _EMBED_BATCH = 64
 _CHUNK_TARGET_CHARS = 1200
 _CHUNK_MAX_CHARS = 1800
@@ -186,7 +185,7 @@ def chunk_section(section: Section) -> list[str]:
 
 
 async def _embed_batched(texts: list[str]) -> list[list[float]]:
-    embedder = OpenAIEmbeddings(model=_EMBED_MODEL)
+    embedder = embeddings()
     out: list[list[float]] = []
     for i in range(0, len(texts), _EMBED_BATCH):
         batch = texts[i : i + _EMBED_BATCH]
@@ -383,8 +382,8 @@ async def ingest_regulation(
             pairs.append((section, piece))
 
     logger.info("Embedding %d chunks for %s", len(pairs), code_name)
-    embeddings = await _embed_batched([p[1] for p in pairs])
-    triples = [(s, txt, emb) for (s, txt), emb in zip(pairs, embeddings, strict=True)]
+    vectors = await _embed_batched([p[1] for p in pairs])
+    triples = [(s, txt, emb) for (s, txt), emb in zip(pairs, vectors, strict=True)]
 
     chunks_written = await _insert_chunks(db, regulation_id, triples)
     await db.commit()

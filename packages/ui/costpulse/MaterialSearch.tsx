@@ -17,7 +17,7 @@ interface MaterialSearchProps {
 export function MaterialSearch({
   onSearch,
   onSelect,
-  placeholder = "Search materials…",
+  placeholder = "Tìm vật liệu…",
   className,
 }: MaterialSearchProps): JSX.Element {
   const [query, setQuery] = useState("");
@@ -60,7 +60,7 @@ export function MaterialSearch({
       />
       {open && (results.length > 0 || loading) && (
         <div className="absolute z-10 mt-1 max-h-80 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-lg">
-          {loading && <div className="px-3 py-2 text-xs text-slate-500">Loading…</div>}
+          {loading && <div className="px-3 py-2 text-xs text-slate-500">Đang tải…</div>}
           {results.map((r) => (
             <button
               key={r.id}
@@ -75,7 +75,7 @@ export function MaterialSearch({
               <div className="min-w-0">
                 <div className="truncate font-medium text-slate-900">{r.name}</div>
                 <div className="text-xs text-slate-500">
-                  {r.material_code} · {r.province ?? "National"} · {r.unit}
+                  {r.material_code} · {r.province ?? "Toàn quốc"} · {r.unit}
                 </div>
               </div>
               <div className="whitespace-nowrap text-sm font-semibold text-emerald-700">

@@ -12,15 +12,15 @@ export function WinRateDashboard({ data }: { data: WinRateAnalytics }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-4 gap-4">
-        <Kpi label="Total" value={String(data.total)} />
-        <Kpi label="Win rate" value={`${Math.round(data.win_rate * 100)}%`} />
-        <Kpi label="Avg fee" value={fmtVND(data.avg_fee_vnd)} />
-        <Kpi label="Pending" value={String(data.pending)} />
+        <Kpi label="Tổng" value={String(data.total)} />
+        <Kpi label="Tỷ lệ thắng" value={`${Math.round(data.win_rate * 100)}%`} />
+        <Kpi label="Phí TB" value={fmtVND(data.avg_fee_vnd)} />
+        <Kpi label="Đang chờ" value={String(data.pending)} />
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Win rate by project type</CardTitle>
+          <CardTitle>Tỷ lệ thắng theo loại dự án</CardTitle>
         </CardHeader>
         <CardContent className="h-[280px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -30,8 +30,8 @@ export function WinRateDashboard({ data }: { data: WinRateAnalytics }) {
               <YAxis />
               <Tooltip formatter={(v: number, name: string) => (name === "win_rate" ? `${Math.round(v * 100)}%` : v)} />
               <Legend />
-              <Bar dataKey="total" fill="#94a3b8" name="Total" />
-              <Bar dataKey="won" fill="#16a34a" name="Won" />
+              <Bar dataKey="total" fill="#94a3b8" name="Tổng" />
+              <Bar dataKey="won" fill="#16a34a" name="Thắng" />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -39,7 +39,7 @@ export function WinRateDashboard({ data }: { data: WinRateAnalytics }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Monthly trend</CardTitle>
+          <CardTitle>Xu hướng theo tháng</CardTitle>
         </CardHeader>
         <CardContent className="h-[280px]">
           <ResponsiveContainer width="100%" height="100%">

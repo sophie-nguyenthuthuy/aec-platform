@@ -18,14 +18,14 @@ function formatVnd(value?: number | null): string {
 }
 
 function formatDeadline(value?: string | null): string {
-  if (!value) return "No deadline";
+  if (!value) return "Không có hạn nộp";
   const date = new Date(value);
   const now = new Date();
   const days = Math.round((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-  if (days < 0) return `Closed ${-days}d ago`;
-  if (days === 0) return "Closes today";
-  if (days <= 7) return `${days}d left`;
-  return date.toLocaleDateString();
+  if (days < 0) return `Đã đóng ${-days} ngày trước`;
+  if (days === 0) return "Đóng hôm nay";
+  if (days <= 7) return `Còn ${days} ngày`;
+  return date.toLocaleDateString("vi-VN");
 }
 
 export const TenderCard: FC<Props> = ({ match, onSave, onPass, onCreateProposal }) => {
@@ -38,7 +38,7 @@ export const TenderCard: FC<Props> = ({ match, onSave, onPass, onCreateProposal 
             {tender.title}
           </h3>
           <p className="mt-0.5 truncate text-sm text-slate-500">
-            {tender.issuer ?? "Unknown issuer"} · {tender.province ?? "—"}
+            {tender.issuer ?? "Chưa rõ đơn vị mời thầu"} · {tender.province ?? "—"}
           </p>
         </div>
         <MatchScoreBadge score={match.match_score ?? undefined} />
@@ -54,7 +54,7 @@ export const TenderCard: FC<Props> = ({ match, onSave, onPass, onCreateProposal 
         <CompetitionBadge level={match.competition_level ?? undefined} />
         {match.recommended_bid ? (
           <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-            Recommended
+            Đề xuất
           </span>
         ) : null}
       </div>
@@ -67,7 +67,7 @@ export const TenderCard: FC<Props> = ({ match, onSave, onPass, onCreateProposal 
         <div className="grid grid-cols-2 gap-3 text-xs">
           {rec.strengths.length > 0 ? (
             <div>
-              <p className="mb-1 font-medium text-emerald-700">Strengths</p>
+              <p className="mb-1 font-medium text-emerald-700">Điểm mạnh</p>
               <ul className="list-inside list-disc space-y-0.5 text-slate-600">
                 {rec.strengths.slice(0, 3).map((s, i) => (
                   <li key={i}>{s}</li>
@@ -77,7 +77,7 @@ export const TenderCard: FC<Props> = ({ match, onSave, onPass, onCreateProposal 
           ) : null}
           {rec.risks.length > 0 ? (
             <div>
-              <p className="mb-1 font-medium text-rose-700">Risks</p>
+              <p className="mb-1 font-medium text-rose-700">Rủi ro</p>
               <ul className="list-inside list-disc space-y-0.5 text-slate-600">
                 {rec.risks.slice(0, 3).map((r, i) => (
                   <li key={i}>{r}</li>
@@ -95,7 +95,7 @@ export const TenderCard: FC<Props> = ({ match, onSave, onPass, onCreateProposal 
             onClick={() => onCreateProposal(match.id)}
             className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
           >
-            Create proposal
+            Tạo đề xuất
           </button>
         ) : null}
         {onSave ? (
@@ -104,7 +104,7 @@ export const TenderCard: FC<Props> = ({ match, onSave, onPass, onCreateProposal 
             onClick={() => onSave(match.id)}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
-            Save
+            Lưu
           </button>
         ) : null}
         {onPass ? (
@@ -113,7 +113,7 @@ export const TenderCard: FC<Props> = ({ match, onSave, onPass, onCreateProposal 
             onClick={() => onPass(match.id)}
             className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-50"
           >
-            Pass
+            Bỏ qua
           </button>
         ) : null}
         {tender.raw_url ? (
@@ -123,7 +123,7 @@ export const TenderCard: FC<Props> = ({ match, onSave, onPass, onCreateProposal 
             rel="noreferrer noopener"
             className="ml-auto text-sm text-slate-500 hover:text-slate-700"
           >
-            Source ↗
+            Nguồn ↗
           </a>
         ) : null}
       </footer>

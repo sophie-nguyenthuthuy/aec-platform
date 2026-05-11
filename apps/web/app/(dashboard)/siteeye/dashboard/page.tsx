@@ -51,7 +51,7 @@ export default function SiteDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Site dashboard" />
+      <PageHeader title="Bảng điều khiển công trường" />
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <div className="rounded-lg border bg-card p-4">

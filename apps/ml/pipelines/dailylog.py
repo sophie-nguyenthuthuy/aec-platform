@@ -22,16 +22,16 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from collections import Counter
 from datetime import date
 from typing import Any
 from uuid import UUID
 
+from ml.llm import chat_model
+
 logger = logging.getLogger(__name__)
 
-_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-_EXTRACT_MODEL_VERSION = f"dailylog-extract/v1@{_ANTHROPIC_MODEL}"
+_EXTRACT_MODEL_VERSION = "dailylog-extract/v1"
 
 
 _EXTRACT_PROMPT_SYSTEM = """\
@@ -87,13 +87,9 @@ async def extract_observations(
         return []
 
     try:
-        from langchain_anthropic import ChatAnthropic
         from langchain_core.output_parsers import JsonOutputParser
         from langchain_core.prompts import ChatPromptTemplate
     except ImportError:
-        return _heuristic_extract(narrative or "", issues_observed or "")
-
-    if not os.getenv("ANTHROPIC_API_KEY"):
         return _heuristic_extract(narrative or "", issues_observed or "")
 
     payload = json.dumps(
@@ -105,7 +101,7 @@ async def extract_observations(
         },
         ensure_ascii=False,
     )
-    llm = ChatAnthropic(model=_ANTHROPIC_MODEL, temperature=0.1, max_tokens=1024)
+    llm = chat_model(temperature=0.1, max_tokens=1024)
     prompt = ChatPromptTemplate.from_messages(
         [("system", _EXTRACT_PROMPT_SYSTEM), ("human", "{payload}")]
     )

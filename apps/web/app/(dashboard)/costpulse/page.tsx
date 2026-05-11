@@ -6,11 +6,11 @@ import { PageHeader } from "@aec/ui/primitives";
 export const dynamic = "force-dynamic";
 
 const SECTIONS: Array<{ href: Route; title: string; desc: string }> = [
-  { href: "/costpulse/estimates", title: "Estimates", desc: "Browse, edit and approve cost estimates." },
-  { href: "/costpulse/estimates/new", title: "New estimate", desc: "AI estimate from brief or drawings." },
-  { href: "/costpulse/prices", title: "Price database", desc: "Live material prices + trend charts." },
-  { href: "/costpulse/suppliers", title: "Suppliers", desc: "Directory of verified suppliers." },
-  { href: "/costpulse/rfq", title: "RFQ manager", desc: "Send and track RFQs." },
+  { href: "/costpulse/estimates", title: "Dự toán", desc: "Xem, chỉnh sửa và duyệt dự toán chi phí." },
+  { href: "/costpulse/estimates/new", title: "Dự toán mới", desc: "Lập dự toán bằng AI từ brief hoặc bản vẽ." },
+  { href: "/costpulse/prices", title: "Cơ sở dữ liệu giá", desc: "Giá vật liệu thực tế và biểu đồ xu hướng." },
+  { href: "/costpulse/suppliers", title: "Nhà cung cấp", desc: "Danh mục nhà cung cấp đã xác minh." },
+  { href: "/costpulse/rfq", title: "Quản lý RFQ", desc: "Gửi và theo dõi yêu cầu báo giá." },
 ];
 
 export default function CostPulseHome(): JSX.Element {
@@ -18,7 +18,7 @@ export default function CostPulseHome(): JSX.Element {
     <div className="mx-auto max-w-5xl space-y-6 p-6">
       <PageHeader
         title="CostPulse"
-        description="Estimation & procurement intelligence."
+        description="Lập dự toán & thu mua thông minh."
       />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {SECTIONS.map((s) => (

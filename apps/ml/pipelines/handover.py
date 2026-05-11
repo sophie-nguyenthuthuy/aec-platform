@@ -15,15 +15,14 @@ read `extracted_metadata.text` when a worker has already done OCR.
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, StateGraph
+from ml.llm import chat_model
 from pydantic import BaseModel, Field
 from schemas.handover import (
     CloseoutCategory,
@@ -36,12 +35,11 @@ from schemas.handover import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 _MAX_DOC_CHARS = 60_000
 
 
-def _llm(temperature: float = 0.1) -> ChatAnthropic:
-    return ChatAnthropic(model=_ANTHROPIC_MODEL, temperature=temperature, max_tokens=4096)
+def _llm(temperature: float = 0.1):
+    return chat_model(temperature=temperature, max_tokens=4096)
 
 
 # ---------- File loading ----------

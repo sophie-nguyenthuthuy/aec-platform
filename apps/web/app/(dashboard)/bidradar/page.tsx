@@ -34,8 +34,8 @@ export default function BidRadarMatchesPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Your tender matches"
-        description={`${data?.total ?? 0} matches · AI-ranked by fit to your firm profile`}
+        title="Hồ sơ đấu thầu phù hợp"
+        description={`${data?.total ?? 0} hồ sơ · AI xếp hạng theo hồ sơ công ty`}
         actions={
           <>
             <Button
@@ -44,14 +44,14 @@ export default function BidRadarMatchesPage() {
               onClick={() => scrape.mutate({ source: "mua-sam-cong.gov.vn" })}
               loading={scrape.isPending}
             >
-              {scrape.isPending ? "Scraping…" : "Scrape Vietnam portal"}
+              {scrape.isPending ? "Đang thu thập..." : "Thu thập cổng VN"}
             </Button>
             <Button
               size="sm"
               onClick={() => score.mutate({ rescore_existing: false })}
               loading={score.isPending}
             >
-              {score.isPending ? "Scoring…" : "Re-score matches"}
+              {score.isPending ? "Đang chấm điểm..." : "Chấm điểm lại"}
             </Button>
           </>
         }
@@ -70,12 +70,12 @@ export default function BidRadarMatchesPage() {
 
       {isLoading ? (
         <div className="flex justify-center py-8">
-          <Spinner label="Loading matches" />
+          <Spinner label="Đang tải" />
         </div>
       ) : items.length === 0 ? (
         <EmptyState
-          title="No matches yet."
-          description="Set up your firm profile and scrape a source to get started."
+          title="Chưa có hồ sơ phù hợp."
+          description="Cập nhật hồ sơ công ty và thu thập nguồn dữ liệu để bắt đầu."
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">

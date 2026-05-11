@@ -53,7 +53,7 @@ export function RfqResponsesPanel({
     // case a hand-edit lands one in the DB.
     return (
       <div className={`rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-500 ${className}`}>
-        No suppliers were attached to this RFQ.
+        Không có nhà cung cấp nào được gắn với RFQ này.
       </div>
     );
   }
@@ -62,20 +62,20 @@ export function RfqResponsesPanel({
     <div className={`overflow-hidden rounded-lg border border-slate-200 bg-white ${className}`}>
       <header className="flex items-baseline justify-between border-b border-slate-100 px-4 py-2 text-xs">
         <h3 className="font-semibold uppercase tracking-wide text-slate-700">
-          Responses
+          Phản hồi
         </h3>
         <p className="text-slate-500">
-          {responded} / {rows.length} responded
+          {responded} / {rows.length} đã phản hồi
         </p>
       </header>
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-600">
           <tr>
-            <th className="px-3 py-2">Supplier</th>
-            <th className="px-3 py-2">Status</th>
-            <th className="px-3 py-2 text-right">Quote total</th>
-            <th className="px-3 py-2 text-right">Lead time</th>
-            <th className="px-3 py-2">Last update</th>
+            <th className="px-3 py-2">Nhà cung cấp</th>
+            <th className="px-3 py-2">Trạng thái</th>
+            <th className="px-3 py-2 text-right">Tổng báo giá</th>
+            <th className="px-3 py-2 text-right">Thời gian giao</th>
+            <th className="px-3 py-2">Cập nhật cuối</th>
           </tr>
         </thead>
         <tbody>
@@ -143,11 +143,11 @@ function StatusBadge({
     pending: "border-slate-200 bg-slate-50 text-slate-600",
   };
   const labels: Record<DisplayStatus, string> = {
-    responded: "Responded",
-    dispatched: "Dispatched",
-    bounced: "Bounced",
-    skipped: "Skipped",
-    pending: "Pending",
+    responded: "Đã phản hồi",
+    dispatched: "Đã gửi",
+    bounced: "Bị trả lại",
+    skipped: "Bỏ qua",
+    pending: "Chờ gửi",
   };
 
   return (

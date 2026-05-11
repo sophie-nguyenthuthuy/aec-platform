@@ -20,23 +20,23 @@ export function ClientEmailModal({ open, onOpenChange, defaultSubject = "", onSe
   const [cc, setCc] = useState("");
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="Send proposal">
+    <Dialog open={open} onOpenChange={onOpenChange} title="Gửi đề xuất">
       <div className="space-y-4">
         <div className="space-y-1">
-          <Label>Subject</Label>
+          <Label>Tiêu đề</Label>
           <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
         </div>
         <div className="space-y-1">
-          <Label>Message</Label>
+          <Label>Nội dung</Label>
           <Textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)} />
         </div>
         <div className="space-y-1">
-          <Label>CC (comma-separated)</Label>
+          <Label>CC (phân cách bằng dấu phẩy)</Label>
           <Input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="ops@firm.com, lead@firm.com" />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={sending}>
-            Cancel
+            Huỷ
           </Button>
           <Button
             onClick={async () => {
@@ -49,7 +49,7 @@ export function ClientEmailModal({ open, onOpenChange, defaultSubject = "", onSe
             }}
             disabled={sending}
           >
-            {sending ? "Sending…" : "Send"}
+            {sending ? "Đang gửi…" : "Gửi"}
           </Button>
         </div>
       </div>

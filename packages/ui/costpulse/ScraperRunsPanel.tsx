@@ -35,32 +35,32 @@ export function ScraperRunsPanel({
     <section className={`overflow-hidden rounded-lg border border-slate-200 bg-white ${className}`}>
       <header className="flex items-baseline justify-between border-b border-slate-100 px-4 py-2">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
-          Scraper runs
+          Lịch sử thu thập
         </h3>
         <p className="text-xs text-slate-500">
           {counts.total === 0
-            ? "no runs"
-            : `${counts.ok} ok · ${counts.failed} failed · ${counts.drifting} drifting`}
+            ? "Chưa có lần chạy nào"
+            : `${counts.ok} ok · ${counts.failed} lỗi · ${counts.drifting} lệch`}
         </p>
       </header>
 
       {isLoading ? (
-        <div className="px-4 py-6 text-sm text-slate-500">Loading…</div>
+        <div className="px-4 py-6 text-sm text-slate-500">Đang tải…</div>
       ) : error ? (
         <div className="px-4 py-6 text-sm text-red-600">{error.message}</div>
       ) : runs.length === 0 ? (
         <div className="px-4 py-6 text-sm text-slate-500">
-          No scraper runs yet. The monthly cron will populate this once it fires.
+          Chưa có lần thu thập nào. Cron hàng tháng sẽ điền dữ liệu khi chạy lần đầu.
         </div>
       ) : (
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-600">
             <tr>
               <th className="px-3 py-2">Slug</th>
-              <th className="px-3 py-2">Started</th>
-              <th className="px-3 py-2 text-right">Scraped</th>
-              <th className="px-3 py-2 text-right">Unmatched</th>
-              <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Bắt đầu</th>
+              <th className="px-3 py-2 text-right">Đã thu thập</th>
+              <th className="px-3 py-2 text-right">Không khớp</th>
+              <th className="px-3 py-2">Trạng thái</th>
             </tr>
           </thead>
           <tbody>
@@ -129,10 +129,10 @@ function StatusBadge({
   drifting: boolean;
 }): JSX.Element {
   if (!run.ok) {
-    return <Badge tone="red">Failed</Badge>;
+    return <Badge tone="red">Lỗi</Badge>;
   }
   if (drifting) {
-    return <Badge tone="amber">Drift</Badge>;
+    return <Badge tone="amber">Lệch</Badge>;
   }
   return <Badge tone="green">OK</Badge>;
 }

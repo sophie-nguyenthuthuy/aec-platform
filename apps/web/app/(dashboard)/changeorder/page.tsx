@@ -65,7 +65,7 @@ export default function ChangeOrderPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Change Orders"
+        title="Lệnh thay đổi"
         description="Quản lý phát sinh: chi phí, thời gian, lịch sử duyệt. Trợ lý AI có thể phát hiện đề xuất từ RFI hoặc email."
         actions={
           <>
