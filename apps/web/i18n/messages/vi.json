@@ -231,29 +231,86 @@
       "title": "14 mô-đun, một nền tảng",
       "subtitle": "Tổ chức theo vòng đời dự án — chọn mô-đun phù hợp giai đoạn của đội bạn.",
       "bucket": {
-        "pre": { "title": "Trước thi công", "subtitle": "Từ tìm cơ hội tới chốt hợp đồng." },
-        "live": { "title": "Đang thi công", "subtitle": "Theo dõi công trường, tiến độ, an toàn theo thời gian thực." },
-        "close": { "title": "Bàn giao & vận hành", "subtitle": "Chốt sổ, kiểm tra, phát sinh và quy chuẩn." }
+        "pre": {
+          "title": "Trước thi công",
+          "subtitle": "Từ tìm cơ hội tới chốt hợp đồng."
+        },
+        "live": {
+          "title": "Đang thi công",
+          "subtitle": "Theo dõi công trường, tiến độ, an toàn theo thời gian thực."
+        },
+        "close": {
+          "title": "Bàn giao & vận hành",
+          "subtitle": "Chốt sổ, kiểm tra, phát sinh và quy chuẩn."
+        }
       },
-      "winwork": { "name": "WinWork", "tagline": "Đề xuất, báo giá và phân tích tỷ lệ thắng thầu." },
-      "bidradar": { "name": "BidRadar", "tagline": "Theo dõi đấu thầu công và cơ hội mới mỗi ngày." },
-      "costpulse": { "name": "CostPulse", "tagline": "Bảng giá vật tư động, cảnh báo biến động và dự toán nhanh." },
-      "drawbridge": { "name": "Drawbridge", "tagline": "Quản lý bản vẽ, RFI và phối hợp giữa các bộ môn." },
-      "pulse": { "name": "Pulse", "tagline": "Tổng quan dự án — nhịp tiến độ, ngân sách, rủi ro." },
-      "siteeye": { "name": "SiteEye", "tagline": "Camera AI giám sát PPE và an toàn lao động." },
-      "schedulepilot": { "name": "SchedulePilot", "tagline": "Lập tiến độ, đường găng và mô phỏng kịch bản trễ hạn." },
-      "submittals": { "name": "Submittals", "tagline": "Quy trình duyệt vật tư, mẫu và biên bản nghiệm thu." },
-      "dailylog": { "name": "DailyLog", "tagline": "Nhật ký công trường có ảnh, định vị và xuất PDF." },
-      "handover": { "name": "Handover", "tagline": "Hồ sơ bàn giao, bảo hành và tài liệu vận hành." },
-      "punchlist": { "name": "Punchlist", "tagline": "Danh mục lỗi, theo dõi xử lý cho tới khi đóng." },
-      "changeorder": { "name": "ChangeOrder", "tagline": "Quản lý phát sinh, phê duyệt và tác động chi phí." },
-      "codeguard": { "name": "CodeGuard", "tagline": "Trợ lý AI tra cứu QCVN/TCVN ngay trong thiết kế." }
+      "winwork": {
+        "name": "WinWork",
+        "tagline": "Đề xuất, báo giá và phân tích tỷ lệ thắng thầu."
+      },
+      "bidradar": {
+        "name": "BidRadar",
+        "tagline": "Theo dõi đấu thầu công và cơ hội mới mỗi ngày."
+      },
+      "costpulse": {
+        "name": "CostPulse",
+        "tagline": "Bảng giá vật tư động, cảnh báo biến động và dự toán nhanh."
+      },
+      "drawbridge": {
+        "name": "Drawbridge",
+        "tagline": "Quản lý bản vẽ, RFI và phối hợp giữa các bộ môn."
+      },
+      "pulse": {
+        "name": "Pulse",
+        "tagline": "Tổng quan dự án — nhịp tiến độ, ngân sách, rủi ro."
+      },
+      "siteeye": {
+        "name": "SiteEye",
+        "tagline": "Camera AI giám sát PPE và an toàn lao động."
+      },
+      "schedulepilot": {
+        "name": "SchedulePilot",
+        "tagline": "Lập tiến độ, đường găng và mô phỏng kịch bản trễ hạn."
+      },
+      "submittals": {
+        "name": "Submittals",
+        "tagline": "Quy trình duyệt vật tư, mẫu và biên bản nghiệm thu."
+      },
+      "dailylog": {
+        "name": "DailyLog",
+        "tagline": "Nhật ký công trường có ảnh, định vị và xuất PDF."
+      },
+      "handover": {
+        "name": "Handover",
+        "tagline": "Hồ sơ bàn giao, bảo hành và tài liệu vận hành."
+      },
+      "punchlist": {
+        "name": "Punchlist",
+        "tagline": "Danh mục lỗi, theo dõi xử lý cho tới khi đóng."
+      },
+      "changeorder": {
+        "name": "ChangeOrder",
+        "tagline": "Quản lý phát sinh, phê duyệt và tác động chi phí."
+      },
+      "codeguard": {
+        "name": "CodeGuard",
+        "tagline": "Trợ lý AI tra cứu QCVN/TCVN ngay trong thiết kế."
+      }
     },
     "why": {
       "title": "Vì sao chọn AEC Platform",
-      "local": { "title": "Sinh ra cho Việt Nam", "body": "Quy trình QCVN/TCVN, định dạng hồ sơ tiếng Việt, hỗ trợ VND và phân quyền dự án." },
-      "ai": { "title": "AI là trợ lý, không phải tính năng phụ", "body": "Trợ lý AI có ngữ cảnh toàn dự án giúp soạn báo giá, kiểm tra QCVN, phân loại lỗi từ ảnh hiện trường." },
-      "open": { "title": "Mở và có thể tích hợp", "body": "API, webhook và xuất dữ liệu chuẩn hoá giúp kết nối với phần mềm kế toán, ERP và BIM hiện có." }
+      "local": {
+        "title": "Sinh ra cho Việt Nam",
+        "body": "Quy trình QCVN/TCVN, định dạng hồ sơ tiếng Việt, hỗ trợ VND và phân quyền dự án."
+      },
+      "ai": {
+        "title": "AI là trợ lý, không phải tính năng phụ",
+        "body": "Trợ lý AI có ngữ cảnh toàn dự án giúp soạn báo giá, kiểm tra QCVN, phân loại lỗi từ ảnh hiện trường."
+      },
+      "open": {
+        "title": "Mở và có thể tích hợp",
+        "body": "API, webhook và xuất dữ liệu chuẩn hoá giúp kết nối với phần mềm kế toán, ERP và BIM hiện có."
+      }
     },
     "cta": {
       "title": "Sẵn sàng thử với một dự án thật?",
@@ -267,9 +324,24 @@
       "popular": "Phổ biến",
       "per_user_month": " /người/tháng",
       "tier": {
-        "starter": { "name": "Starter", "tagline": "Đội nhỏ, dự án đầu tiên.", "price": "490.000 ₫", "cta": "Dùng thử miễn phí" },
-        "growth": { "name": "Growth", "tagline": "Doanh nghiệp đang mở rộng.", "price": "890.000 ₫", "cta": "Bắt đầu Growth" },
-        "scale": { "name": "Scale", "tagline": "Tổng thầu, doanh nghiệp lớn.", "price": "Liên hệ", "cta": "Liên hệ kinh doanh" }
+        "starter": {
+          "name": "Starter",
+          "tagline": "Đội nhỏ, dự án đầu tiên.",
+          "price": "490.000 ₫",
+          "cta": "Dùng thử miễn phí"
+        },
+        "growth": {
+          "name": "Growth",
+          "tagline": "Doanh nghiệp đang mở rộng.",
+          "price": "890.000 ₫",
+          "cta": "Bắt đầu Growth"
+        },
+        "scale": {
+          "name": "Scale",
+          "tagline": "Tổng thầu, doanh nghiệp lớn.",
+          "price": "Liên hệ",
+          "cta": "Liên hệ kinh doanh"
+        }
       },
       "feature": {
         "modules_all": "Đủ 14 mô-đun",
@@ -350,7 +422,8 @@
       "login": {
         "subtitle": "Đăng nhập để tiếp tục",
         "submit": "Đăng nhập",
-        "submitting": "Đang đăng nhập…"
+        "submitting": "Đang đăng nhập…",
+        "forgot_password": "Quên mật khẩu?"
       },
       "signup": {
         "subtitle": "Đăng ký tài khoản miễn phí",
@@ -363,7 +436,8 @@
         "title": "Kiểm tra email",
         "body": "Chúng tôi vừa gửi một liên kết xác nhận đến <email></email>. Mở liên kết và quay lại đây để đăng nhập.",
         "back_to_login": "Quay lại đăng nhập"
-      }
+      },
+      "password_label": "Mật khẩu"
     }
   }
 }

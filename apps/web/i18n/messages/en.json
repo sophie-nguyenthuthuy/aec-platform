@@ -231,29 +231,86 @@
       "title": "14 modules, one platform",
       "subtitle": "Organised by project lifecycle — pick what fits your team's stage today, scale into the rest as you grow.",
       "bucket": {
-        "pre": { "title": "Pre-construction", "subtitle": "From finding the work to signing the contract." },
-        "live": { "title": "On site", "subtitle": "Track progress, schedule, and safety in real time." },
-        "close": { "title": "Close-out & operate", "subtitle": "Handover, punch lists, change orders, and code compliance." }
+        "pre": {
+          "title": "Pre-construction",
+          "subtitle": "From finding the work to signing the contract."
+        },
+        "live": {
+          "title": "On site",
+          "subtitle": "Track progress, schedule, and safety in real time."
+        },
+        "close": {
+          "title": "Close-out & operate",
+          "subtitle": "Handover, punch lists, change orders, and code compliance."
+        }
       },
-      "winwork": { "name": "WinWork", "tagline": "Proposals, fee estimates, and win-rate analytics." },
-      "bidradar": { "name": "BidRadar", "tagline": "Track public tenders and new opportunities daily." },
-      "costpulse": { "name": "CostPulse", "tagline": "Live materials pricing, alerts, and rapid take-offs." },
-      "drawbridge": { "name": "Drawbridge", "tagline": "Drawing management, RFIs, and cross-discipline coordination." },
-      "pulse": { "name": "Pulse", "tagline": "Project pulse — schedule, budget, and risk at a glance." },
-      "siteeye": { "name": "SiteEye", "tagline": "AI camera analytics for PPE compliance and site safety." },
-      "schedulepilot": { "name": "SchedulePilot", "tagline": "Schedules, critical path, and what-if delay simulations." },
-      "submittals": { "name": "Submittals", "tagline": "Approval workflows for materials, samples, and inspections." },
-      "dailylog": { "name": "DailyLog", "tagline": "Site diaries with photos, GPS, and one-click PDF export." },
-      "handover": { "name": "Handover", "tagline": "Closeout package, warranties, and ops documentation." },
-      "punchlist": { "name": "Punchlist", "tagline": "Defect lists tracked from open to closed." },
-      "changeorder": { "name": "ChangeOrder", "tagline": "Change orders, approvals, and cost impact tracking." },
-      "codeguard": { "name": "CodeGuard", "tagline": "AI assistant that answers QCVN/TCVN questions in your design tool." }
+      "winwork": {
+        "name": "WinWork",
+        "tagline": "Proposals, fee estimates, and win-rate analytics."
+      },
+      "bidradar": {
+        "name": "BidRadar",
+        "tagline": "Track public tenders and new opportunities daily."
+      },
+      "costpulse": {
+        "name": "CostPulse",
+        "tagline": "Live materials pricing, alerts, and rapid take-offs."
+      },
+      "drawbridge": {
+        "name": "Drawbridge",
+        "tagline": "Drawing management, RFIs, and cross-discipline coordination."
+      },
+      "pulse": {
+        "name": "Pulse",
+        "tagline": "Project pulse — schedule, budget, and risk at a glance."
+      },
+      "siteeye": {
+        "name": "SiteEye",
+        "tagline": "AI camera analytics for PPE compliance and site safety."
+      },
+      "schedulepilot": {
+        "name": "SchedulePilot",
+        "tagline": "Schedules, critical path, and what-if delay simulations."
+      },
+      "submittals": {
+        "name": "Submittals",
+        "tagline": "Approval workflows for materials, samples, and inspections."
+      },
+      "dailylog": {
+        "name": "DailyLog",
+        "tagline": "Site diaries with photos, GPS, and one-click PDF export."
+      },
+      "handover": {
+        "name": "Handover",
+        "tagline": "Closeout package, warranties, and ops documentation."
+      },
+      "punchlist": {
+        "name": "Punchlist",
+        "tagline": "Defect lists tracked from open to closed."
+      },
+      "changeorder": {
+        "name": "ChangeOrder",
+        "tagline": "Change orders, approvals, and cost impact tracking."
+      },
+      "codeguard": {
+        "name": "CodeGuard",
+        "tagline": "AI assistant that answers QCVN/TCVN questions in your design tool."
+      }
     },
     "why": {
       "title": "Why AEC Platform",
-      "local": { "title": "Built for Vietnam", "body": "Native QCVN/TCVN workflows, Vietnamese document templates, VND-first pricing, and project-level RBAC." },
-      "ai": { "title": "AI as a teammate, not a feature", "body": "An assistant with full project context drafts proposals, checks code compliance, and triages site photos." },
-      "open": { "title": "Open and integrable", "body": "APIs, webhooks, and clean exports plug into accounting, ERP, and BIM tools you already use." }
+      "local": {
+        "title": "Built for Vietnam",
+        "body": "Native QCVN/TCVN workflows, Vietnamese document templates, VND-first pricing, and project-level RBAC."
+      },
+      "ai": {
+        "title": "AI as a teammate, not a feature",
+        "body": "An assistant with full project context drafts proposals, checks code compliance, and triages site photos."
+      },
+      "open": {
+        "title": "Open and integrable",
+        "body": "APIs, webhooks, and clean exports plug into accounting, ERP, and BIM tools you already use."
+      }
     },
     "cta": {
       "title": "Ready to try it on a real project?",
@@ -267,9 +324,24 @@
       "popular": "Most popular",
       "per_user_month": " /user/month",
       "tier": {
-        "starter": { "name": "Starter", "tagline": "Small teams, your first project on the platform.", "price": "₫490,000", "cta": "Start free trial" },
-        "growth": { "name": "Growth", "tagline": "Growing firms running multiple concurrent projects.", "price": "₫890,000", "cta": "Start with Growth" },
-        "scale": { "name": "Scale", "tagline": "General contractors and multi-branch enterprises.", "price": "Contact us", "cta": "Talk to sales" }
+        "starter": {
+          "name": "Starter",
+          "tagline": "Small teams, your first project on the platform.",
+          "price": "₫490,000",
+          "cta": "Start free trial"
+        },
+        "growth": {
+          "name": "Growth",
+          "tagline": "Growing firms running multiple concurrent projects.",
+          "price": "₫890,000",
+          "cta": "Start with Growth"
+        },
+        "scale": {
+          "name": "Scale",
+          "tagline": "General contractors and multi-branch enterprises.",
+          "price": "Contact us",
+          "cta": "Talk to sales"
+        }
       },
       "feature": {
         "modules_all": "All 14 modules",
@@ -350,7 +422,8 @@
       "login": {
         "subtitle": "Sign in to continue",
         "submit": "Sign in",
-        "submitting": "Signing in…"
+        "submitting": "Signing in…",
+        "forgot_password": "Forgot password?"
       },
       "signup": {
         "subtitle": "Create a free account",
@@ -363,7 +436,8 @@
         "title": "Check your email",
         "body": "We just sent a confirmation link to <email></email>. Open it and come back here to sign in.",
         "back_to_login": "Back to sign in"
-      }
+      },
+      "password_label": "Password"
     }
   }
 }

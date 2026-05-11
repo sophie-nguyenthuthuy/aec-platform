@@ -36,8 +36,17 @@ import {
 // events" which the API encodes as an empty array.
 const EVENT_GROUPS: Array<{ label: string; events: Array<[string, string]> }> = [
   {
+    label: "Dự án",
+    events: [["project.created", "Tạo dự án mới"]],
+  },
+  {
     label: "CostPulse",
-    events: [["costpulse.estimate.approve", "Duyệt dự toán"]],
+    events: [
+      ["costpulse.estimate.approve", "Duyệt dự toán"],
+      ["costpulse.boq.import", "Nhập BOQ"],
+      ["costpulse.suppliers.import", "Nhập danh sách NCC"],
+      ["costpulse.rfq.slots_expired", "RFQ hết hạn"],
+    ],
   },
   {
     label: "ProjectPulse",
@@ -57,6 +66,19 @@ const EVENT_GROUPS: Array<{ label: string; events: Array<[string, string]> }> = 
     ],
   },
   {
+    label: "Submittals",
+    events: [
+      ["submittals.review.approve", "Duyệt submittal"],
+      ["submittals.review.approve_as_noted", "Duyệt có ghi chú"],
+      ["submittals.review.revise_resubmit", "Yêu cầu nộp lại"],
+      ["submittals.review.reject", "Từ chối submittal"],
+    ],
+  },
+  {
+    label: "Punch list",
+    events: [["punchlist.list.sign_off", "Ký nghiệm thu punch list"]],
+  },
+  {
     label: "Handover",
     events: [
       ["handover.package.deliver", "Bàn giao gói"],
@@ -66,6 +88,24 @@ const EVENT_GROUPS: Array<{ label: string; events: Array<[string, string]> }> = 
   {
     label: "SiteEye",
     events: [["siteeye.safety_incident.detected", "Phát hiện sự cố ATLĐ"]],
+  },
+  {
+    label: "Thông báo",
+    events: [["notifications.preference.update", "Đổi tuỳ chọn thông báo"]],
+  },
+  {
+    label: "Webhooks",
+    events: [["webhooks.subscription.rotate_secret", "Xoay secret webhook"]],
+  },
+  {
+    label: "Quản trị nền tảng",
+    events: [
+      ["admin.normalizer_rule.create", "Tạo luật chuẩn hoá"],
+      ["admin.normalizer_rule.update", "Sửa luật chuẩn hoá"],
+      ["admin.normalizer_rule.delete", "Xoá luật chuẩn hoá"],
+      ["admin.cron.run_now", "Chạy cron thủ công"],
+      ["admin.cron.dedup_clear", "Xoá trạng thái dedup cron"],
+    ],
   },
 ];
 

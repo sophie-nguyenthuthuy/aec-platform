@@ -4,6 +4,8 @@ import { useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
+import Link from "next/link";
+
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -111,6 +113,12 @@ export default function LoginPage() {
         >
           {submitting ? t("login.submitting") : t("login.submit")}
         </button>
+
+        <p className="text-center text-xs text-slate-500">
+          <Link href="/forgot-password" className="text-slate-700 hover:underline">
+            {t("login.forgot_password")}
+          </Link>
+        </p>
       </form>
     </div>
   );
