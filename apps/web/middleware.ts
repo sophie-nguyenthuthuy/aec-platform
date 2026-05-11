@@ -18,6 +18,9 @@ import { readSupabaseEnv } from "./lib/supabase-env";
 
 const PUBLIC_ROUTES = [
   "/login",
+  "/signup", // self-serve signup; must be reachable without an auth cookie
+  "/forgot-password", // email-a-reset-link form
+  "/reset-password", // set-new-password landing after the email click
   "/auth", // /auth/callback for magic links / OAuth
   "/invite", // /invite/{token} — set-password page; the token is the credential
   "/rfq", // supplier-portal token-auth pages
@@ -82,8 +85,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Already signed in but landing on /login? Send them home.
-  if (user && pathname === "/login") {
+  // Already signed in but landing on /login or /signup? Send them home.
+  // `/forgot-password` and `/reset-password` are *not* in this list —
+  // a signed-in user clicking a recovery link is a legitimate path.
+  if (user && (pathname === "/login" || pathname === "/signup")) {
     const home = request.nextUrl.clone();
     home.pathname = "/";
     home.search = "";

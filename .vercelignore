@@ -1,0 +1,15 @@
+# Vercel zero-config treats any file in `/api/` at the project root as a
+# Python (or Node, depending on extension) serverless function. For this
+# project, the FastAPI under `api/index.py` is deployed as a SEPARATE
+# Vercel project (root-dir = `./`, framework = Other) — we don't want
+# the frontend's deploy to also try to bundle it. Excluding here is
+# defence-in-depth on top of setting `Root Directory = apps/web` in
+# the Vercel project settings.
+api/
+
+# Local dev artefacts that should never reach the deploy.
+*.log
+.DS_Store
+.env
+.env.local
+.env.*.local
