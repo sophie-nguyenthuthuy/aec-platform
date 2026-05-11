@@ -1,8 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
+import { Alert, Button, FormField, Input } from "@aec/ui/primitives";
+
+import { AuthShell } from "@/components/AuthShell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 /**
@@ -14,6 +18,7 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
  * to reset.
  */
 export default function ForgotPasswordPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -47,67 +52,66 @@ export default function ForgotPasswordPage() {
 
   if (sent) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-        <div className="w-full max-w-sm space-y-3 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          <h1 className="text-xl font-semibold text-slate-900">Kiểm tra email</h1>
-          <p className="text-sm text-slate-600">
-            Nếu <span className="font-mono text-xs">{email}</span> tồn tại trong
-            hệ thống, bạn sẽ nhận được liên kết đặt lại mật khẩu trong vài phút.
-          </p>
-          <Link
-            href="/login"
-            className="block rounded-md border border-slate-300 px-3 py-2 text-center text-sm text-slate-700 hover:bg-slate-50"
-          >
-            Quay lại đăng nhập
-          </Link>
-        </div>
-      </div>
+      <AuthShell
+        title="Kiểm tra email"
+        description={
+          <>
+            Nếu <span className="font-mono text-xs text-foreground">{email}</span>{" "}
+            tồn tại trong hệ thống, bạn sẽ nhận được liên kết đặt lại mật khẩu trong
+            vài phút.
+          </>
+        }
+      >
+        <Button
+          variant="outline"
+          className="w-full"
+          onClick={() => router.push("/login")}
+        >
+          Quay lại đăng nhập
+        </Button>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-5 rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
-      >
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Quên mật khẩu?</h1>
-          <p className="text-sm text-slate-600">
-            Nhập email và chúng tôi sẽ gửi liên kết đặt lại mật khẩu.
-          </p>
-        </div>
-
-        <label className="block">
-          <span className="block text-xs font-medium text-slate-700">Email</span>
-          <input
+    <AuthShell
+      title="Quên mật khẩu?"
+      description="Nhập email và chúng tôi sẽ gửi liên kết đặt lại mật khẩu."
+      footer={
+        <Link
+          href="/login"
+          className="font-medium text-primary underline-offset-4 hover:underline"
+        >
+          Quay lại đăng nhập
+        </Link>
+      }
+    >
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
+        <FormField label="Email" required>
+          <Input
             type="email"
-            required
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+            required
           />
-        </label>
+        </FormField>
 
-        {error ? (
-          <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>
-        ) : null}
+        {error && (
+          <Alert variant="destructive">
+            <p>{error}</p>
+          </Alert>
+        )}
 
-        <button
+        <Button
           type="submit"
-          disabled={submitting}
-          className="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-full"
+          loading={submitting}
+          loadingText="Đang gửi"
         >
           {submitting ? "Đang gửi…" : "Gửi liên kết"}
-        </button>
-
-        <p className="text-center text-xs text-slate-500">
-          <Link href="/login" className="hover:underline">
-            Quay lại đăng nhập
-          </Link>
-        </p>
+        </Button>
       </form>
-    </div>
+    </AuthShell>
   );
 }

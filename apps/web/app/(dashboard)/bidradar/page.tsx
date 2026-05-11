@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { MatchFilters, TenderCard } from "@aec/ui/bidradar";
 import type { MatchStatus } from "@aec/ui/bidradar";
+import { Button, EmptyState, PageHeader, Spinner } from "@aec/ui/primitives";
 import {
   useMatches,
   useUpdateMatchStatus,
@@ -32,34 +33,29 @@ export default function BidRadarMatchesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-slate-900">
-            Your tender matches
-          </h2>
-          <p className="text-sm text-slate-500">
-            {data?.total ?? 0} matches · AI-ranked by fit to your firm profile
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => scrape.mutate({ source: "mua-sam-cong.gov.vn" })}
-            disabled={scrape.isPending}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-          >
-            {scrape.isPending ? "Scraping…" : "Scrape Vietnam portal"}
-          </button>
-          <button
-            type="button"
-            onClick={() => score.mutate({ rescore_existing: false })}
-            disabled={score.isPending}
-            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
-          >
-            {score.isPending ? "Scoring…" : "Re-score matches"}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Your tender matches"
+        description={`${data?.total ?? 0} matches · AI-ranked by fit to your firm profile`}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => scrape.mutate({ source: "mua-sam-cong.gov.vn" })}
+              loading={scrape.isPending}
+            >
+              {scrape.isPending ? "Scraping…" : "Scrape Vietnam portal"}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => score.mutate({ rescore_existing: false })}
+              loading={score.isPending}
+            >
+              {score.isPending ? "Scoring…" : "Re-score matches"}
+            </Button>
+          </>
+        }
+      />
 
       <MatchFilters
         status={status}
@@ -73,13 +69,14 @@ export default function BidRadarMatchesPage() {
       />
 
       {isLoading ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-          Loading matches…
+        <div className="flex justify-center py-8">
+          <Spinner label="Loading matches" />
         </div>
       ) : items.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-          No matches yet. Set up your firm profile and scrape a source to get started.
-        </div>
+        <EmptyState
+          title="No matches yet."
+          description="Set up your firm profile and scrape a source to get started."
+        />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {items.map((m) => (

@@ -481,18 +481,61 @@ parametrised heading accept/reject, fixture round-trip).
 
 ### Seeding the dev corpus
 
+Three Make targets cover the seed permutations:
+
 ```bash
-make seed-codeguard
-# expands to:
-# PYTHONPATH=apps/api:apps/ml python -m pipelines.codeguard_ingest \
-#   --source apps/ml/fixtures/codeguard/qcvn_06_2022_excerpt.md \
-#   --code "QCVN 06:2022/BXD" \
-#   --country VN --jurisdiction national \
-#   --category fire_safety --effective 2022-10-25 --language vi
+make seed-codeguard         # just the QCVN 06:2022/BXD fire-safety fixture (real embeddings)
+make seed-codeguard-data    # every fixture + dashboard rows, NULL embeddings (no OpenAI cost)
+make seed-codeguard-all     # every fixture with real embeddings + dashboard rows
+```
+
+`seed-codeguard` is the minimal "Q&A works end-to-end" path that ships
+in CI. `seed-codeguard-data` runs `apps/api/scripts/seed_codeguard.py`
+to populate every CodeGuard surface from the committed fixtures
+(regulations + chunks across all 5 categories, 8 sample compliance_checks,
+3 permit checklists, the org's monthly quota, three months of usage,
+the quota audit-log paper trail, threshold-notification dedupe rows, and
+per-route user usage attribution) without spending OpenAI credits — the
+`embedding` column is left NULL, so the regulations and dashboards
+render but semantic retrieval abstains. `seed-codeguard-all` is the
+full-fat target: it ingests every fixture with real embeddings AND
+populates the dashboard rows in one shot.
+
+The Make targets expand to:
+
+```bash
+# seed-codeguard  (single fixture, real embeddings)
+PYTHONPATH=apps/api:apps/ml python -m pipelines.codeguard_ingest \
+  --source apps/ml/fixtures/codeguard/qcvn_06_2022_excerpt.md \
+  --code "QCVN 06:2022/BXD" \
+  --country VN --jurisdiction national \
+  --category fire_safety --effective 2022-10-25 --language vi
+
+# seed-codeguard-data  (every fixture + dashboard rows, NULL embeddings)
+cd apps/api && PYTHONPATH=".:../:../ml" python -m scripts.seed_codeguard
 ```
 
 `PYTHONPATH=apps/api:apps/ml` is required because the CLI imports
 `db.session` (lives in apps/api) but the CLI itself is in apps/ml.
+
+The `seed_codeguard.py` script is idempotent: every row is keyed on a
+stable natural key (`code_name` for regulations, `input.seed_key` for
+compliance_checks, `(org, jurisdiction, project_type)` for checklists,
+the PKs for quota / usage / audit tables). Re-running upserts existing
+rows rather than duplicating them, so it's safe on a tenant that's
+already been seeded once.
+
+Available fixtures (each is a heavily-trimmed excerpt for dev only —
+not a complete regulatory text):
+
+| Fixture | Code | Category | Effective | Sections |
+|---|---|---|---|---|
+| `qcvn_06_2022_excerpt.md` | QCVN 06:2022/BXD | fire_safety | 2022-10-25 | 13 |
+| `qcvn_10_2014_accessibility_excerpt.md` | QCVN 10:2014/BXD | accessibility | 2014-07-01 | 15 |
+| `tcvn_5574_2018_concrete_structure_excerpt.md` | TCVN 5574:2018 | structure | 2018-06-30 | 13 |
+| `qcvn_01_2021_planning_zoning_excerpt.md` | QCVN 01:2021/BXD | zoning | 2021-07-05 | 16 |
+| `qcvn_09_2017_building_energy_excerpt.md` | QCVN 09:2017/BXD | energy | 2017-12-01 | 13 |
+| `tcvn_2737_2023_loads_excerpt.md` | TCVN 2737:2023 | structure | 2023-12-31 | 13 |
 
 ### Dry-run validation
 

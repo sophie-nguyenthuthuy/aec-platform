@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { MailCheck } from "lucide-react";
 
+import { Alert, Button, FormField, Input } from "@aec/ui/primitives";
+
+import { AuthShell } from "@/components/AuthShell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 /**
@@ -64,84 +68,88 @@ export default function SignupPage() {
 
   if (needsConfirmation) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-        <div className="w-full max-w-sm space-y-3 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          <h1 className="text-xl font-semibold text-slate-900">Kiểm tra email</h1>
-          <p className="text-sm text-slate-600">
+      <AuthShell
+        title="Kiểm tra email"
+        description={
+          <>
             Chúng tôi vừa gửi một liên kết xác nhận đến{" "}
-            <span className="font-mono text-xs">{email}</span>. Mở liên kết và
-            quay lại đây để đăng nhập.
-          </p>
-          <Link
-            href="/login"
-            className="block rounded-md border border-slate-300 px-3 py-2 text-center text-sm text-slate-700 hover:bg-slate-50"
-          >
-            Quay lại đăng nhập
-          </Link>
+            <span className="font-mono text-xs text-foreground">{email}</span>.
+            Mở liên kết và quay lại đây để đăng nhập.
+          </>
+        }
+      >
+        <div className="flex items-start gap-3 rounded-md bg-muted/60 p-3 text-sm text-muted-foreground">
+          <MailCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+          <p>Không nhận được email? Kiểm tra thư mục spam hoặc thử đăng ký lại với địa chỉ khác.</p>
         </div>
-      </div>
+        <Button
+          variant="outline"
+          className="mt-4 w-full"
+          onClick={() => router.push("/login")}
+        >
+          Quay lại đăng nhập
+        </Button>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-5 rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
-      >
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">AEC Platform</h1>
-          <p className="text-sm text-slate-600">Đăng ký tài khoản miễn phí</p>
-        </div>
-
-        <div className="space-y-3">
-          <label className="block">
-            <span className="block text-xs font-medium text-slate-700">Email</span>
-            <input
-              type="email"
-              required
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-            />
-          </label>
-
-          <label className="block">
-            <span className="block text-xs font-medium text-slate-700">
-              Mật khẩu (≥ 8 ký tự)
-            </span>
-            <input
-              type="password"
-              required
-              minLength={8}
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-            />
-          </label>
-        </div>
-
-        {error ? (
-          <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>
-        ) : null}
-
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {submitting ? "Đang đăng ký…" : "Đăng ký"}
-        </button>
-
-        <p className="text-center text-xs text-slate-500">
+    <AuthShell
+      title="AEC Platform"
+      description="Đăng ký tài khoản miễn phí"
+      footer={
+        <>
           Đã có tài khoản?{" "}
-          <Link href="/login" className="font-medium text-slate-700 hover:underline">
+          <Link
+            href="/login"
+            className="font-medium text-primary underline-offset-4 hover:underline"
+          >
             Đăng nhập
           </Link>
-        </p>
+        </>
+      }
+    >
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
+        <FormField label="Email" required>
+          <Input
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+        </FormField>
+
+        <FormField
+          label="Mật khẩu"
+          required
+          help="Ít nhất 8 ký tự."
+        >
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            minLength={8}
+            required
+          />
+        </FormField>
+
+        {error && (
+          <Alert variant="destructive">
+            <p>{error}</p>
+          </Alert>
+        )}
+
+        <Button
+          type="submit"
+          className="w-full"
+          loading={submitting}
+          loadingText="Đang đăng ký"
+        >
+          {submitting ? "Đang đăng ký…" : "Đăng ký"}
+        </Button>
       </form>
-    </div>
+    </AuthShell>
   );
 }

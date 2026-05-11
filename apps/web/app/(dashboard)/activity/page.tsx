@@ -15,6 +15,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import {
+  Alert,
+  Button,
+  EmptyState,
+  PageHeader,
+  Spinner,
+} from "@aec/ui/primitives";
 import { useActivityFeed } from "@/hooks/activity";
 import type {
   ActivityEvent,
@@ -120,67 +127,54 @@ export default function ActivityPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-slate-900">Hoạt động</h2>
-        <p className="text-sm text-slate-600">
-          Dòng sự kiện theo thời gian thực qua tất cả các module — change
-          order, task hoàn thành, sự cố an toàn, lỗi tồn đọng, RFI...
-        </p>
-      </div>
+      <PageHeader
+        title="Hoạt động"
+        description="Dòng sự kiện theo thời gian thực qua tất cả các module — change order, task hoàn thành, sự cố an toàn, lỗi tồn đọng, RFI..."
+      />
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex flex-wrap gap-1.5">
           {MODULE_FILTERS.map((f) => (
-            <button
+            <Button
               key={f.value}
-              type="button"
+              size="sm"
+              variant={moduleFilter === f.value ? "default" : "outline"}
+              className="rounded-full"
               onClick={() => setModuleFilter(f.value)}
-              className={`rounded-full px-3 py-1 text-xs font-medium ${
-                moduleFilter === f.value
-                  ? "bg-blue-600 text-white"
-                  : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
-              }`}
             >
               {f.label}
-            </button>
+            </Button>
           ))}
         </div>
-        <span className="text-xs text-slate-300">·</span>
+        <span className="text-xs text-muted-foreground">·</span>
         <div className="flex flex-wrap gap-1.5">
           {WINDOW_OPTIONS.map((w) => (
-            <button
+            <Button
               key={w.value}
-              type="button"
+              size="sm"
+              variant={windowDays === w.value ? "secondary" : "outline"}
+              className="rounded-full"
               onClick={() => setWindowDays(w.value)}
-              className={`rounded-full px-3 py-1 text-xs font-medium ${
-                windowDays === w.value
-                  ? "bg-slate-900 text-white"
-                  : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
-              }`}
             >
               {w.label}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-slate-500">Đang tải...</p>
-      ) : isError ? (
-        <p className="text-sm text-red-600">Không thể tải dòng hoạt động.</p>
-      ) : events.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-12 text-center">
-          <ClipboardList
-            size={32}
-            className="mx-auto mb-3 text-slate-400"
-            aria-hidden
-          />
-          <p className="text-sm text-slate-500">
-            Không có hoạt động nào trong khoảng thời gian này.
-          </p>
+        <div className="flex justify-center py-8">
+          <Spinner label="Đang tải" />
         </div>
+      ) : isError ? (
+        <Alert variant="destructive">Không thể tải dòng hoạt động.</Alert>
+      ) : events.length === 0 ? (
+        <EmptyState
+          icon={<ClipboardList size={20} />}
+          title="Không có hoạt động nào trong khoảng thời gian này."
+        />
       ) : (
-        <ol className="relative space-y-4 border-l border-slate-200 pl-6">
+        <ol className="relative space-y-4 border-l pl-6">
           {events.map((e) => (
             <ActivityRow key={`${e.module}-${e.id}`} event={e} />
           ))}
@@ -188,7 +182,7 @@ export default function ActivityPage() {
       )}
 
       {data?.meta?.total != null && events.length > 0 && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-muted-foreground">
           {events.length} / {data.meta.total} sự kiện
         </p>
       )}
@@ -208,36 +202,36 @@ function ActivityRow({ event }: { event: ActivityEvent }) {
       >
         <Icon size={12} className="text-white" />
       </span>
-      <div className="rounded-xl border border-slate-200 bg-white p-4 transition hover:border-blue-300 hover:shadow-sm">
+      <div className="rounded-xl border bg-card p-4 transition hover:border-primary/40 hover:shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
               <span
                 className={`rounded-full px-2 py-0.5 font-medium uppercase tracking-wide ${visuals.badgeClass}`}
               >
                 {event.module}
               </span>
-              <span className="text-slate-400">·</span>
+              <span className="text-muted-foreground">·</span>
               <span>{EVENT_LABEL[event.event_type]}</span>
               {event.project_id && event.project_name && (
                 <>
-                  <span className="text-slate-400">·</span>
+                  <span className="text-muted-foreground">·</span>
                   <Link
                     href={`/projects/${event.project_id}` as Route}
-                    className="text-blue-600 hover:underline"
+                    className="text-primary hover:underline"
                   >
                     {event.project_name}
                   </Link>
                 </>
               )}
-              <span className="text-slate-400">·</span>
+              <span className="text-muted-foreground">·</span>
               <span>{formatRelative(event.timestamp)}</span>
             </div>
-            <p className="mt-1.5 text-sm font-medium text-slate-900">
+            <p className="mt-1.5 text-sm font-medium text-foreground">
               {event.title}
             </p>
             {event.description && (
-              <p className="mt-1 line-clamp-2 text-xs text-slate-600">
+              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                 {event.description}
               </p>
             )}

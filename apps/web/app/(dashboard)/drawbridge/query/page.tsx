@@ -6,6 +6,7 @@ import { Send } from "lucide-react";
 import { DisciplineTag, type QueryResponse } from "@aec/ui/drawbridge";
 import { useSession } from "@/lib/auth-context";
 import { useDrawbridgeQuery } from "@/hooks/drawbridge";
+import { ProjectSelect } from "@/app/(dashboard)/_components/ProjectSelect";
 
 interface Turn {
   role: "user" | "assistant";
@@ -39,12 +40,7 @@ export default function DrawingChatPage() {
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col gap-4">
       <div className="flex items-center gap-2">
-        <input
-          placeholder="project_id"
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
-          className="w-64 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-        />
+        <ProjectSelect value={projectId} onChange={setProjectId} />
       </div>
 
       <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-6">

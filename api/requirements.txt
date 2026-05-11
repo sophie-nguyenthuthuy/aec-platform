@@ -1,0 +1,52 @@
+# Slim requirements for the Vercel Python serverless runtime.
+#
+# Why a separate file from apps/api/requirements.txt:
+#   * `weasyprint` needs `libpango` + `libcairo` system libs that Vercel
+#     Python doesn't provide. Dropped — PDF report generation degrades
+#     to the `reportlab` fallback (already in tree under
+#     services.boq_io). Module-level imports of weasyprint must be
+#     lazy or guarded.
+#   * `llama-index`, `elasticsearch`, `pdfplumber`, `python-docx` —
+#     not request-path dependencies. Dropped to stay under the 50MB
+#     function-size budget on the Hobby tier. If your demo needs
+#     DOCX/PDF parsing, upgrade to Pro and re-add them here.
+#   * `sentry-sdk` — kept, useful for catching prod errors.
+#   * `celery` — dropped, no worker on Vercel.
+
+fastapi==0.115.0
+# uvicorn is not strictly needed (Vercel exposes the ASGI `app` directly)
+# but importing FastAPI's TestClient pulls it in, and a few middleware
+# imports brittle without it. Tiny package — keep.
+uvicorn==0.30.6
+sqlalchemy[asyncio]==2.0.35
+alembic==1.13.3
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+pydantic==2.9.2
+pydantic-settings==2.5.2
+pyjwt==2.9.0
+httpx==0.27.2
+redis==5.1.0
+arq==0.26.1
+boto3==1.35.36
+aioboto3==13.2.0
+python-multipart==0.0.12
+Pillow==10.4.0
+email-validator==2.2.0
+pgvector==0.3.5
+python-dotenv==1.2.2
+cachetools==5.5.0
+sentry-sdk[fastapi]==2.18.0
+# AI
+langchain==0.3.1
+langgraph==0.2.28
+langchain-anthropic==0.2.1
+langchain-openai==0.2.0
+anthropic==0.39.0
+openai==1.51.0
+# Lightweight HTML parser — used by a couple of routers for sanitising
+# user-provided rich text. Pure-Python, tiny.
+beautifulsoup4==4.12.3
+# Excel export (reportlab handles PDF for the demo).
+openpyxl==3.1.5
+reportlab==4.2.5

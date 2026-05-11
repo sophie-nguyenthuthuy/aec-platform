@@ -2,7 +2,20 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
+import { AlertCircle } from "lucide-react";
 
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Button,
+  EmptyState,
+  FormField,
+  Input,
+  Spinner,
+} from "@aec/ui/primitives";
+
+import { AuthShell } from "@/components/AuthShell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 interface InvitationPreview {
@@ -114,81 +127,80 @@ export default function AcceptInvitePage({
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <p className="text-sm text-slate-600">Đang tải lời mời…</p>
-      </div>
+      <AuthShell title="Đang tải lời mời…">
+        <div className="flex justify-center py-4">
+          <Spinner size="lg" label="Đang tải lời mời" />
+        </div>
+      </AuthShell>
     );
   }
 
   if (loadError || !preview) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-        <div className="w-full max-w-sm rounded-lg border border-red-200 bg-white p-6 shadow-sm">
-          <h1 className="text-lg font-semibold text-red-700">Lời mời không hợp lệ</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            {loadError ?? "Lời mời này không tồn tại hoặc đã được sử dụng."}
-          </p>
-        </div>
-      </div>
+      <AuthShell title="Lời mời không hợp lệ">
+        <EmptyState
+          variant="error"
+          icon={<AlertCircle size={20} />}
+          title="Không thể sử dụng lời mời này"
+          description={loadError ?? "Lời mời này không tồn tại hoặc đã được sử dụng."}
+          action={
+            <Button onClick={() => router.push("/login")} variant="outline">
+              Đến trang đăng nhập
+            </Button>
+          }
+        />
+      </AuthShell>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-5 rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
-      >
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">
-            Tham gia {preview.organization_name}
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Bạn được mời với vai trò <span className="font-medium">{preview.role}</span>. Đặt mật
-            khẩu cho{" "}
-            <span className="font-mono text-xs">{preview.email}</span> để bắt đầu.
-          </p>
-        </div>
+    <AuthShell
+      title={`Tham gia ${preview.organization_name}`}
+      description={
+        <>
+          Bạn được mời với vai trò{" "}
+          <span className="font-medium text-foreground">{preview.role}</span>. Đặt mật khẩu
+          cho <span className="font-mono text-xs">{preview.email}</span> để bắt đầu.
+        </>
+      }
+    >
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
+        <FormField label="Họ tên">
+          <Input
+            type="text"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            autoComplete="name"
+          />
+        </FormField>
 
-        <div className="space-y-3">
-          <label className="block">
-            <span className="block text-xs font-medium text-slate-700">Họ tên</span>
-            <input
-              type="text"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              autoComplete="name"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-            />
-          </label>
-          <label className="block">
-            <span className="block text-xs font-medium text-slate-700">
-              Mật khẩu (≥ 8 ký tự)
-            </span>
-            <input
-              type="password"
-              required
-              minLength={8}
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-            />
-          </label>
-        </div>
+        <FormField label="Mật khẩu" required help="Ít nhất 8 ký tự.">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            minLength={8}
+            required
+          />
+        </FormField>
 
-        {submitError ? (
-          <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{submitError}</div>
-        ) : null}
+        {submitError && (
+          <Alert variant="destructive">
+            <AlertTitle>Lỗi</AlertTitle>
+            <AlertDescription>{submitError}</AlertDescription>
+          </Alert>
+        )}
 
-        <button
+        <Button
           type="submit"
-          disabled={submitting}
-          className="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-full"
+          loading={submitting}
+          loadingText="Đang xử lý"
         >
           {submitting ? "Đang xử lý…" : "Chấp nhận và tiếp tục"}
-        </button>
+        </Button>
       </form>
-    </div>
+    </AuthShell>
   );
 }

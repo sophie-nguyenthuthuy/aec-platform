@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 
 interface ProjectCtx {
   projectId: string | null;
@@ -9,11 +9,12 @@ interface ProjectCtx {
 const Ctx = createContext<ProjectCtx | null>(null);
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
-  const [projectId, setProjectId] = useState<string | null>(
-    typeof window === "undefined"
-      ? null
-      : window.localStorage.getItem("siteeye.project_id"),
-  );
+  const [projectId, setProjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem("siteeye.project_id");
+    if (stored) setProjectId(stored);
+  }, []);
 
   function update(next: string | null) {
     setProjectId(next);

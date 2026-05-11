@@ -1,0 +1,844 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AEC Platform — Demo</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/3.34.0/tabler-icons.min.css" />
+<style>
+  :root{
+    --bg:#F7F8FA; --card:#FFFFFF; --muted:#F1EFE8; --border:rgba(0,0,0,0.08);
+    --fg:#1A1A1A; --fg-secondary:#5F5E5A; --fg-tertiary:#888780;
+    --primary:#185FA5; --primary-fg:#fff;
+    --info-bg:#E6F1FB; --info-fg:#0C447C;
+    --warn-bg:#FAEEDA; --warn-fg:#854F0B; --warn-border:#EF9F27;
+    --danger-bg:#FCEBEB; --danger-fg:#791F1F;
+    --success-bg:#EAF3DE; --success-fg:#27500A;
+    --purple-bg:#EEEDFE; --purple-fg:#3C3489;
+    --pink-bg:#FBEAF0; --pink-fg:#72243E;
+    --teal-bg:#E1F5EE; --teal-fg:#085041;
+    --radius:8px; --radius-lg:12px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0E1116; --card:#171A21; --muted:#1F232B; --border:rgba(255,255,255,0.08); --fg:#F2F3F5; --fg-secondary:#A8AAB0; --fg-tertiary:#787A80; }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;font-size:14px;line-height:1.5}
+  .shell{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+  .sidebar{background:var(--card);border-right:1px solid var(--border);padding:18px 12px;position:sticky;top:0;height:100vh;overflow-y:auto}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:500;font-size:16px;padding:4px 10px 16px;color:var(--fg)}
+  .brand i{font-size:20px;color:var(--primary)}
+  .section-label{font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--fg-tertiary);padding:14px 10px 6px;font-weight:500}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;color:var(--fg-secondary);cursor:pointer;font-size:13.5px;user-select:none}
+  .nav-item:hover{background:var(--muted);color:var(--fg)}
+  .nav-item.active{background:var(--info-bg);color:var(--info-fg);font-weight:500}
+  .nav-item i{font-size:16px}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;background:var(--card);border-bottom:1px solid var(--border)}
+  .topbar .org{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg-secondary)}
+  .topbar .org strong{color:var(--fg);font-weight:500}
+  .topbar .actions{display:flex;align-items:center;gap:10px}
+  .iconbtn{width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--fg-secondary);cursor:pointer}
+  .iconbtn:hover{background:var(--muted);color:var(--fg)}
+  .avatar{width:32px;height:32px;border-radius:50%;background:var(--info-bg);color:var(--info-fg);display:inline-flex;align-items:center;justify-content:center;font-weight:500;font-size:12px}
+  main{padding:24px 32px;max-width:1100px}
+  .ph{margin-bottom:22px}
+  .ph-row{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
+  .ph h1{margin:0;font-size:24px;font-weight:500}
+  .ph p{margin:4px 0 0;color:var(--fg-secondary);font-size:14px}
+  .btn{display:inline-flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--border);padding:7px 14px;border-radius:6px;font-size:13px;color:var(--fg);cursor:pointer;font-family:inherit}
+  .btn:hover{background:var(--muted)}
+  .btn-primary{background:var(--primary);color:var(--primary-fg);border-color:var(--primary)}
+  .btn-primary:hover{filter:brightness(1.05)}
+  .grid-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px}
+  .stat{background:var(--card);padding:14px 16px;border-radius:var(--radius);border:1px solid var(--border)}
+  .stat-label{font-size:12px;color:var(--fg-secondary);margin-bottom:4px}
+  .stat-value{font-size:24px;font-weight:500}
+  .stat-delta{font-size:12px;color:var(--success-fg);margin-top:4px}
+  .stat-delta.warn{color:var(--warn-fg)}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;margin-bottom:14px}
+  .row{display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;background:var(--card)}
+  .row i{font-size:20px}
+  .row-body{flex:1;min-width:0}
+  .row-title{font-size:14px;color:var(--fg);margin:0}
+  .row-meta{font-size:12.5px;color:var(--fg-secondary);margin:3px 0 0}
+  .badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:500;white-space:nowrap}
+  .b-blue{background:var(--info-bg);color:var(--info-fg)}
+  .b-amber{background:var(--warn-bg);color:var(--warn-fg)}
+  .b-red{background:var(--danger-bg);color:var(--danger-fg)}
+  .b-green{background:var(--success-bg);color:var(--success-fg)}
+  .b-purple{background:var(--purple-bg);color:var(--purple-fg)}
+  .b-gray{background:var(--muted);color:var(--fg-secondary)}
+  .b-pink{background:var(--pink-bg);color:var(--pink-fg)}
+  .b-teal{background:var(--teal-bg);color:var(--teal-fg)}
+  .h3{font-size:15px;font-weight:500;margin:22px 0 10px}
+  .proj-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+  .proj-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;cursor:pointer;transition:border-color .15s}
+  .proj-card:hover{border-color:var(--primary)}
+  .proj-title{font-size:14px;font-weight:500;margin:0 0 4px}
+  .proj-meta{font-size:12.5px;color:var(--fg-secondary)}
+  .progress{height:5px;border-radius:3px;background:var(--muted);margin:12px 0 8px;overflow:hidden}
+  .progress-fill{height:100%;background:var(--primary);border-radius:3px}
+  .proj-foot{display:flex;justify-content:space-between;font-size:12px;color:var(--fg-secondary)}
+  .alert{display:flex;gap:12px;padding:12px 16px;border-radius:var(--radius);background:var(--warn-bg);border:1px solid var(--warn-border);margin-bottom:16px}
+  .alert i{font-size:20px;color:var(--warn-fg);flex-shrink:0}
+  .alert-body{font-size:13.5px}
+  .alert-body strong{font-weight:500}
+  .citation{background:var(--muted);border-left:3px solid var(--primary);padding:10px 14px;font-size:13px;color:var(--fg-secondary);margin:8px 0}
+  .citation strong{color:var(--fg);font-weight:500}
+  .input{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:9px 14px;margin-bottom:16px}
+  .input i{color:var(--fg-tertiary);font-size:18px}
+  .input input{flex:1;border:none;background:transparent;outline:none;font-size:14px;color:var(--fg);font-family:inherit}
+  .quick-q{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+  .quick-q .q{font-size:12.5px;background:var(--card);color:var(--fg-secondary);padding:6px 12px;border-radius:999px;cursor:pointer;border:1px solid var(--border)}
+  .quick-q .q:hover{background:var(--muted);color:var(--fg)}
+  .activity{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+  .activity:last-child{border-bottom:none}
+  .activity-dot{width:9px;height:9px;border-radius:50%;background:var(--primary);flex-shrink:0;margin-top:6px}
+  .activity-dot.green{background:#639922}
+  .activity-dot.amber{background:#BA7517}
+  .activity-dot.purple{background:#7F77DD}
+  .activity-body{flex:1;font-size:13.5px}
+  .activity-body p{margin:0}
+  .activity-body strong{font-weight:500}
+  .activity-body .meta{color:var(--fg-secondary);font-size:12px;margin-top:3px}
+  .view{display:none}
+  .view.show{display:block}
+  .doc-row{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)}
+  .doc-row:last-child{border-bottom:none}
+  .doc-row i{font-size:22px;color:var(--fg-secondary)}
+  .doc-row .title{font-size:13.5px;margin:0}
+  .doc-row .meta{font-size:12px;color:var(--fg-secondary);margin:2px 0 0}
+  .tender{padding:14px 18px;border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:10px;background:var(--card)}
+  .tender-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  .tender-title{font-size:14px;font-weight:500;margin:0 0 3px}
+  .tender-meta{font-size:12.5px;color:var(--fg-secondary)}
+  .tender-foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:12.5px;color:var(--fg-secondary)}
+  .tender-fit{font-weight:500;color:var(--success-fg)}
+  .hide-mobile{}
+  @media (max-width:780px){
+    .shell{grid-template-columns:1fr}
+    .sidebar{position:fixed;left:-260px;top:0;width:240px;height:100vh;z-index:50;transition:left .2s;border-right:1px solid var(--border)}
+    .sidebar.open{left:0}
+    .hide-mobile{display:none}
+    .menu-btn{display:inline-flex !important}
+    main{padding:16px}
+    .topbar{padding:12px 16px}
+  }
+  .menu-btn{display:none}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- ============ SIDEBAR ============ -->
+<aside class="sidebar" id="sidebar">
+  <div class="brand"><i class="ti ti-building-skyscraper"></i>AEC Platform</div>
+
+  <div class="section-label">Tổng quan</div>
+  <div class="nav-item active" data-view="inbox"><i class="ti ti-inbox"></i>Hôm nay</div>
+  <div class="nav-item" data-view="pulse"><i class="ti ti-folder"></i>Dự án</div>
+  <div class="nav-item" data-view="activity"><i class="ti ti-activity"></i>Hoạt động</div>
+
+  <div class="section-label">Giai đoạn thiết kế</div>
+  <div class="nav-item" data-view="codeguard"><i class="ti ti-shield-check"></i>CodeGuard</div>
+  <div class="nav-item" data-view="drawbridge"><i class="ti ti-file-text"></i>Drawbridge</div>
+
+  <div class="section-label">Giai đoạn đấu thầu</div>
+  <div class="nav-item" data-view="bidradar"><i class="ti ti-radar"></i>BidRadar</div>
+  <div class="nav-item" data-view="winwork"><i class="ti ti-trophy"></i>WinWork</div>
+  <div class="nav-item" data-view="costpulse"><i class="ti ti-coin"></i>CostPulse</div>
+
+  <div class="section-label">Giai đoạn thi công</div>
+  <div class="nav-item" data-view="siteeye"><i class="ti ti-camera"></i>SiteEye</div>
+  <div class="nav-item" data-view="schedule"><i class="ti ti-calendar"></i>SchedulePilot</div>
+  <div class="nav-item" data-view="submittals"><i class="ti ti-file-invoice"></i>Submittals</div>
+  <div class="nav-item" data-view="dailylog"><i class="ti ti-clipboard"></i>Nhật ký</div>
+  <div class="nav-item" data-view="changeorder"><i class="ti ti-replace"></i>Change orders</div>
+
+  <div class="section-label">Bàn giao</div>
+  <div class="nav-item" data-view="handover"><i class="ti ti-package"></i>Handover</div>
+  <div class="nav-item" data-view="punchlist"><i class="ti ti-list-check"></i>Punch list</div>
+
+  <div class="section-label">Cài đặt</div>
+  <div class="nav-item" data-view="members"><i class="ti ti-users"></i>Thành viên</div>
+  <div class="nav-item" data-view="notifications"><i class="ti ti-bell"></i>Thông báo</div>
+</aside>
+
+<!-- ============ MAIN ============ -->
+<div>
+  <div class="topbar">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="iconbtn menu-btn" id="menuBtn" aria-label="Mở menu"><i class="ti ti-menu-2"></i></button>
+      <div class="org"><i class="ti ti-building"></i><strong>Coteccons</strong> · Hà Nội</div>
+    </div>
+    <div class="actions">
+      <button class="iconbtn" aria-label="Tìm kiếm" title="⌘K"><i class="ti ti-search"></i></button>
+      <button class="iconbtn" aria-label="Thông báo"><i class="ti ti-bell"></i></button>
+      <div class="avatar" title="Nguyễn Thu Thuỷ">NT</div>
+    </div>
+  </div>
+
+<main>
+
+<!-- ===== INBOX / HÔM NAY ===== -->
+<div class="view show" id="v-inbox">
+  <div class="ph">
+    <div class="ph-row">
+      <div>
+        <h1>Hôm nay</h1>
+        <p>Việc cần xử lý của bạn · Thứ Hai, 11/05/2026</p>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn"><i class="ti ti-filter"></i>Lọc</button>
+        <button class="btn"><i class="ti ti-check"></i>Đánh dấu đã đọc</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="alert">
+    <i class="ti ti-alert-triangle"></i>
+    <div class="alert-body"><strong>2 sự cố an toàn</strong> cần xác nhận tại dự án <strong>Samsung Yên Phong</strong> và <strong>Lotus Center</strong>. Mức độ nghiêm trọng — vui lòng phản hồi trong 4 giờ tới.</div>
+  </div>
+
+  <div class="grid-stats">
+    <div class="stat"><div class="stat-label">RFI mở</div><div class="stat-value">7</div><div class="stat-delta warn">+2 hôm nay</div></div>
+    <div class="stat"><div class="stat-label">Submittal chờ duyệt</div><div class="stat-value">12</div><div class="stat-delta warn">4 quá hạn</div></div>
+    <div class="stat"><div class="stat-label">Change orders mở</div><div class="stat-value">3</div><div class="stat-delta">Tổng 2.4 tỷ ₫</div></div>
+    <div class="stat"><div class="stat-label">Vi phạm QCVN</div><div class="stat-value">1</div><div class="stat-delta warn">QCVN 06:2022/BXD</div></div>
+  </div>
+
+  <div class="h3">Việc của bạn</div>
+  <div class="row">
+    <i class="ti ti-message-circle-question" style="color:var(--info-fg)"></i>
+    <div class="row-body">
+      <p class="row-title">RFI-2026-041 · Vị trí lỗ chờ MEP tầng 14, trục B-D</p>
+      <p class="row-meta">Lotus Center · Nhà thầu Coteccons · 2 ngày trước</p>
+    </div>
+    <span class="badge b-red">Quá hạn</span>
+  </div>
+  <div class="row">
+    <i class="ti ti-file-import" style="color:var(--warn-fg)"></i>
+    <div class="row-body">
+      <p class="row-title">Submittal: Mẫu vật liệu ốp lát đá Marble tầng điển hình</p>
+      <p class="row-meta">Sky Garden · Cần phê duyệt trước 13/05/2026</p>
+    </div>
+    <span class="badge b-amber">Chờ duyệt</span>
+  </div>
+  <div class="row">
+    <i class="ti ti-shield-x" style="color:var(--danger-fg)"></i>
+    <div class="row-body">
+      <p class="row-title">Vi phạm QCVN 06:2022 · Khoảng cách thoát hiểm lối B-2 vượt 28m</p>
+      <p class="row-meta">Lotus Center · CodeGuard phát hiện 09:34 hôm nay</p>
+    </div>
+    <span class="badge b-red">Nghiêm trọng</span>
+  </div>
+  <div class="row">
+    <i class="ti ti-coin" style="color:var(--success-fg)"></i>
+    <div class="row-body">
+      <p class="row-title">Change Order #18 · Bổ sung hệ thống PCCC tầng hầm B2</p>
+      <p class="row-meta">Samsung Yên Phong · 847 triệu ₫ · Đã có chữ ký số</p>
+    </div>
+    <span class="badge b-purple">Đã duyệt</span>
+  </div>
+  <div class="row">
+    <i class="ti ti-camera" style="color:var(--info-fg)"></i>
+    <div class="row-body">
+      <p class="row-title">SiteEye · Hùng GSV vừa tải lên 18 ảnh tầng 14 trục C-D</p>
+      <p class="row-meta">Lotus Center · Cách đây 12 phút · Tiến độ ghi nhận +2.3%</p>
+    </div>
+    <span class="badge b-blue">Mới</span>
+  </div>
+</div>
+
+<!-- ===== PULSE / DỰ ÁN ===== -->
+<div class="view" id="v-pulse">
+  <div class="ph">
+    <div class="ph-row">
+      <div>
+        <h1>ProjectPulse</h1>
+        <p>6 dự án đang theo dõi</p>
+      </div>
+      <button class="btn btn-primary"><i class="ti ti-plus"></i>Dự án mới</button>
+    </div>
+  </div>
+
+  <div class="input"><i class="ti ti-search"></i><input placeholder="Tìm dự án theo tên, mã, địa điểm..." /></div>
+
+  <div class="proj-grid">
+    <div class="proj-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <p class="proj-title">Tòa nhà Văn phòng Lotus Center</p>
+        <span class="badge b-blue">Thi công</span>
+      </div>
+      <p class="proj-meta">Hà Nội · 24 tầng · 28.500m²</p>
+      <div class="progress"><div class="progress-fill" style="width:67%"></div></div>
+      <div class="proj-foot"><span>67% hoàn thành</span><span>Còn 184 ngày</span></div>
+    </div>
+    <div class="proj-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <p class="proj-title">Khu căn hộ Sky Garden Residences</p>
+        <span class="badge b-gray">Thiết kế</span>
+      </div>
+      <p class="proj-meta">TP.HCM · 3 tháp · 612 căn hộ</p>
+      <div class="progress"><div class="progress-fill" style="width:12%;background:#888780"></div></div>
+      <div class="proj-foot"><span>12% · BVTC đang lập</span><span>Còn 740 ngày</span></div>
+    </div>
+    <div class="proj-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <p class="proj-title">Nhà máy Samsung Yên Phong II-C</p>
+        <span class="badge b-blue">Thi công</span>
+      </div>
+      <p class="proj-meta">Bắc Ninh · 85.000m² · 3 phân xưởng</p>
+      <div class="progress"><div class="progress-fill" style="width:45%"></div></div>
+      <div class="proj-foot"><span>45% · Đổ BTCT</span><span>Còn 298 ngày</span></div>
+    </div>
+    <div class="proj-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <p class="proj-title">Đại học FPT Cơ sở Đà Nẵng</p>
+        <span class="badge b-amber">Đấu thầu</span>
+      </div>
+      <p class="proj-meta">Đà Nẵng · 12 ha · 8 khối nhà</p>
+      <div class="progress"><div class="progress-fill" style="width:5%;background:#BA7517"></div></div>
+      <div class="proj-foot"><span>5% · Mời thầu phần thô</span><span>Còn 980 ngày</span></div>
+    </div>
+    <div class="proj-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <p class="proj-title">Bệnh viện Vinmec Hạ Long</p>
+        <span class="badge b-purple">Bàn giao</span>
+      </div>
+      <p class="proj-meta">Quảng Ninh · 350 giường · 18.200m²</p>
+      <div class="progress"><div class="progress-fill" style="width:95%;background:#534AB7"></div></div>
+      <div class="proj-foot"><span>95% · Punch list 47 mục</span><span>Còn 32 ngày</span></div>
+    </div>
+    <div class="proj-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <p class="proj-title">Cải tạo trụ sở Vietcombank Q.1</p>
+        <span class="badge b-teal">Hoàn thành</span>
+      </div>
+      <p class="proj-meta">TP.HCM · 5.400m² · Văn phòng</p>
+      <div class="progress"><div class="progress-fill" style="width:100%;background:#1D9E75"></div></div>
+      <div class="proj-foot"><span>Đã nghiệm thu 28/03/2026</span><span>—</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SITEEYE ===== -->
+<div class="view" id="v-siteeye">
+  <div class="ph">
+    <div class="ph-row">
+      <div>
+        <h1>SiteEye</h1>
+        <p>Giám sát hiện trường · Tuần 19/2026</p>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn"><i class="ti ti-download"></i>Báo cáo tuần</button>
+        <button class="btn btn-primary"><i class="ti ti-camera-plus"></i>Visit mới</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-stats">
+    <div class="stat"><div class="stat-label">Visits tuần này</div><div class="stat-value">22</div><div class="stat-delta">+4 vs tuần trước</div></div>
+    <div class="stat"><div class="stat-label">Ảnh tải lên</div><div class="stat-value">487</div><div class="stat-delta">68% có toạ độ GPS</div></div>
+    <div class="stat"><div class="stat-label">Sự cố an toàn mở</div><div class="stat-value">3</div><div class="stat-delta warn">1 nghiêm trọng</div></div>
+    <div class="stat"><div class="stat-label">Tiến độ trung bình</div><div class="stat-value">62%</div><div class="stat-delta">+3.2 điểm / tuần</div></div>
+  </div>
+
+  <div class="h3">Visits gần đây</div>
+  <div class="row">
+    <i class="ti ti-camera" style="color:var(--info-fg)"></i>
+    <div class="row-body">
+      <p class="row-title">Lotus Center · Tầng 14, trục C-D</p>
+      <p class="row-meta">GSV Trần Quang Hùng · 11/05 09:12 · 18 ảnh · 2 ghi chú</p>
+    </div>
+    <span class="badge b-blue">Đã đồng bộ</span>
+  </div>
+  <div class="row">
+    <i class="ti ti-alert-triangle" style="color:var(--danger-fg)"></i>
+    <div class="row-body">
+      <p class="row-title">Samsung Yên Phong · Thiếu lan can tầng kỹ thuật phân xưởng 2</p>
+      <p class="row-meta">An toàn lao động · Mức độ: Nghiêm trọng · Đang chờ phản hồi</p>
+    </div>
+    <span class="badge b-red">Sự cố</span>
+  </div>
+  <div class="row">
+    <i class="ti ti-camera" style="color:var(--info-fg)"></i>
+    <div class="row-body">
+      <p class="row-title">Sky Garden · Hố móng tháp T2, cọc khoan nhồi đến cao độ -18.5m</p>
+      <p class="row-meta">GSV Lê Mỹ Linh · 10/05 16:48 · 24 ảnh · Tiến độ +5%</p>
+    </div>
+    <span class="badge b-blue">Đã đồng bộ</span>
+  </div>
+  <div class="row">
+    <i class="ti ti-alert-circle" style="color:var(--warn-fg)"></i>
+    <div class="row-body">
+      <p class="row-title">Vinmec Hạ Long · Lệch tim cột C-7 tầng hầm 1 (sai số 28mm)</p>
+      <p class="row-meta">Chất lượng · Mức độ: Trung bình · Đang khắc phục bằng đệm thép</p>
+    </div>
+    <span class="badge b-amber">Đang xử lý</span>
+  </div>
+  <div class="row">
+    <i class="ti ti-camera" style="color:var(--info-fg)"></i>
+    <div class="row-body">
+      <p class="row-title">Đại học FPT ĐN · Khảo sát hiện trạng lô đất khối A</p>
+      <p class="row-meta">GSV Phạm Đức Anh · 09/05 14:20 · 31 ảnh · Bàn giao mặt bằng</p>
+    </div>
+    <span class="badge b-blue">Đã đồng bộ</span>
+  </div>
+</div>
+
+<!-- ===== CODEGUARD ===== -->
+<div class="view" id="v-codeguard">
+  <div class="ph">
+    <div class="ph-row">
+      <div>
+        <h1>CodeGuard</h1>
+        <p>Trợ lý AI quy chuẩn xây dựng Việt Nam · Q&amp;A · Compliance check · Permit checklist</p>
+      </div>
+      <span class="badge b-teal" style="font-size:12px">Quota tháng: 847 / 5.000 truy vấn</span>
+    </div>
+  </div>
+
+  <div class="input"><i class="ti ti-message-circle"></i><input value="Khoảng cách thoát hiểm tối đa cho công trình cao tầng nhóm F1.3?" /></div>
+
+  <div class="quick-q">
+    <span class="q">Yêu cầu cấp phép PCCC cho nhà trên 7 tầng?</span>
+    <span class="q">Chiều rộng cầu thang thoát hiểm tối thiểu?</span>
+    <span class="q">Quy định tải trọng gió Hà Nội?</span>
+    <span class="q">Khoảng lùi xây dựng đường 12m?</span>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><i class="ti ti-sparkles" style="color:var(--primary)"></i><strong style="font-weight:500;font-size:13px;color:var(--fg-secondary)">CodeGuard trả lời</strong></div>
+    <p style="margin:0 0 10px">Theo <strong style="font-weight:500">QCVN 06:2022/BXD</strong>, khoảng cách thoát hiểm tối đa từ điểm xa nhất trong căn hộ/phòng đến cửa thoát hiểm gần nhất phụ thuộc vào nhóm nguy hiểm cháy và số lối thoát:</p>
+    <ul style="margin:0 0 12px;padding-left:20px;line-height:1.8">
+      <li>Nhóm F1.3 (chung cư) trong khoang cháy có 1 lối thoát: <strong style="font-weight:500">25m</strong></li>
+      <li>Nhóm F1.3 có ≥ 2 lối thoát: <strong style="font-weight:500">40m</strong></li>
+      <li>Nhóm F4 (văn phòng, trường học) với 2 lối thoát: <strong style="font-weight:500">50m</strong></li>
+      <li>Bậc chịu lửa IV: giảm 50% giá trị trên</li>
+    </ul>
+
+    <div class="citation"><strong>QCVN 06:2022/BXD · Điều 3.3.2 · Mục a</strong><br>"Khoảng cách giới hạn từ cửa căn hộ đến lối ra thoát nạn gần nhất không được vượt quá các giá trị trong Bảng 14, tuỳ thuộc vị trí cửa căn hộ giữa các lối thoát hoặc trong hành lang cụt..."</div>
+    <div class="citation"><strong>QCVN 06:2022/BXD · Bảng 14 · Dòng 2</strong><br>"Nhóm F1.3, bậc chịu lửa I và II — khoảng cách 40m khi đặt giữa các lối ra, 25m khi đặt trong hành lang cụt."</div>
+    <div class="citation"><strong>TCVN 3890:2009 · Mục 5.3</strong><br>"Lối thoát nạn phải được bố trí phân tán đều ở các tầng. Số lượng lối thoát nạn không ít hơn 2 cho mỗi tầng có người sử dụng thường xuyên."</div>
+
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="btn"><i class="ti ti-thumb-up"></i>Hữu ích</button>
+      <button class="btn"><i class="ti ti-thumb-down"></i>Không chính xác</button>
+      <button class="btn"><i class="ti ti-share"></i>Tạo RFI từ câu trả lời</button>
+      <button class="btn"><i class="ti ti-copy"></i>Sao chép trích dẫn</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== DRAWBRIDGE ===== -->
+<div class="view" id="v-drawbridge">
+  <div class="ph">
+    <div class="ph-row">
+      <div>
+        <h1>Drawbridge</h1>
+        <p>Tài liệu thiết kế · Lotus Center · 247 bản vẽ · 32 RFI</p>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn"><i class="ti ti-git-compare"></i>So sánh Rev</button>
+        <button class="btn btn-primary"><i class="ti ti-upload"></i>Tải lên</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="input"><i class="ti ti-search"></i><input placeholder="Tìm theo nội dung, ký hiệu bản vẽ, RFI, xung đột..." /></div>
+
+  <div class="card" style="padding:0">
+    <div class="doc-row">
+      <i class="ti ti-file-type-pdf"></i>
+      <div style="flex:1;min-width:0"><p class="title">LC-AR-2026-Rev_D · Bản vẽ kiến trúc tầng 14-24</p><p class="meta">Rev D · 184 trang · 42.7 MB · Cập nhật 09/05 · 7 RFI tiềm năng</p></div>
+      <span class="badge b-blue">Kiến trúc</span>
+    </div>
+    <div class="doc-row">
+      <i class="ti ti-file-type-pdf"></i>
+      <div style="flex:1;min-width:0"><p class="title">LC-ME-2026-Rev_C · Hệ thống điều hoà thông gió</p><p class="meta">Rev C · 96 trang · 28.1 MB · 12 xung đột với kiến trúc</p></div>
+      <span class="badge b-pink">MEP</span>
+    </div>
+    <div class="doc-row">
+      <i class="ti ti-file-type-pdf"></i>
+      <div style="flex:1;min-width:0"><p class="title">LC-ST-2026-Rev_E · Kết cấu BTCT toà chính</p><p class="meta">Rev E · 248 trang · 67.3 MB · 4 RFI gắn · Đã phê duyệt</p></div>
+      <span class="badge b-amber">Kết cấu</span>
+    </div>
+    <div class="doc-row">
+      <i class="ti ti-file-type-pdf"></i>
+      <div style="flex:1;min-width:0"><p class="title">LC-FP-2026-Rev_B · Hệ thống PCCC và lối thoát hiểm</p><p class="meta">Rev B · 72 trang · 18.4 MB · 1 vi phạm QCVN 06:2022</p></div>
+      <span class="badge b-red">PCCC</span>
+    </div>
+    <div class="doc-row">
+      <i class="ti ti-file-type-doc"></i>
+      <div style="flex:1;min-width:0"><p class="title">Thuyết minh thiết kế hệ thống cấp thoát nước</p><p class="meta">v2.1 · 38 trang · 2.4 MB · Đã đối chiếu QCVN 02:2009/BXD</p></div>
+      <span class="badge b-teal">Cấp thoát</span>
+    </div>
+    <div class="doc-row">
+      <i class="ti ti-file-type-pdf"></i>
+      <div style="flex:1;min-width:0"><p class="title">LC-LS-2026-Rev_A · Bản vẽ landscape khu sân vườn</p><p class="meta">Rev A · 18 trang · 8.2 MB · Đang chờ TVTK phê duyệt</p></div>
+      <span class="badge b-green">Cảnh quan</span>
+    </div>
+  </div>
+</div>
+
+<!-- ===== BIDRADAR ===== -->
+<div class="view" id="v-bidradar">
+  <div class="ph">
+    <div class="ph-row">
+      <div>
+        <h1>BidRadar</h1>
+        <p>Cơ hội đấu thầu phù hợp với hồ sơ năng lực · Cập nhật từ muasamcong.mpi.gov.vn</p>
+      </div>
+      <button class="btn"><i class="ti ti-filter"></i>Lọc</button>
+    </div>
+  </div>
+
+  <div class="grid-stats">
+    <div class="stat"><div class="stat-label">Gói thầu mới hôm nay</div><div class="stat-value">14</div><div class="stat-delta">3 phù hợp cao</div></div>
+    <div class="stat"><div class="stat-label">Đang theo dõi</div><div class="stat-value">28</div><div class="stat-delta">5 sắp đến hạn</div></div>
+    <div class="stat"><div class="stat-label">Đã nộp HSDT</div><div class="stat-value">6</div><div class="stat-delta">Tỷ lệ trúng 33%</div></div>
+    <div class="stat"><div class="stat-label">Giá trị tháng này</div><div class="stat-value">412 tỷ ₫</div><div class="stat-delta">Pipeline tổng</div></div>
+  </div>
+
+  <div class="tender">
+    <div class="tender-head">
+      <div><p class="tender-title">Xây lắp Trường THCS Cầu Giấy giai đoạn 2</p><p class="tender-meta">Hà Nội · Đấu thầu rộng rãi · BMT: UBND Q. Cầu Giấy · Phương thức 1 GĐ 2 TH</p></div>
+      <span class="badge b-green">Phù hợp 94%</span>
+    </div>
+    <div class="tender-foot"><span>Hạn nộp: 22/05/2026 · còn 11 ngày</span><span class="tender-fit">~48 tỷ ₫</span></div>
+  </div>
+
+  <div class="tender">
+    <div class="tender-head">
+      <div><p class="tender-title">Cải tạo trụ sở chi nhánh BIDV Đà Lạt</p><p class="tender-meta">Lâm Đồng · Chào hàng cạnh tranh · BMT: Ngân hàng BIDV</p></div>
+      <span class="badge b-green">Phù hợp 87%</span>
+    </div>
+    <div class="tender-foot"><span>Hạn nộp: 19/05/2026 · còn 8 ngày</span><span class="tender-fit">~12.5 tỷ ₫</span></div>
+  </div>
+
+  <div class="tender">
+    <div class="tender-head">
+      <div><p class="tender-title">Xây dựng nhà điều hành KCN Sông Khoai</p><p class="tender-meta">Quảng Ninh · Đấu thầu rộng rãi · BMT: BQL KCN Sông Khoai</p></div>
+      <span class="badge b-amber">Phù hợp 72%</span>
+    </div>
+    <div class="tender-foot"><span>Hạn nộp: 02/06/2026 · còn 22 ngày</span><span class="tender-fit">~84 tỷ ₫</span></div>
+  </div>
+
+  <div class="tender">
+    <div class="tender-head">
+      <div><p class="tender-title">Mở rộng đường Tỉnh lộ 743 đoạn Km5-Km12</p><p class="tender-meta">Bình Dương · Đấu thầu rộng rãi · BMT: Sở GTVT</p></div>
+      <span class="badge b-gray">Phù hợp 58%</span>
+    </div>
+    <div class="tender-foot"><span>Hạn nộp: 28/05/2026 · còn 17 ngày</span><span class="tender-fit">~268 tỷ ₫</span></div>
+  </div>
+</div>
+
+<!-- ===== ACTIVITY ===== -->
+<div class="view" id="v-activity">
+  <div class="ph">
+    <div class="ph-row">
+      <div>
+        <h1>Hoạt động</h1>
+        <p>Luồng sự kiện trên toàn nền tảng · 24 giờ qua</p>
+      </div>
+      <button class="btn"><i class="ti ti-filter"></i>Lọc theo module</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="activity">
+      <div class="activity-dot"></div>
+      <div class="activity-body">
+        <p><strong>Hùng GSV</strong> đã tải lên 18 ảnh tại <strong>Lotus Center · Tầng 14 trục C-D</strong></p>
+        <p class="meta">SiteEye · 09:12 · 2 phút trước</p>
+      </div>
+    </div>
+    <div class="activity">
+      <div class="activity-dot amber"></div>
+      <div class="activity-body">
+        <p><strong>CodeGuard</strong> phát hiện vi phạm QCVN 06:2022 trên bản vẽ <strong>LC-FP-2026-Rev_B</strong> — khoảng cách thoát hiểm lối B-2 vượt 28m</p>
+        <p class="meta">CodeGuard · 09:34 · 28 phút trước</p>
+      </div>
+    </div>
+    <div class="activity">
+      <div class="activity-dot purple"></div>
+      <div class="activity-body">
+        <p><strong>Lê Mỹ Linh (PM)</strong> phê duyệt Change Order #18 — bổ sung PCCC tầng hầm B2 (847 triệu ₫)</p>
+        <p class="meta">ChangeOrder · 08:47 · 1 giờ trước</p>
+      </div>
+    </div>
+    <div class="activity">
+      <div class="activity-dot green"></div>
+      <div class="activity-body">
+        <p><strong>BidRadar</strong> tìm thấy 3 gói thầu mới phù hợp ≥85% — tổng giá trị ~145 tỷ ₫</p>
+        <p class="meta">BidRadar · 06:00 · 3 giờ trước</p>
+      </div>
+    </div>
+    <div class="activity">
+      <div class="activity-dot"></div>
+      <div class="activity-body">
+        <p><strong>Drawbridge</strong> đồng bộ Rev D (LC-AR-2026) — phát hiện 7 RFI tiềm năng từ thay đổi vị trí lỗ chờ MEP</p>
+        <p class="meta">Drawbridge · Hôm qua 17:23</p>
+      </div>
+    </div>
+    <div class="activity">
+      <div class="activity-dot amber"></div>
+      <div class="activity-body">
+        <p><strong>Submittal</strong> "Mẫu vật liệu ốp lát đá Marble" sắp quá hạn duyệt (còn 2 ngày)</p>
+        <p class="meta">Submittals · Hôm qua 14:00</p>
+      </div>
+    </div>
+    <div class="activity">
+      <div class="activity-dot purple"></div>
+      <div class="activity-body">
+        <p><strong>Phạm Đức Anh</strong> hoàn thành Daily log tại Đại học FPT Đà Nẵng — bàn giao mặt bằng khối A</p>
+        <p class="meta">DailyLog · Hôm qua 11:35</p>
+      </div>
+    </div>
+    <div class="activity">
+      <div class="activity-dot green"></div>
+      <div class="activity-body">
+        <p><strong>WinWork</strong> đề xuất tự động cho gói thầu "Trường THCS Cầu Giấy" đã sẵn sàng (Phù hợp 94%)</p>
+        <p class="meta">WinWork · Hôm qua 09:48</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== WINWORK ===== -->
+<div class="view" id="v-winwork">
+  <div class="ph"><div class="ph-row"><div><h1>WinWork</h1><p>Quản lý đề xuất &amp; tỷ lệ trúng thầu</p></div><button class="btn btn-primary"><i class="ti ti-plus"></i>Đề xuất mới</button></div></div>
+  <div class="grid-stats">
+    <div class="stat"><div class="stat-label">Đang viết</div><div class="stat-value">4</div><div class="stat-delta">2 sắp đến hạn</div></div>
+    <div class="stat"><div class="stat-label">Đã nộp</div><div class="stat-value">6</div><div class="stat-delta">Chờ kết quả</div></div>
+    <div class="stat"><div class="stat-label">Tỷ lệ trúng YTD</div><div class="stat-value">33%</div><div class="stat-delta">+8% vs 2025</div></div>
+    <div class="stat"><div class="stat-label">Tổng giá trị trúng</div><div class="stat-value">142 tỷ ₫</div><div class="stat-delta">12 dự án YTD</div></div>
+  </div>
+  <h3 class="h3">Đề xuất đang xử lý</h3>
+  <div class="row"><i class="ti ti-edit" style="color:var(--info-fg)"></i><div class="row-body"><p class="row-title">Trường THCS Cầu Giấy GĐ2 · ~48 tỷ ₫</p><p class="row-meta">Đang viết · 67% hoàn thành · Hạn nộp 22/05/2026 · Phù hợp 94%</p></div><span class="badge b-blue">Đang viết</span></div>
+  <div class="row"><i class="ti ti-send" style="color:var(--warn-fg)"></i><div class="row-body"><p class="row-title">Cải tạo BIDV Đà Lạt · ~12.5 tỷ ₫</p><p class="row-meta">Đã nộp 09/05 · Mở thầu 19/05 14:00 tại trụ sở BIDV</p></div><span class="badge b-amber">Đợi mở thầu</span></div>
+  <div class="row"><i class="ti ti-trophy" style="color:var(--success-fg)"></i><div class="row-body"><p class="row-title">Bệnh viện Tâm Anh Q.7 · 38 tỷ ₫</p><p class="row-meta">Trúng thầu · Ký HĐ 02/05/2026 · Dự kiến khởi công 01/06</p></div><span class="badge b-green">Đã trúng</span></div>
+  <div class="row"><i class="ti ti-x" style="color:var(--danger-fg)"></i><div class="row-body"><p class="row-title">Văn phòng Techcombank Đà Nẵng · 22 tỷ ₫</p><p class="row-meta">Trượt · Chênh 4.2% so với đơn vị trúng · Phân tích thua trong WinWork</p></div><span class="badge b-red">Trượt</span></div>
+  <h3 class="h3">Thư viện mẫu đề xuất</h3>
+  <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="badge b-gray">Văn phòng cao tầng</span><span class="badge b-gray">Trường học</span><span class="badge b-gray">Bệnh viện</span><span class="badge b-gray">Cải tạo nội thất</span><span class="badge b-gray">Công nghiệp</span><span class="badge b-gray">Hạ tầng giao thông</span></div>
+</div>
+
+<!-- ===== COSTPULSE ===== -->
+<div class="view" id="v-costpulse">
+  <div class="ph"><div class="ph-row"><div><h1>CostPulse</h1><p>Dự toán, RFQ &amp; giá vật tư xây dựng</p></div><button class="btn btn-primary"><i class="ti ti-calculator"></i>Dự toán mới</button></div></div>
+  <div class="grid-stats">
+    <div class="stat"><div class="stat-label">Dự toán mở</div><div class="stat-value">8</div><div class="stat-delta">3 chờ duyệt CĐT</div></div>
+    <div class="stat"><div class="stat-label">RFQ đang chạy</div><div class="stat-value">5</div><div class="stat-delta">12 NCC được mời</div></div>
+    <div class="stat"><div class="stat-label">Sai số TB</div><div class="stat-value">2.8%</div><div class="stat-delta">vs ngân sách</div></div>
+    <div class="stat"><div class="stat-label">NCC theo dõi</div><div class="stat-value">47</div><div class="stat-delta">36 active 90 ngày</div></div>
+  </div>
+  <div class="alert" style="background:var(--danger-bg);border-color:#E24B4A"><i class="ti ti-trending-up" style="color:var(--danger-fg)"></i><div class="alert-body"><strong>Cảnh báo giá:</strong> Thép Hoà Phát ↑5.2% trong 7 ngày qua — ảnh hưởng ~18 tỷ ₫ ngân sách Q3. Cát san lấp ↑12.3%.</div></div>
+  <h3 class="h3">Giá vật tư hôm nay</h3>
+  <div class="card" style="padding:0">
+    <div style="display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border)"><div><span>Thép thanh CB400 Ø16</span><span style="display:block;font-size:12px;color:var(--fg-secondary)">Hoà Phát · Khu vực miền Bắc</span></div><div><strong>16.840 ₫/kg</strong><span style="color:#A32D2D;font-size:12px;margin-left:8px">+5.2%</span></div></div>
+    <div style="display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border)"><div><span>Xi măng PCB40</span><span style="display:block;font-size:12px;color:var(--fg-secondary)">Vicem Hoàng Thạch · bao 50kg</span></div><div><strong>1.378 ₫/kg</strong><span style="color:#27500A;font-size:12px;margin-left:8px">-1.8%</span></div></div>
+    <div style="display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border)"><div><span>Cát san lấp</span><span style="display:block;font-size:12px;color:var(--fg-secondary)">Đồng Nai · giao đến công trình HN</span></div><div><strong>187.000 ₫/m³</strong><span style="color:#A32D2D;font-size:12px;margin-left:8px">+12.3%</span></div></div>
+    <div style="display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border)"><div><span>Đá 1x2</span><span style="display:block;font-size:12px;color:var(--fg-secondary)">Bình Phước · giao đến TP.HCM</span></div><div><strong>312.000 ₫/m³</strong><span style="color:#A32D2D;font-size:12px;margin-left:8px">+0.6%</span></div></div>
+    <div style="display:flex;justify-content:space-between;padding:10px 16px"><div><span>Gạch ốp Granite 600x600</span><span style="display:block;font-size:12px;color:var(--fg-secondary)">Đồng Tâm · trắng kem mã G68</span></div><div><strong>285.000 ₫/m²</strong><span style="color:#27500A;font-size:12px;margin-left:8px">-3.4%</span></div></div>
+  </div>
+  <h3 class="h3">RFQ đang chạy</h3>
+  <div class="row"><i class="ti ti-mail" style="color:var(--info-fg)"></i><div class="row-body"><p class="row-title">RFQ-024 · Thép cốt bê tông tháp T2 · 480 tấn</p><p class="row-meta">8 NCC mời · 5 đã chào · Hạn nộp 14/05 16:00</p></div><span class="badge b-amber">5/8 chào</span></div>
+  <div class="row"><i class="ti ti-mail" style="color:var(--info-fg)"></i><div class="row-body"><p class="row-title">RFQ-025 · Cửa nhôm kính tầng điển hình · 1.840m²</p><p class="row-meta">4 NCC mời · 2 đã chào · Hạn 17/05</p></div><span class="badge b-amber">2/4 chào</span></div>
+</div>
+
+<!-- ===== SCHEDULE ===== -->
+<div class="view" id="v-schedule">
+  <div class="ph"><div class="ph-row"><div><h1>SchedulePilot</h1><p>Tiến độ Lotus Center · Tuần 19/2026</p></div><div style="display:flex;gap:8px"><button class="btn"><i class="ti ti-download"></i>Xuất MS Project</button><button class="btn btn-primary"><i class="ti ti-edit"></i>Cập nhật</button></div></div></div>
+  <div class="grid-stats">
+    <div class="stat"><div class="stat-label">Đúng tiến độ</div><div class="stat-value">142</div><div class="stat-delta">tasks active</div></div>
+    <div class="stat"><div class="stat-label">Có rủi ro</div><div class="stat-value">18</div><div class="stat-delta warn">+3 tuần này</div></div>
+    <div class="stat"><div class="stat-label">Trễ tiến độ</div><div class="stat-value">7</div><div class="stat-delta" style="color:var(--danger-fg)">2 critical path</div></div>
+    <div class="stat"><div class="stat-label">Float trung bình</div><div class="stat-value">4.2 ngày</div><div class="stat-delta">Còn buffer</div></div>
+  </div>
+  <h3 class="h3">Tiến độ tổng thể · Q2-Q3/2026</h3>
+  <div class="card">
+    <div style="display:grid;grid-template-columns:180px 1fr 60px;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px"><span>Hoàn thiện tầng 1-13</span><div style="height:16px;background:var(--muted);border-radius:4px;position:relative;overflow:hidden"><div style="position:absolute;left:0%;width:78%;height:100%;background:#1D9E75;border-radius:4px"></div><div style="position:absolute;left:82%;top:-3px;bottom:-3px;width:2px;background:#A32D2D"></div></div><span style="color:var(--success-fg)">100%</span></div>
+    <div style="display:grid;grid-template-columns:180px 1fr 60px;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px"><span>Kết cấu tầng 14-20</span><div style="height:16px;background:var(--muted);border-radius:4px;position:relative;overflow:hidden"><div style="position:absolute;left:15%;width:62%;height:100%;background:#185FA5;border-radius:4px"></div><div style="position:absolute;left:82%;top:-3px;bottom:-3px;width:2px;background:#A32D2D"></div></div><span>72%</span></div>
+    <div style="display:grid;grid-template-columns:180px 1fr 60px;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px"><span>MEP tầng 14-20</span><div style="height:16px;background:var(--muted);border-radius:4px;position:relative;overflow:hidden"><div style="position:absolute;left:25%;width:55%;height:100%;background:#BA7517;border-radius:4px"></div><div style="position:absolute;left:82%;top:-3px;bottom:-3px;width:2px;background:#A32D2D"></div></div><span style="color:var(--warn-fg)">48%</span></div>
+    <div style="display:grid;grid-template-columns:180px 1fr 60px;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px"><span>Kết cấu tầng 21-24</span><div style="height:16px;background:var(--muted);border-radius:4px;position:relative;overflow:hidden"><div style="position:absolute;left:42%;width:38%;height:100%;background:#185FA5;border-radius:4px"></div><div style="position:absolute;left:82%;top:-3px;bottom:-3px;width:2px;background:#A32D2D"></div></div><span>8%</span></div>
+    <div style="display:grid;grid-template-columns:180px 1fr 60px;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px"><span>Hệ thống PCCC</span><div style="height:16px;background:var(--muted);border-radius:4px;position:relative;overflow:hidden"><div style="position:absolute;left:50%;width:42%;height:100%;background:#A32D2D;border-radius:4px"></div><div style="position:absolute;left:82%;top:-3px;bottom:-3px;width:2px;background:#A32D2D"></div></div><span style="color:var(--danger-fg)">12%</span></div>
+    <div style="display:grid;grid-template-columns:180px 1fr 60px;gap:12px;align-items:center;padding:8px 0;font-size:13px"><span>Bàn giao &amp; nghiệm thu</span><div style="height:16px;background:var(--muted);border-radius:4px;position:relative;overflow:hidden"><div style="position:absolute;left:85%;width:15%;height:100%;background:#185FA5;border-radius:4px"></div><div style="position:absolute;left:82%;top:-3px;bottom:-3px;width:2px;background:#A32D2D"></div></div><span>0%</span></div>
+  </div>
+  <p style="font-size:12px;color:var(--fg-tertiary);margin:8px 0 0">Vạch đỏ = hôm nay 11/05/2026 · Cam = có rủi ro · Đỏ = trễ critical path</p>
+  <h3 class="h3">Mốc sắp tới (14 ngày)</h3>
+  <div class="row"><i class="ti ti-flag" style="color:var(--warn-fg)"></i><div class="row-body"><p class="row-title">Nghiệm thu kết cấu tầng 20</p><p class="row-meta">17/05/2026 · TVGS đã lên lịch · CDT tham dự</p></div><span class="badge b-amber">Có rủi ro</span></div>
+  <div class="row"><i class="ti ti-flag" style="color:var(--info-fg)"></i><div class="row-body"><p class="row-title">Đổ BTCT lõi thang máy tầng 22-24</p><p class="row-meta">22/05/2026 · Liên tục 32 giờ · Cần 4 xe bơm</p></div><span class="badge b-blue">Đúng tiến độ</span></div>
+  <div class="row"><i class="ti ti-flag" style="color:var(--danger-fg)"></i><div class="row-body"><p class="row-title">Bàn giao hệ thống PCCC tầng 14-20 cho nghiệm thu</p><p class="row-meta">24/05/2026 · Đang trễ 6 ngày · Critical path</p></div><span class="badge b-red">Trễ</span></div>
+</div>
+
+<!-- ===== SUBMITTALS ===== -->
+<div class="view" id="v-submittals">
+  <div class="ph"><div class="ph-row"><div><h1>Submittals</h1><p>Phê duyệt vật tư, thiết bị, mẫu thiết kế</p></div><button class="btn btn-primary"><i class="ti ti-plus"></i>Submittal mới</button></div></div>
+  <div class="grid-stats">
+    <div class="stat"><div class="stat-label">Chờ duyệt</div><div class="stat-value">12</div><div class="stat-delta warn">4 quá hạn</div></div>
+    <div class="stat"><div class="stat-label">Duyệt tuần này</div><div class="stat-value">8</div><div class="stat-delta">3 có ghi chú</div></div>
+    <div class="stat"><div class="stat-label">Từ chối</div><div class="stat-value">1</div><div class="stat-delta">Yêu cầu làm lại</div></div>
+    <div class="stat"><div class="stat-label">Lead time TB</div><div class="stat-value">5.4 ngày</div><div class="stat-delta">-1.2d vs Q1</div></div>
+  </div>
+  <h3 class="h3">Đang chờ phản hồi</h3>
+  <div class="row"><i class="ti ti-file-import" style="color:var(--warn-fg)"></i><div class="row-body"><p class="row-title">SUB-2026-042 · Mẫu đá Marble ốp lát tầng điển hình</p><p class="row-meta">Sky Garden · NCC Vinastone · 18 mẫu · Hạn 13/05/2026</p></div><span class="badge b-amber">Chờ TVTK</span></div>
+  <div class="row"><i class="ti ti-file-import" style="color:var(--danger-fg)"></i><div class="row-body"><p class="row-title">SUB-2026-040 · Máy phát điện dự phòng 1500kVA</p><p class="row-meta">Lotus Center · Cummins QSV81 · Quá hạn 3 ngày</p></div><span class="badge b-red">Quá hạn</span></div>
+  <div class="row"><i class="ti ti-file-import" style="color:var(--info-fg)"></i><div class="row-body"><p class="row-title">SUB-2026-041 · Mẫu sơn ngoại thất chống thấm</p><p class="row-meta">Samsung YP · Dulux Weather Shield · 12 mã màu</p></div><span class="badge b-blue">Mới gửi</span></div>
+  <div class="row"><i class="ti ti-file-check" style="color:var(--success-fg)"></i><div class="row-body"><p class="row-title">SUB-2026-039 · Cửa nhôm Xingfa hệ 55 cách nhiệt</p><p class="row-meta">Lotus Center · Đã duyệt với 2 ghi chú về kính Low-E</p></div><span class="badge b-green">Đã duyệt</span></div>
+  <div class="row"><i class="ti ti-x" style="color:var(--danger-fg)"></i><div class="row-body"><p class="row-title">SUB-2026-038 · Đèn LED panel 60x60 chiếu sáng văn phòng</p><p class="row-meta">Sai chỉ số CRI ≥ 80 · Yêu cầu chào lại với option khác</p></div><span class="badge b-red">Từ chối</span></div>
+</div>
+
+<!-- ===== DAILYLOG ===== -->
+<div class="view" id="v-dailylog">
+  <div class="ph"><div class="ph-row"><div><h1>Nhật ký thi công</h1><p>Lotus Center · Tuần 19/2026</p></div><button class="btn btn-primary"><i class="ti ti-plus"></i>Tạo nhật ký hôm nay</button></div></div>
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:16px">
+    <div style="padding:10px 6px;text-align:center;font-size:12px;border-radius:8px;background:var(--card);border:1px solid var(--border);cursor:pointer">T2<br><strong style="font-size:15px">05</strong></div>
+    <div style="padding:10px 6px;text-align:center;font-size:12px;border-radius:8px;background:var(--card);border:1px solid var(--border);cursor:pointer">T3<br><strong style="font-size:15px">06</strong></div>
+    <div style="padding:10px 6px;text-align:center;font-size:12px;border-radius:8px;background:var(--card);border:1px solid var(--border);cursor:pointer">T4<br><strong style="font-size:15px">07</strong></div>
+    <div style="padding:10px 6px;text-align:center;font-size:12px;border-radius:8px;background:var(--card);border:1px solid var(--border);cursor:pointer">T5<br><strong style="font-size:15px">08</strong></div>
+    <div style="padding:10px 6px;text-align:center;font-size:12px;border-radius:8px;background:var(--card);border:1px solid var(--border);cursor:pointer">T6<br><strong style="font-size:15px">09</strong></div>
+    <div style="padding:10px 6px;text-align:center;font-size:12px;border-radius:8px;background:var(--card);border:1px solid var(--border);opacity:0.5">T7<br><strong style="font-size:15px">10</strong></div>
+    <div style="padding:10px 6px;text-align:center;font-size:12px;border-radius:8px;background:#185FA5;color:#fff;cursor:pointer">CN<br><strong style="font-size:15px">11</strong></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><strong style="font-size:15px">11/05/2026 · Chủ nhật</strong><span class="badge b-blue">Đã ký số</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px;margin-bottom:12px">
+      <div><i class="ti ti-cloud" style="color:var(--fg-secondary)"></i> <strong>Thời tiết:</strong> Nắng nhẹ · 28-32°C · Gió ĐB cấp 2</div>
+      <div><i class="ti ti-users" style="color:var(--fg-secondary)"></i> <strong>Nhân lực:</strong> 142 công nhân (28 thầu phụ)</div>
+      <div><i class="ti ti-truck" style="color:var(--fg-secondary)"></i> <strong>Thiết bị:</strong> 2 cẩu tháp, 4 vận thăng, 1 bơm BT</div>
+      <div><i class="ti ti-clock" style="color:var(--fg-secondary)"></i> <strong>Giờ làm:</strong> 07:00 - 17:30 (1 ca)</div>
+    </div>
+    <div style="font-size:13px"><strong>Công việc đã thực hiện:</strong>
+      <ul style="margin:6px 0 0;padding-left:20px;color:var(--fg-secondary);line-height:1.8">
+        <li>Đổ bê tông sàn tầng 21 trục A-D · 142m³ · Mác M350</li>
+        <li>Lắp đặt cốp pha cột tầng 22 trục E-H · 12 cột</li>
+        <li>Hoàn thiện ốp đá tầng 12 · 380m²</li>
+        <li>Lắp đặt ống thông gió tầng 14 · 60m ống tròn D200</li>
+        <li>Sửa chữa máy bơm bê tông số 2 (sự cố lúc 14:30)</li>
+      </ul>
+    </div>
+  </div>
+  <h3 class="h3">Sự cố / vấn đề ghi nhận</h3>
+  <div class="row"><i class="ti ti-alert-circle" style="color:var(--warn-fg)"></i><div class="row-body"><p class="row-title">Hư hỏng máy bơm bê tông số 2 (xy-lanh chính)</p><p class="row-meta">Xảy ra 14:30 · Kỹ thuật xử lý, hoàn thành 16:45 · Trễ tiến độ 1.5 giờ</p></div><span class="badge b-amber">Đang xử lý</span></div>
+</div>
+
+<!-- ===== CHANGEORDER ===== -->
+<div class="view" id="v-changeorder">
+  <div class="ph"><div class="ph-row"><div><h1>Change Orders</h1><p>Lệnh thay đổi &amp; ảnh hưởng chi phí</p></div><button class="btn btn-primary"><i class="ti ti-plus"></i>CO mới</button></div></div>
+  <div class="grid-stats">
+    <div class="stat"><div class="stat-label">Đang mở</div><div class="stat-value">3</div><div class="stat-delta">2.4 tỷ ₫</div></div>
+    <div class="stat"><div class="stat-label">Đã duyệt YTD</div><div class="stat-value">14</div><div class="stat-delta">+8.2% ngân sách</div></div>
+    <div class="stat"><div class="stat-label">Bị từ chối</div><div class="stat-value">2</div><div class="stat-delta">487 triệu ₫</div></div>
+    <div class="stat"><div class="stat-label">Thời gian xử lý</div><div class="stat-value">12d</div><div class="stat-delta">trung bình</div></div>
+  </div>
+  <h3 class="h3">Lệnh thay đổi gần đây</h3>
+  <div class="row"><i class="ti ti-coin" style="color:var(--success-fg)"></i><div class="row-body"><p class="row-title">CO-018 · Bổ sung hệ thống PCCC tầng hầm B2</p><p class="row-meta">Samsung YP · 847 triệu ₫ · Đã ký số · Ảnh hưởng tiến độ: 0 ngày</p></div><span class="badge b-green">Đã duyệt</span></div>
+  <div class="row"><i class="ti ti-edit" style="color:var(--warn-fg)"></i><div class="row-body"><p class="row-title">CO-019 · Thay vật liệu ốp ngoài tầng 1-3 (Marble → Granite)</p><p class="row-meta">Lotus Center · 1.2 tỷ ₫ · Đợi CĐT phê duyệt · Theo yêu cầu CĐT</p></div><span class="badge b-amber">Chờ duyệt</span></div>
+  <div class="row"><i class="ti ti-edit" style="color:var(--info-fg)"></i><div class="row-body"><p class="row-title">CO-020 · Bổ sung hệ chống sét lan truyền</p><p class="row-meta">Vinmec HL · 312 triệu ₫ · Đang soạn báo giá · Nguyên nhân QCVN mới</p></div><span class="badge b-blue">Bản nháp</span></div>
+  <div class="row"><i class="ti ti-x" style="color:var(--danger-fg)"></i><div class="row-body"><p class="row-title">CO-017 · Đổi nhà thầu phụ landscape Vinmec HL</p><p class="row-meta">312 triệu ₫ · Bị từ chối · Lý do: cần thẩm tra năng lực thay thế</p></div><span class="badge b-red">Từ chối</span></div>
+</div>
+
+<!-- ===== HANDOVER ===== -->
+<div class="view" id="v-handover">
+  <div class="ph"><div class="ph-row"><div><h1>Handover</h1><p>Bàn giao &amp; bảo hành · Vinmec Hạ Long</p></div><button class="btn btn-primary"><i class="ti ti-package"></i>Gói bàn giao mới</button></div></div>
+  <div class="grid-stats">
+    <div class="stat"><div class="stat-label">Gói bàn giao</div><div class="stat-value">12</div><div class="stat-delta">8 đã đóng</div></div>
+    <div class="stat"><div class="stat-label">Tài liệu as-built</div><div class="stat-value">94%</div><div class="stat-delta">+12% tuần này</div></div>
+    <div class="stat"><div class="stat-label">O&amp;M manual</div><div class="stat-value">47/50</div><div class="stat-delta">3 còn lại</div></div>
+    <div class="stat"><div class="stat-label">Bảo hành mở</div><div class="stat-value">128</div><div class="stat-delta">mục đang theo dõi</div></div>
+  </div>
+  <h3 class="h3">Gói bàn giao</h3>
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:start;gap:10px"><div style="flex:1"><p style="margin:0;font-size:14px;font-weight:500">Khoa Nội tổng hợp · Tầng 3-4</p><p style="margin:3px 0 0;font-size:12.5px;color:var(--fg-secondary)">As-built 100% · O&amp;M 100% · Đã nghiệm thu PCCC · 32 thiết bị y tế</p><div style="height:6px;background:var(--muted);border-radius:3px;margin-top:10px;overflow:hidden"><div style="height:100%;width:100%;background:#1D9E75;border-radius:3px"></div></div></div><span class="badge b-green">Đã đóng</span></div></div>
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:start;gap:10px"><div style="flex:1"><p style="margin:0;font-size:14px;font-weight:500">Khoa Ngoại &amp; phòng mổ · Tầng 5</p><p style="margin:3px 0 0;font-size:12.5px;color:var(--fg-secondary)">As-built 92% · Đợi giấy hợp chuẩn TTB y tế · 8 phòng mổ</p><div style="height:6px;background:var(--muted);border-radius:3px;margin-top:10px;overflow:hidden"><div style="height:100%;width:92%;background:#185FA5;border-radius:3px"></div></div></div><span class="badge b-blue">Đang đóng</span></div></div>
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:start;gap:10px"><div style="flex:1"><p style="margin:0;font-size:14px;font-weight:500">Khu kỹ thuật phụ trợ · Tầng hầm</p><p style="margin:3px 0 0;font-size:12.5px;color:var(--fg-secondary)">As-built 78% · MEP chưa nghiệm thu hoàn chỉnh · Còn thiếu shop drawing chiller</p><div style="height:6px;background:var(--muted);border-radius:3px;margin-top:10px;overflow:hidden"><div style="height:100%;width:78%;background:#BA7517;border-radius:3px"></div></div></div><span class="badge b-amber">Còn thiếu</span></div></div>
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px"><div style="display:flex;justify-content:space-between;align-items:start;gap:10px"><div style="flex:1"><p style="margin:0;font-size:14px;font-weight:500">Sảnh chính &amp; khu vực công cộng</p><p style="margin:3px 0 0;font-size:12.5px;color:var(--fg-secondary)">As-built 100% · Bảo hành 24 tháng · Bàn giao 02/04/2026</p><div style="height:6px;background:var(--muted);border-radius:3px;margin-top:10px;overflow:hidden"><div style="height:100%;width:100%;background:#1D9E75;border-radius:3px"></div></div></div><span class="badge b-green">Đã đóng</span></div></div>
+</div>
+
+<!-- ===== PUNCHLIST ===== -->
+<div class="view" id="v-punchlist">
+  <div class="ph"><div class="ph-row"><div><h1>Punch list</h1><p>Vinmec Hạ Long · 47 lỗi mở / 124 đã đóng</p></div><button class="btn btn-primary"><i class="ti ti-plus"></i>Lỗi mới</button></div></div>
+  <div class="grid-stats">
+    <div class="stat"><div class="stat-label">Đang mở</div><div class="stat-value">47</div><div class="stat-delta warn">8 nghiêm trọng</div></div>
+    <div class="stat"><div class="stat-label">Đang xử lý</div><div class="stat-value">22</div><div class="stat-delta">14 NT phụ active</div></div>
+    <div class="stat"><div class="stat-label">Đã đóng</div><div class="stat-value">124</div><div class="stat-delta">+18 tuần này</div></div>
+    <div class="stat"><div class="stat-label">SLA TB</div><div class="stat-value">3.2 ngày</div><div class="stat-delta">đóng / lỗi</div></div>
+  </div>
+  <h3 class="h3">Theo hạng mục</h3>
+  <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap"><span class="badge b-pink">MEP · 18</span><span class="badge b-blue">Hoàn thiện · 14</span><span class="badge b-amber">Kết cấu · 6</span><span class="badge b-red">PCCC · 5</span><span class="badge b-teal">Cảnh quan · 4</span></div>
+  <h3 class="h3">Lỗi gần đây</h3>
+  <div class="row"><div class="row-body"><p class="row-title">Vết nứt chân tường hành lang T3 trục B-D</p><p class="row-meta">Sảnh khoa Nội · Sơn lại + chống thấm · Giao NT Sơn Đại Phú</p></div><span class="badge b-amber">Trung bình</span></div>
+  <div class="row"><div class="row-body"><p class="row-title">Cửa phòng mổ 502 đóng không kín, hở 4mm cạnh dưới</p><p class="row-meta">Khoa Ngoại T5 · Điều chỉnh bản lề + thay gioăng · NT Cửa Inox</p></div><span class="badge b-red">Nghiêm trọng</span></div>
+  <div class="row"><div class="row-body"><p class="row-title">Đèn LED panel 4 chỗ nhấp nháy hành lang T4 trục A-C</p><p class="row-meta">Khoa Nội · Thay driver LED · NT MEP Tân Thịnh</p></div><span class="badge b-amber">Trung bình</span></div>
+  <div class="row"><div class="row-body"><p class="row-title">Vòi nước phòng vệ sinh nam T2 rò rỉ</p><p class="row-meta">Sảnh chính · Thay gioăng cao su · NT MEP Tân Thịnh</p></div><span class="badge b-gray">Nhẹ</span></div>
+  <div class="row"><div class="row-body"><p class="row-title">Thiếu biển báo thoát hiểm tầng hầm B1 trục C-E</p><p class="row-meta">PCCC · QCVN 06:2022 yêu cầu · NT PCCC Phương Đông · gấp</p></div><span class="badge b-red">Nghiêm trọng</span></div>
+</div>
+
+<!-- ===== MEMBERS ===== -->
+<div class="view" id="v-members">
+  <div class="ph"><div class="ph-row"><div><h1>Thành viên</h1><p>Coteccons · 24 thành viên · 3 lời mời đang chờ</p></div><button class="btn btn-primary"><i class="ti ti-user-plus"></i>Mời thành viên</button></div></div>
+  <div class="grid-stats">
+    <div class="stat"><div class="stat-label">Owner</div><div class="stat-value">2</div><div class="stat-delta">Toàn quyền</div></div>
+    <div class="stat"><div class="stat-label">Admin</div><div class="stat-value">4</div><div class="stat-delta">Quản lý dự án</div></div>
+    <div class="stat"><div class="stat-label">Member</div><div class="stat-value">14</div><div class="stat-delta">Editor</div></div>
+    <div class="stat"><div class="stat-label">Viewer</div><div class="stat-value">4</div><div class="stat-delta">Chỉ đọc báo cáo</div></div>
+  </div>
+  <h3 class="h3">Thành viên hoạt động</h3>
+  <div class="card" style="padding:0">
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)"><div class="avatar" style="background:#EEEDFE;color:#3C3489">NT</div><div style="flex:1;min-width:0"><p style="margin:0;font-size:13.5px;font-weight:500">Nguyễn Thu Thuỷ</p><p style="margin:2px 0 0;font-size:12px;color:var(--fg-secondary)">sophie.nguyenthuthuy@gmail.com · Bạn</p></div><span class="badge b-purple">Owner</span></div>
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)"><div class="avatar" style="background:#E6F1FB;color:#0C447C">LL</div><div style="flex:1;min-width:0"><p style="margin:0;font-size:13.5px;font-weight:500">Lê Mỹ Linh</p><p style="margin:2px 0 0;font-size:12px;color:var(--fg-secondary)">linh.le@coteccons.vn · PM Lotus Center</p></div><span class="badge b-blue">Admin</span></div>
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)"><div class="avatar" style="background:#E1F5EE;color:#085041">TH</div><div style="flex:1;min-width:0"><p style="margin:0;font-size:13.5px;font-weight:500">Trần Quang Hùng</p><p style="margin:2px 0 0;font-size:12px;color:var(--fg-secondary)">hung.tran@coteccons.vn · GSV trưởng Lotus Center</p></div><span class="badge b-teal">Member</span></div>
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)"><div class="avatar" style="background:#FAEEDA;color:#854F0B">PA</div><div style="flex:1;min-width:0"><p style="margin:0;font-size:13.5px;font-weight:500">Phạm Đức Anh</p><p style="margin:2px 0 0;font-size:12px;color:var(--fg-secondary)">anh.pham@coteccons.vn · GSV Đại học FPT Đà Nẵng</p></div><span class="badge b-teal">Member</span></div>
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 16px"><div class="avatar" style="background:#FBEAF0;color:#72243E">VH</div><div style="flex:1;min-width:0"><p style="margin:0;font-size:13.5px;font-weight:500">Vũ Thanh Hoa</p><p style="margin:2px 0 0;font-size:12px;color:var(--fg-secondary)">hoa.vu@vinmec.com.vn · Đại diện CĐT xem báo cáo</p></div><span class="badge b-gray">Viewer</span></div>
+  </div>
+  <h3 class="h3">Lời mời chờ phản hồi</h3>
+  <div class="row"><i class="ti ti-mail" style="color:var(--warn-fg)"></i><div class="row-body"><p class="row-title">tu.nguyen@vinmec.com.vn · Viewer</p><p class="row-meta">Gửi 2 ngày trước · Hết hạn sau 5 ngày</p></div><button class="btn" style="padding:5px 12px;font-size:12px">Gửi lại</button></div>
+  <div class="row"><i class="ti ti-mail" style="color:var(--warn-fg)"></i><div class="row-body"><p class="row-title">manh.bui@samsung.com · Viewer</p><p class="row-meta">Gửi 4 ngày trước · Hết hạn sau 3 ngày</p></div><button class="btn" style="padding:5px 12px;font-size:12px">Gửi lại</button></div>
+</div>
+
+<!-- ===== NOTIFICATIONS ===== -->
+<div class="view" id="v-notifications">
+  <div class="ph"><div class="ph-row"><div><h1>Thông báo</h1><p>Tuỳ chỉnh thông báo cho từng module</p></div><button class="btn"><i class="ti ti-restore"></i>Khôi phục mặc định</button></div></div>
+  <h3 class="h3">Kênh nhận thông báo</h3>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;background:var(--card)"><div><p style="margin:0;font-size:13.5px">Email</p><p style="margin:2px 0 0;font-size:12px;color:var(--fg-secondary)">sophie.nguyenthuthuy@gmail.com</p></div><div style="display:flex;gap:6px"><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:#185FA5;color:#fff;cursor:pointer">Bật</span><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:var(--muted);color:var(--fg-secondary);cursor:pointer">Tắt</span></div></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;background:var(--card)"><div><p style="margin:0;font-size:13.5px">Push thông báo trình duyệt</p><p style="margin:2px 0 0;font-size:12px;color:var(--fg-secondary)">Chrome · MacBook Pro · Đã cấp quyền</p></div><div style="display:flex;gap:6px"><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:#185FA5;color:#fff;cursor:pointer">Bật</span><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:var(--muted);color:var(--fg-secondary);cursor:pointer">Tắt</span></div></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;background:var(--card)"><div><p style="margin:0;font-size:13.5px">SMS</p><p style="margin:2px 0 0;font-size:12px;color:var(--fg-secondary)">+84 9XX XXX XXX · Chỉ sự cố nghiêm trọng</p></div><div style="display:flex;gap:6px"><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:var(--muted);color:var(--fg-secondary);cursor:pointer">Bật</span><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:#185FA5;color:#fff;cursor:pointer">Tắt</span></div></div>
+  <h3 class="h3">Theo module</h3>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;background:var(--card)"><div><p style="margin:0;font-size:13.5px">CodeGuard · phát hiện vi phạm quy chuẩn</p><p style="margin:2px 0 0;font-size:12px;color:var(--fg-secondary)">Tức thì khi phát hiện vi phạm trên bản vẽ mới</p></div><div style="display:flex;gap:6px"><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:#185FA5;color:#fff;cursor:pointer">Tức thì</span><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:var(--muted);color:var(--fg-secondary);cursor:pointer">Tổng hợp</span><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:var(--muted);color:var(--fg-secondary);cursor:pointer">Tắt</span></div></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;background:var(--card)"><div><p style="margin:0;font-size:13.5px">SiteEye · sự cố an toàn lao động</p><p style="margin:2px 0 0;font-size:12px;color:var(--fg-secondary)">Tức thì khi có sự cố nghiêm trọng được ghi nhận</p></div><div style="display:flex;gap:6px"><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:#185FA5;color:#fff;cursor:pointer">Tức thì</span><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:var(--muted);color:var(--fg-secondary);cursor:pointer">Tổng hợp</span><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:var(--muted);color:var(--fg-secondary);cursor:pointer">Tắt</span></div></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;background:var(--card)"><div><p style="margin:0;font-size:13.5px">Submittals · đến hạn / quá hạn</p><p style="margin:2px 0 0;font-size:12px;color:var(--fg-secondary)">Tóm tắt mỗi sáng 08:00</p></div><div style="display:flex;gap:6px"><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:var(--muted);color:var(--fg-secondary);cursor:pointer">Tức thì</span><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:#185FA5;color:#fff;cursor:pointer">Tổng hợp</span><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:var(--muted);color:var(--fg-secondary);cursor:pointer">Tắt</span></div></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;background:var(--card)"><div><p style="margin:0;font-size:13.5px">BidRadar · gói thầu phù hợp ≥ 80%</p><p style="margin:2px 0 0;font-size:12px;color:var(--fg-secondary)">Tóm tắt mỗi sáng</p></div><div style="display:flex;gap:6px"><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:var(--muted);color:var(--fg-secondary);cursor:pointer">Tức thì</span><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:#185FA5;color:#fff;cursor:pointer">Tổng hợp</span><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:var(--muted);color:var(--fg-secondary);cursor:pointer">Tắt</span></div></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;background:var(--card)"><div><p style="margin:0;font-size:13.5px">Change orders · cần phê duyệt</p><p style="margin:2px 0 0;font-size:12px;color:var(--fg-secondary)">Tức thì khi được gán phê duyệt</p></div><div style="display:flex;gap:6px"><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:#185FA5;color:#fff;cursor:pointer">Tức thì</span><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:var(--muted);color:var(--fg-secondary);cursor:pointer">Tổng hợp</span><span style="padding:5px 12px;font-size:12px;border-radius:999px;background:var(--muted);color:var(--fg-secondary);cursor:pointer">Tắt</span></div></div>
+  <h3 class="h3">Giờ yên tĩnh</h3>
+  <div class="card" style="margin:0"><p style="margin:0;font-size:13.5px">22:00 - 07:00 hằng ngày · Chỉ thông báo nghiêm trọng được gửi qua SMS · Push và email tạm dừng</p></div>
+</div>
+
+</main>
+</div>
+</div>
+
+<script>
+(function(){
+  const items=document.querySelectorAll('.nav-item[data-view]');
+  const views=document.querySelectorAll('.view');
+  const sidebar=document.getElementById('sidebar');
+  const menuBtn=document.getElementById('menuBtn');
+
+  items.forEach(it=>{
+    it.addEventListener('click',()=>{
+      const v=it.getAttribute('data-view');
+      document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+      it.classList.add('active');
+      views.forEach(view=>view.classList.toggle('show',view.id==='v-'+v));
+      sidebar.classList.remove('open');
+      window.scrollTo(0,0);
+    });
+  });
+
+  if(menuBtn){
+    menuBtn.addEventListener('click',()=>sidebar.classList.toggle('open'));
+  }
+})();
+</script>
+</body>
+</html>

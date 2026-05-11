@@ -1,68 +1,52 @@
-import Link from "next/link";
 import type { Route } from "next";
 import type { ReactNode } from "react";
 
 import { CommandPalette } from "@/components/CommandPalette";
 import { MobileNavShell } from "@/components/MobileNavShell";
+import { SidebarNav, type NavItem } from "@/components/SidebarNav";
 
 import { OrgSwitcher } from "./_components/OrgSwitcher";
 import { SearchTrigger } from "./_components/SearchTrigger";
 import { QuotaStatusBanner } from "./codeguard/QuotaStatusBanner";
 
-const NAV: Array<{ href: Route; label: string; section?: string }> = [
-  { section: "Tổng quan", href: "/inbox", label: "Hôm nay" },
-  { href: "/projects", label: "Dự án" },
-  { href: "/activity", label: "Hoạt động" },
-  { section: "Giai đoạn thiết kế", href: "/codeguard", label: "CodeGuard" },
-  { href: "/drawbridge", label: "Drawbridge" },
-  { section: "Giai đoạn đấu thầu", href: "/bidradar", label: "BidRadar" },
-  { href: "/winwork", label: "WinWork" },
-  { href: "/costpulse", label: "CostPulse" },
-  { section: "Giai đoạn thi công", href: "/pulse", label: "Pulse" },
-  { href: "/siteeye", label: "SiteEye" },
-  { href: "/schedule", label: "SchedulePilot" },
-  { href: "/submittals", label: "Submittals" },
-  { href: "/dailylog", label: "Nhật ký" },
-  { href: "/changeorder", label: "Change orders" },
-  { section: "Bàn giao", href: "/handover", label: "Handover" },
-  { href: "/punchlist", label: "Punch list" },
-  { section: "Cài đặt", href: "/settings/members", label: "Thành viên" },
-  { href: "/settings/notifications", label: "Thông báo" },
-  { href: "/settings/audit", label: "Nhật ký kiểm tra" },
-  { href: "/settings/webhooks", label: "Webhooks" },
-  { href: "/settings/search-analytics", label: "Phân tích tìm kiếm" },
-  { href: "/settings/import", label: "Nhập dữ liệu" },
-  { href: "/settings/export", label: "Xuất dữ liệu" },
-  { href: "/settings/retention", label: "Retention" },
-  { href: "/settings/api-keys", label: "API keys" },
-  { section: "Tài liệu", href: "/docs/webhooks", label: "Webhooks" },
-  { href: "/docs/api", label: "API reference" },
+const NAV: NavItem[] = [
+  { section: "Tổng quan", href: "/inbox" as Route, label: "Hôm nay" },
+  { href: "/projects" as Route, label: "Dự án" },
+  { href: "/activity" as Route, label: "Hoạt động" },
+  { section: "Giai đoạn thiết kế", href: "/codeguard" as Route, label: "CodeGuard" },
+  { href: "/drawbridge" as Route, label: "Drawbridge" },
+  { section: "Giai đoạn đấu thầu", href: "/bidradar" as Route, label: "BidRadar" },
+  { href: "/winwork" as Route, label: "WinWork" },
+  { href: "/costpulse" as Route, label: "CostPulse" },
+  { section: "Giai đoạn thi công", href: "/pulse" as Route, label: "Pulse" },
+  { href: "/siteeye" as Route, label: "SiteEye" },
+  { href: "/schedule" as Route, label: "SchedulePilot" },
+  { href: "/submittals" as Route, label: "Submittals" },
+  { href: "/dailylog" as Route, label: "Nhật ký" },
+  { href: "/changeorder" as Route, label: "Change orders" },
+  { section: "Bàn giao", href: "/handover" as Route, label: "Handover" },
+  { href: "/punchlist" as Route, label: "Punch list" },
+  { section: "Cài đặt", href: "/settings/members" as Route, label: "Thành viên" },
+  { href: "/settings/notifications" as Route, label: "Thông báo" },
+  { href: "/settings/audit" as Route, label: "Nhật ký kiểm tra" },
+  { href: "/settings/webhooks" as Route, label: "Webhooks" },
+  { href: "/settings/search-analytics" as Route, label: "Phân tích tìm kiếm" },
+  { href: "/settings/import" as Route, label: "Nhập dữ liệu" },
+  { href: "/settings/export" as Route, label: "Xuất dữ liệu" },
+  { href: "/settings/retention" as Route, label: "Retention" },
+  { href: "/settings/api-keys" as Route, label: "API keys" },
+  { section: "Tài liệu", href: "/docs/webhooks" as Route, label: "Webhooks" },
+  { href: "/docs/api" as Route, label: "API reference" },
 ];
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
-  // Build the nav once here (server-side) and hand it to MobileNavShell
-  // (client) — keeps the route data on the server and the open/close
-  // state on the client.
+  // SidebarNav is a client component (needs usePathname for active-state
+  // highlighting). We pass the route data in serialised form so the
+  // server-rendered shell stays cheap.
   const navContent = (
     <>
       <SearchTrigger />
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto">
-        {NAV.map((item) => (
-          <div key={item.href}>
-            {item.section && (
-              <div className="mt-3 mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {item.section}
-              </div>
-            )}
-            <Link
-              href={item.href}
-              className="block rounded px-3 py-2 text-sm hover:bg-muted"
-            >
-              {item.label}
-            </Link>
-          </div>
-        ))}
-      </nav>
+      <SidebarNav items={NAV} />
     </>
   );
 
@@ -86,9 +70,3 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     </>
   );
 }
-
-
-// `SearchTrigger` lives in `_components/SearchTrigger.tsx` (client component).
-// Defining it inline here failed at runtime with "Event handlers cannot
-// be passed to Client Component props" because the layout is server-
-// rendered and onClick can't cross the boundary.

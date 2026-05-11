@@ -12,20 +12,21 @@ import { siteeyeKeys } from "./keys";
 import type { SafetyIncident, SafetyIncidentFilters, UUID } from "./types";
 
 export function useSafetyIncidents(filters: SafetyIncidentFilters = {}) {
-  const { token } = useSession();
+  const { token, orgId } = useSession();
   return useQuery({
     queryKey: siteeyeKeys.safety(filters),
     queryFn: () =>
       apiRequestWithMeta<SafetyIncident[]>("/api/v1/siteeye/safety-incidents", {
         params: serialize(filters),
         token,
+        orgId,
       }),
     placeholderData: keepPreviousData,
   });
 }
 
 export function useAcknowledgeIncident() {
-  const { token } = useSession();
+  const { token, orgId } = useSession();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -43,6 +44,7 @@ export function useAcknowledgeIncident() {
           method: "PATCH",
           body: { resolve: Boolean(resolve), notes },
           token,
+          orgId,
         },
       ),
     onSuccess: () => {

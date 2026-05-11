@@ -15,6 +15,13 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
+import {
+  Alert,
+  Button,
+  EmptyState,
+  PageHeader,
+  Spinner,
+} from "@aec/ui/primitives";
 import { useInbox } from "@/hooks/inbox";
 import type { InboxBucket, InboxItem, InboxItemKind } from "@aec/types/inbox";
 
@@ -28,17 +35,17 @@ const KIND_META: Record<
     tone: "bg-indigo-50 text-indigo-700",
   },
   punch_item: {
-    label: "Punch",
+    label: "Punch list",
     icon: <FileSignature size={14} />,
     tone: "bg-rose-50 text-rose-700",
   },
   defect: {
-    label: "Defect",
+    label: "Khiếm khuyết",
     icon: <ClipboardCheck size={14} />,
     tone: "bg-purple-50 text-purple-700",
   },
   submittal: {
-    label: "Submittal",
+    label: "Đệ trình",
     icon: <Clipboard size={14} />,
     tone: "bg-blue-50 text-blue-700",
   },
@@ -63,8 +70,34 @@ const SEVERITY_TONE: Record<string, string> = {
   high: "text-red-700",
   critical: "text-red-700 font-semibold",
   medium: "text-amber-700",
-  low: "text-slate-500",
-  // CO uses normal/high/urgent for priority — fall through.
+  low: "text-muted-foreground",
+  urgent: "text-red-700 font-semibold",
+  normal: "text-muted-foreground",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  open: "Đang mở",
+  answered: "Đã trả lời",
+  closed: "Đã đóng",
+  in_progress: "Đang thực hiện",
+  fixed: "Đã sửa",
+  assigned: "Đã giao",
+  pending_review: "Chờ review",
+  under_review: "Đang review",
+  revise_resubmit: "Yêu cầu sửa",
+  approved: "Đã duyệt",
+  submitted: "Đã nộp",
+  reviewed: "Đã xem xét",
+  pending: "Đang chờ",
+};
+
+const SEVERITY_LABEL: Record<string, string> = {
+  critical: "Khẩn cấp",
+  high: "Cao",
+  medium: "Trung bình",
+  low: "Thấp",
+  urgent: "Khẩn cấp",
+  normal: "Bình thường",
 };
 
 function _isOverdue(due: string | null | undefined): boolean {
@@ -93,14 +126,10 @@ export default function InboxPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-slate-900">Hôm nay</h2>
-        <p className="text-sm text-slate-600">
-          Tổng hợp việc đang chờ trên 14 module — RFI giao cho bạn, punch
-          item, defect, submittal chờ review, change order chờ duyệt, và đề
-          xuất CO từ AI.
-        </p>
-      </div>
+      <PageHeader
+        title="Hôm nay"
+        description="Tổng hợp việc đang chờ trên các module — RFI giao cho bạn, hạng mục punch list, khiếm khuyết, hồ sơ đệ trình chờ review, lệnh thay đổi chờ duyệt, và đề xuất CO từ AI."
+      />
 
       <div className="flex flex-wrap gap-1.5">
         {(["all", ...Object.keys(KIND_META)] as Array<InboxItemKind | "all">).map((k) => {
@@ -109,38 +138,36 @@ export default function InboxPage() {
             k === "all"
               ? items.length
               : items.filter((i) => i.kind === k).length;
+          const active = filterKind === k;
           return (
-            <button
+            <Button
               key={k}
-              type="button"
+              size="sm"
+              variant={active ? "default" : "outline"}
               onClick={() => setFilterKind(k)}
-              className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${
-                filterKind === k
-                  ? "bg-blue-600 text-white"
-                  : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
-              }`}
+              className="rounded-full"
             >
               {meta?.icon}
               {k === "all" ? "Tất cả" : meta?.label}
-              <span className="ml-1 rounded-full bg-slate-100 px-1.5 text-[10px] text-slate-700">
+              <span className="ml-1 rounded-full bg-muted px-1.5 text-[10px] text-foreground">
                 {count}
               </span>
-            </button>
+            </Button>
           );
         })}
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-slate-500">Đang tải...</p>
-      ) : isError ? (
-        <p className="text-sm text-red-600">
-          Không thể tải inbox. Vui lòng thử lại.
-        </p>
-      ) : items.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-12 text-center">
-          <InboxIcon size={32} className="mx-auto mb-3 text-slate-400" aria-hidden />
-          <p className="text-sm text-slate-500">Trống — không có gì chờ.</p>
+        <div className="flex justify-center py-8">
+          <Spinner label="Đang tải" />
         </div>
+      ) : isError ? (
+        <Alert variant="destructive">Không thể tải inbox. Vui lòng thử lại.</Alert>
+      ) : items.length === 0 ? (
+        <EmptyState
+          icon={<InboxIcon size={20} />}
+          title="Trống — không có gì chờ."
+        />
       ) : (
         <div className="space-y-6">
           {buckets.map((bucket) => {
@@ -148,13 +175,13 @@ export default function InboxPage() {
             if (list.length === 0) return null;
             return (
               <section key={bucket}>
-                <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                <h3 className="mb-2 text-sm font-semibold text-foreground">
                   {BUCKET_LABEL[bucket]}{" "}
-                  <span className="ml-1 text-xs font-normal text-slate-500">
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">
                     ({list.length})
                   </span>
                 </h3>
-                <ul className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 bg-white">
+                <ul className="divide-y overflow-hidden rounded-lg border bg-card">
                   {list.map((it) => (
                     <Row key={`${it.kind}:${it.id}`} item={it} />
                   ))}
@@ -175,7 +202,7 @@ function Row({ item }: { item: InboxItem }) {
     <li>
       <Link
         href={item.deep_link}
-        className="flex items-baseline gap-3 px-4 py-3 transition hover:bg-slate-50"
+        className="flex items-baseline gap-3 px-4 py-3 transition hover:bg-muted/40"
       >
         <span
           className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${meta.tone}`}
@@ -184,17 +211,17 @@ function Row({ item }: { item: InboxItem }) {
           {meta.label}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-slate-900">
+          <p className="truncate text-sm font-medium text-foreground">
             {item.title}
           </p>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             {item.subtitle ? <span className="font-mono">{item.subtitle}</span> : null}
             {item.subtitle && item.project_name ? " · " : null}
             {item.project_name ?? "—"}
-            {item.status ? ` · ${item.status}` : ""}
+            {item.status ? ` · ${STATUS_LABEL[item.status] ?? item.status}` : ""}
             {item.severity ? (
               <span className={`ml-1 ${SEVERITY_TONE[item.severity] ?? ""}`}>
-                · {item.severity}
+                · {SEVERITY_LABEL[item.severity] ?? item.severity}
               </span>
             ) : null}
           </p>
@@ -203,14 +230,14 @@ function Row({ item }: { item: InboxItem }) {
           {item.due_date ? (
             <p
               className={`flex items-center justify-end gap-1 ${
-                overdue ? "font-medium text-red-700" : "text-slate-600"
+                overdue ? "font-medium text-destructive" : "text-muted-foreground"
               }`}
             >
               {overdue && <AlertTriangle size={11} />}
               Hạn {_formatDate(item.due_date)}
             </p>
           ) : item.created_at ? (
-            <p className="text-slate-400">{_formatDate(item.created_at)}</p>
+            <p className="text-muted-foreground">{_formatDate(item.created_at)}</p>
           ) : null}
         </div>
       </Link>

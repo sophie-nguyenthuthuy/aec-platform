@@ -12,20 +12,21 @@ import { siteeyeKeys } from "./keys";
 import type { SiteVisit, SiteVisitCreate, VisitListFilters } from "./types";
 
 export function useVisits(filters: VisitListFilters = {}) {
-  const { token } = useSession();
+  const { token, orgId } = useSession();
   return useQuery({
     queryKey: siteeyeKeys.visits(filters),
     queryFn: () =>
       apiRequestWithMeta<SiteVisit[]>("/api/v1/siteeye/visits", {
         params: serialize(filters),
         token,
+        orgId,
       }),
     placeholderData: keepPreviousData,
   });
 }
 
 export function useCreateVisit() {
-  const { token } = useSession();
+  const { token, orgId } = useSession();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: SiteVisitCreate) =>
@@ -33,6 +34,7 @@ export function useCreateVisit() {
         method: "POST",
         body,
         token,
+        orgId,
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: siteeyeKeys.all });

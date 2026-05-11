@@ -10,7 +10,7 @@ export function useProgressTimeline(
   projectId: UUID | undefined,
   opts: { dateFrom?: string; dateTo?: string } = {},
 ) {
-  const { token } = useSession();
+  const { token, orgId } = useSession();
   return useQuery({
     enabled: Boolean(projectId),
     queryKey: siteeyeKeys.progress(projectId ?? "", opts.dateFrom, opts.dateTo),
@@ -22,6 +22,7 @@ export function useProgressTimeline(
           date_to: opts.dateTo,
         },
         token,
+        orgId,
       }),
   });
 }

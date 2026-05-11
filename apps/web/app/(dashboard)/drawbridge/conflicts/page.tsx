@@ -16,9 +16,20 @@ import {
   useGenerateRFI,
   useUpdateConflict,
 } from "@/hooks/drawbridge";
+import { ProjectSelect } from "@/app/(dashboard)/_components/ProjectSelect";
 
-const SEVERITIES: Array<ConflictSeverity | "all"> = ["all", "critical", "major", "minor"];
-const STATUSES: Array<ConflictStatus | "all"> = ["all", "open", "resolved", "dismissed"];
+const SEVERITIES: Array<{ value: ConflictSeverity | "all"; label: string }> = [
+  { value: "all", label: "Tất cả mức độ" },
+  { value: "critical", label: "Nghiêm trọng" },
+  { value: "major", label: "Lớn" },
+  { value: "minor", label: "Nhỏ" },
+];
+const STATUSES: Array<{ value: ConflictStatus | "all"; label: string }> = [
+  { value: "all", label: "Tất cả trạng thái" },
+  { value: "open", label: "Đang mở" },
+  { value: "resolved", label: "Đã xử lý" },
+  { value: "dismissed", label: "Bỏ qua" },
+];
 
 export default function ConflictDashboardPage() {
   const router = useRouter();
@@ -52,20 +63,15 @@ export default function ConflictDashboardPage() {
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-xl font-semibold text-slate-900">Bảng điều khiển xung đột</h2>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <input
-            placeholder="project_id"
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            className="w-64 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-          />
+          <ProjectSelect value={projectId} onChange={setProjectId} />
           <select
             value={severity}
             onChange={(e) => setSeverity(e.target.value as ConflictSeverity | "all")}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
           >
             {SEVERITIES.map((s) => (
-              <option key={s} value={s}>
-                {s}
+              <option key={s.value} value={s.value}>
+                {s.label}
               </option>
             ))}
           </select>
@@ -75,8 +81,8 @@ export default function ConflictDashboardPage() {
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
           >
             {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
+              <option key={s.value} value={s.value}>
+                {s.label}
               </option>
             ))}
           </select>

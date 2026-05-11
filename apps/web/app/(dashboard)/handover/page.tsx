@@ -1,9 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, PackageCheck } from "lucide-react";
 import { PackageCard } from "@aec/ui/handover";
 import type { PackageStatus } from "@aec/ui/handover";
+import {
+  Button,
+  EmptyState,
+  Input,
+  PageHeader,
+  Spinner,
+} from "@aec/ui/primitives";
 import { useCreatePackage, usePackages } from "@/hooks/handover";
 
 const STATUS_FILTERS: Array<{ value: PackageStatus | "all"; label: string }> = [
@@ -24,47 +31,40 @@ export default function HandoverPackagesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">Gói bàn giao</h2>
-          <p className="text-sm text-slate-600">
-            Quản lý hồ sơ bàn giao, bản vẽ hoàn công, sổ tay vận hành, bảo hành và
-            lỗi tồn đọng theo từng dự án.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          <Plus size={16} />
-          Tạo gói mới
-        </button>
-      </div>
+      <PageHeader
+        title="Gói bàn giao"
+        description="Quản lý hồ sơ bàn giao, bản vẽ hoàn công, sổ tay vận hành, bảo hành và lỗi tồn đọng theo từng dự án."
+        actions={
+          <Button onClick={() => setCreating(true)}>
+            <Plus size={16} />
+            Tạo gói mới
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap gap-2">
         {STATUS_FILTERS.map((f) => (
-          <button
+          <Button
             key={f.value}
-            type="button"
+            size="sm"
+            variant={statusFilter === f.value ? "default" : "outline"}
             onClick={() => setStatusFilter(f.value)}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              statusFilter === f.value
-                ? "bg-blue-600 text-white"
-                : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
-            }`}
+            className="rounded-full"
           >
             {f.label}
-          </button>
+          </Button>
         ))}
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-slate-500">Đang tải...</p>
-      ) : !data?.data.length ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-          Chưa có gói bàn giao nào.
+        <div className="flex justify-center py-8">
+          <Spinner label="Đang tải" />
         </div>
+      ) : !data?.data.length ? (
+        <EmptyState
+          icon={<PackageCheck size={20} />}
+          title="Chưa có gói bàn giao nào."
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {data.data.map((pkg) => (
@@ -99,59 +99,50 @@ function CreatePackageDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-        <h3 className="text-lg font-semibold text-slate-900">Tạo gói bàn giao</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
+      <div className="w-full max-w-md rounded-xl bg-card p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-foreground">Tạo gói bàn giao</h3>
         <div className="mt-4 space-y-4">
           <label className="block">
-            <span className="mb-1 block text-sm font-medium text-slate-700">
+            <span className="mb-1 block text-sm font-medium text-foreground">
               Mã dự án
             </span>
-            <input
-              type="text"
+            <Input
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-sm font-medium text-slate-700">
+            <span className="mb-1 block text-sm font-medium text-foreground">
               Tên gói
             </span>
-            <input
-              type="text"
+            <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Bàn giao giai đoạn 1"
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+          <label className="flex items-center gap-2 text-sm text-foreground">
             <input
               type="checkbox"
               checked={autoPopulate}
               onChange={(e) => setAutoPopulate(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-blue-600"
+              className="h-4 w-4 rounded border text-primary"
             />
             Tự tạo checklist mặc định
           </label>
         </div>
         <div className="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-          >
+          <Button variant="ghost" onClick={onClose}>
             Huỷ
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             onClick={onSubmit}
-            disabled={!projectId || !name || create.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            disabled={!projectId || !name}
+            loading={create.isPending}
           >
             {create.isPending ? "Đang tạo..." : "Tạo"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

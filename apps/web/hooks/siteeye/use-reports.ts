@@ -12,20 +12,21 @@ import { siteeyeKeys } from "./keys";
 import type { UUID, WeeklyReport, WeeklyReportListFilters } from "./types";
 
 export function useReports(filters: WeeklyReportListFilters = {}) {
-  const { token } = useSession();
+  const { token, orgId } = useSession();
   return useQuery({
     queryKey: siteeyeKeys.reports(filters),
     queryFn: () =>
       apiRequestWithMeta<WeeklyReport[]>("/api/v1/siteeye/reports", {
         params: serialize(filters),
         token,
+        orgId,
       }),
     placeholderData: keepPreviousData,
   });
 }
 
 export function useGenerateReport() {
-  const { token } = useSession();
+  const { token, orgId } = useSession();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: { project_id: UUID; week_start: string; week_end: string }) =>
@@ -33,6 +34,7 @@ export function useGenerateReport() {
         method: "POST",
         body,
         token,
+        orgId,
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: siteeyeKeys.all });
@@ -41,7 +43,7 @@ export function useGenerateReport() {
 }
 
 export function useSendReport() {
-  const { token } = useSession();
+  const { token, orgId } = useSession();
   return useMutation({
     mutationFn: ({
       reportId,
@@ -60,6 +62,7 @@ export function useSendReport() {
           method: "POST",
           body: { recipients, subject, message },
           token,
+          orgId,
         },
       ),
   });

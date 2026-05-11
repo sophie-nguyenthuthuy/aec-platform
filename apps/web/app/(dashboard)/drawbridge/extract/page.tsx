@@ -12,15 +12,16 @@ import {
 } from "@aec/ui/drawbridge";
 import { useSession } from "@/lib/auth-context";
 import { useDocuments, useExtract, type ExtractInput } from "@/hooks/drawbridge";
+import { ProjectSelect } from "@/app/(dashboard)/_components/ProjectSelect";
 
 type Target = NonNullable<ExtractInput["target"]>;
 
 const TARGETS: Array<{ key: Target; label: string }> = [
   { key: "all", label: "Tất cả" },
-  { key: "schedule", label: "Schedule" },
-  { key: "dimensions", label: "Dimensions" },
-  { key: "materials", label: "Materials" },
-  { key: "title_block", label: "Title block" },
+  { key: "schedule", label: "Bảng lịch trình" },
+  { key: "dimensions", label: "Kích thước" },
+  { key: "materials", label: "Vật liệu" },
+  { key: "title_block", label: "Bảng tên" },
 ];
 
 export default function ScheduleExtractorPage() {
@@ -69,12 +70,7 @@ export default function ScheduleExtractorPage() {
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-xl font-semibold text-slate-900">Trích xuất dữ liệu</h2>
         <div className="ml-auto">
-          <input
-            placeholder="project_id"
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            className="w-64 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-          />
+          <ProjectSelect value={projectId} onChange={setProjectId} />
         </div>
       </div>
 
@@ -173,7 +169,7 @@ function ResultView({ result }: { result: ExtractResponse }) {
     <div className="space-y-5">
       {result.title_block && Object.keys(result.title_block).length > 0 && (
         <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h3 className="mb-3 text-sm font-semibold text-slate-900">Title block</h3>
+          <h3 className="mb-3 text-sm font-semibold text-slate-900">Bảng tên</h3>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs md:grid-cols-3">
             {Object.entries(result.title_block).map(([k, v]) => (
               <div key={k} className="flex justify-between border-b border-slate-100 py-1">
@@ -188,7 +184,7 @@ function ResultView({ result }: { result: ExtractResponse }) {
       {result.schedules.length > 0 && (
         <section className="space-y-3">
           <h3 className="text-sm font-semibold text-slate-900">
-            Schedules ({result.schedules.length})
+            Bảng lịch trình ({result.schedules.length})
           </h3>
           {result.schedules.map((s, i) => (
             <ExtractedScheduleTable
@@ -204,7 +200,7 @@ function ResultView({ result }: { result: ExtractResponse }) {
         <section className="rounded-xl border border-slate-200 bg-white">
           <header className="flex items-center justify-between border-b border-slate-200 px-4 py-2">
             <h3 className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-              <Ruler size={14} /> Dimensions ({result.dimensions.length})
+              <Ruler size={14} /> Kích thước ({result.dimensions.length})
             </h3>
           </header>
           <table className="w-full text-sm">
@@ -236,7 +232,7 @@ function ResultView({ result }: { result: ExtractResponse }) {
         <section className="rounded-xl border border-slate-200 bg-white">
           <header className="flex items-center justify-between border-b border-slate-200 px-4 py-2">
             <h3 className="text-sm font-semibold text-slate-900">
-              Materials ({result.materials.length})
+              Vật liệu ({result.materials.length})
             </h3>
             <button
               type="button"
@@ -285,6 +281,13 @@ function ResultView({ result }: { result: ExtractResponse }) {
   );
 }
 
+const PROCESSING_STATUS_LABEL: Record<string, string> = {
+  pending: "Chờ xử lý",
+  processing: "Đang xử lý",
+  ready: "Sẵn sàng",
+  failed: "Lỗi",
+};
+
 function StatusPill({ doc }: { doc: Document }) {
   const styles: Record<Document["processing_status"], string> = {
     pending: "bg-slate-200 text-slate-700",
@@ -294,7 +297,7 @@ function StatusPill({ doc }: { doc: Document }) {
   };
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${styles[doc.processing_status]}`}>
-      {doc.processing_status}
+      {PROCESSING_STATUS_LABEL[doc.processing_status] ?? doc.processing_status}
     </span>
   );
 }

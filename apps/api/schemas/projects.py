@@ -144,7 +144,7 @@ class ProjectDetail(BaseModel):
     address: dict[str, Any] = Field(default_factory=dict)
     start_date: date | None = None
     end_date: date | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict, alias="metadata_")
     created_at: datetime
 
     winwork: WinworkStatus = Field(default_factory=WinworkStatus)

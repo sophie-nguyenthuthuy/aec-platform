@@ -4,6 +4,14 @@ import Link from "next/link";
 import { useState } from "react";
 import { ClipboardCheck, Plus } from "lucide-react";
 
+import {
+  Alert,
+  Button,
+  EmptyState,
+  Input,
+  PageHeader,
+  Spinner,
+} from "@aec/ui/primitives";
 import { useCreatePunchList, usePunchLists } from "@/hooks/punchlist";
 import type { PunchListListFilters } from "@/hooks/punchlist";
 
@@ -19,7 +27,7 @@ const STATUS_BADGE: Record<string, string> = {
   open: "bg-amber-100 text-amber-700",
   in_review: "bg-blue-100 text-blue-700",
   signed_off: "bg-emerald-100 text-emerald-700",
-  cancelled: "bg-zinc-100 text-zinc-600",
+  cancelled: "bg-muted text-muted-foreground",
 };
 
 function formatDate(d: string | null | undefined): string {
@@ -41,50 +49,42 @@ export default function PunchListPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">Punch list</h2>
-          <p className="text-sm text-slate-600">
-            Danh sách kiểm tra của chủ đầu tư trong các buổi đi hiện trường —
-            khác với defect (do bên thiết kế phát hiện).
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          <Plus size={16} />
-          Tạo punch list
-        </button>
-      </div>
+      <PageHeader
+        title="Punch list"
+        description="Danh sách kiểm tra của chủ đầu tư trong các buổi đi hiện trường — khác với defect (do bên thiết kế phát hiện)."
+        actions={
+          <Button onClick={() => setCreating(true)}>
+            <Plus size={16} />
+            Tạo punch list
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap gap-2">
         {STATUS_FILTERS.map((f) => (
-          <button
+          <Button
             key={f.value}
-            type="button"
+            size="sm"
+            variant={statusFilter === f.value ? "default" : "outline"}
+            className="rounded-full"
             onClick={() => setStatusFilter(f.value)}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              statusFilter === f.value
-                ? "bg-blue-600 text-white"
-                : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
-            }`}
           >
             {f.label}
-          </button>
+          </Button>
         ))}
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-slate-500">Đang tải...</p>
-      ) : isError ? (
-        <p className="text-sm text-red-600">Không thể tải danh sách.</p>
-      ) : !data?.data.length ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-12 text-center">
-          <ClipboardCheck size={32} className="mx-auto mb-3 text-slate-400" aria-hidden />
-          <p className="text-sm text-slate-500">Chưa có punch list nào.</p>
+        <div className="flex justify-center py-8">
+          <Spinner label="Đang tải" />
         </div>
+      ) : isError ? (
+        <Alert variant="destructive">Không thể tải danh sách.</Alert>
+      ) : !data?.data.length ? (
+        <EmptyState
+          icon={<ClipboardCheck size={20} />}
+          title="Chưa có punch list nào."
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {data.data.map((p) => {
@@ -96,20 +96,20 @@ export default function PunchListPage() {
               <Link
                 key={p.id}
                 href={`/punchlist/${p.id}`}
-                className="block rounded-xl border border-slate-200 bg-white p-5 transition hover:border-blue-300 hover:shadow-sm"
+                className="block rounded-xl border bg-card p-5 transition hover:border-primary/40 hover:shadow-sm"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <h3 className="truncate text-base font-semibold text-slate-900">
+                    <h3 className="truncate text-base font-semibold text-foreground">
                       {p.name}
                     </h3>
-                    <p className="mt-0.5 text-xs text-slate-500">
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       Khảo sát: {formatDate(p.walkthrough_date)}
                     </p>
                   </div>
                   <span
                     className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                      STATUS_BADGE[p.status] ?? "bg-slate-100 text-slate-700"
+                      STATUS_BADGE[p.status] ?? "bg-muted text-muted-foreground"
                     }`}
                   >
                     {p.status}
@@ -130,12 +130,12 @@ export default function PunchListPage() {
                   />
                 </div>
 
-                <div className="mt-4 border-t border-slate-100 pt-3">
-                  <div className="flex items-baseline justify-between text-[11px] text-slate-500">
+                <div className="mt-4 border-t pt-3">
+                  <div className="flex items-baseline justify-between text-[11px] text-muted-foreground">
                     <span>Hoàn tất</span>
-                    <span className="font-medium text-slate-700">{completion}%</span>
+                    <span className="font-medium text-foreground">{completion}%</span>
                   </div>
-                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
                     <div
                       className="h-full bg-emerald-500"
                       style={{ width: `${completion}%` }}
@@ -163,7 +163,7 @@ function Counter({
   tone: "slate" | "amber" | "emerald";
 }) {
   const colors: Record<typeof tone, string> = {
-    slate: "text-slate-700 bg-slate-50",
+    slate: "text-foreground bg-muted/40",
     amber: "text-amber-700 bg-amber-50",
     emerald: "text-emerald-700 bg-emerald-50",
   };
@@ -196,54 +196,42 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-        <h3 className="text-lg font-semibold text-slate-900">Tạo punch list</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
+      <div className="w-full max-w-md rounded-xl bg-card p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-foreground">Tạo punch list</h3>
         <div className="mt-4 space-y-3">
-          <input
-            type="text"
+          <Input
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
             placeholder="Mã dự án (UUID)"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-          <input
-            type="text"
+          <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Tên punch list (vd: Pre-occupancy walkthrough)"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-          <input
+          <Input
             type="date"
             value={walkthroughDate}
             onChange={(e) => setWalkthroughDate(e.target.value)}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-          <input
-            type="text"
+          <Input
             value={attendees}
             onChange={(e) => setAttendees(e.target.value)}
             placeholder="Người tham gia"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
         </div>
         <div className="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-          >
+          <Button variant="ghost" onClick={onClose}>
             Huỷ
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             onClick={onSubmit}
-            disabled={!projectId || !name || create.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            disabled={!projectId || !name}
+            loading={create.isPending}
           >
             {create.isPending ? "Đang tạo..." : "Tạo"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

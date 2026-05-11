@@ -17,20 +17,21 @@ import type {
 } from "./types";
 
 export function usePhotos(filters: PhotoListFilters = {}) {
-  const { token } = useSession();
+  const { token, orgId } = useSession();
   return useQuery({
     queryKey: siteeyeKeys.photos(filters),
     queryFn: () =>
       apiRequestWithMeta<SitePhoto[]>("/api/v1/siteeye/photos", {
         params: serialize(filters),
         token,
+        orgId,
       }),
     placeholderData: keepPreviousData,
   });
 }
 
 export function useUploadPhotos() {
-  const { token } = useSession();
+  const { token, orgId } = useSession();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: PhotoBatchUploadRequest) =>
@@ -38,6 +39,7 @@ export function useUploadPhotos() {
         method: "POST",
         body,
         token,
+        orgId,
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: siteeyeKeys.all });

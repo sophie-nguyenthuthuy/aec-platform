@@ -11,10 +11,10 @@ import {
 import { useSelectedProject } from "../project-context";
 
 const STATUS_FILTERS: Array<{ label: string; value: IncidentStatus | undefined }> = [
-  { label: "All", value: undefined },
-  { label: "Open", value: "open" },
-  { label: "Acknowledged", value: "acknowledged" },
-  { label: "Resolved", value: "resolved" },
+  { label: "Tất cả", value: undefined },
+  { label: "Đang mở", value: "open" },
+  { label: "Đã ghi nhận", value: "acknowledged" },
+  { label: "Đã xử lý", value: "resolved" },
 ];
 
 export default function SafetyDashboardPage() {
@@ -37,7 +37,7 @@ export default function SafetyDashboardPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-gray-900">Safety incidents</h1>
+      <h1 className="text-xl font-semibold text-gray-900">Sự cố an toàn</h1>
 
       <section className="flex flex-wrap gap-2">
         {Object.entries(bySeverity).map(([sev, n]) => (

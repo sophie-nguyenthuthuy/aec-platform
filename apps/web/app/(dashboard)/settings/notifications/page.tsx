@@ -17,6 +17,7 @@
 
 import { useTranslations } from "next-intl";
 
+import { Alert, PageHeader, Spinner } from "@aec/ui/primitives";
 import { usePreferences, useUpsertPreference } from "@/hooks/notifications";
 
 export default function NotificationPreferencesPage(): JSX.Element {
@@ -44,29 +45,24 @@ export default function NotificationPreferencesPage(): JSX.Element {
 
   return (
     <div className="mx-auto max-w-3xl p-6">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">{t("title")}</h1>
-        <p className="mt-1 text-sm text-slate-500">{t("description")}</p>
-      </header>
+      <PageHeader title={t("title")} description={t("description")} />
 
       {isLoading ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500">
-          {t("loading")}
+        <div className="rounded-lg border bg-card p-6">
+          <Spinner label={t("loading")} />
         </div>
       ) : error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-          {(error as Error).message}
-        </div>
+        <Alert variant="destructive">{(error as Error).message}</Alert>
       ) : (
-        <ul className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <ul className="divide-y overflow-hidden rounded-lg border bg-card">
           {(data ?? []).map((pref) => {
             const copy = alertCopy(pref.key);
             return (
               <li key={pref.key} className="flex items-start justify-between gap-4 px-4 py-4">
                 <div className="flex-1">
-                  <div className="text-sm font-semibold text-slate-900">{copy.title}</div>
+                  <div className="text-sm font-semibold text-foreground">{copy.title}</div>
                   {copy.description ? (
-                    <p className="mt-1 text-xs text-slate-600">{copy.description}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{copy.description}</p>
                   ) : null}
                 </div>
                 <div className="flex items-center gap-4">
@@ -123,9 +119,9 @@ function ToggleSwitch({
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
         disabled={disabled}
-        className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+        className="h-4 w-4 rounded border text-primary focus:ring-ring"
       />
-      <span className="font-medium text-slate-700">{label}</span>
+      <span className="font-medium text-foreground">{label}</span>
     </label>
   );
 }

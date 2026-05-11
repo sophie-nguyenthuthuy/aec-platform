@@ -191,18 +191,19 @@ export function CommandPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 px-4 pt-24"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-foreground/40 backdrop-blur-[1px] animate-fade-in px-4 pt-24"
       onClick={() => setOpen(false)}
     >
       <div
         role="dialog"
+        aria-modal="true"
         aria-label="Command palette"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-slate-200"
+        className="w-full max-w-2xl overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-2xl animate-zoom-in"
       >
         {/* ---------- Search input ---------- */}
-        <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
-          <Search size={16} className="shrink-0 text-slate-400" />
+        <div className="flex items-center gap-2 border-b px-4 py-3">
+          <Search size={16} className="shrink-0 text-muted-foreground" aria-hidden="true" />
           <input
             ref={inputRef}
             type="text"
@@ -212,16 +213,18 @@ export function CommandPalette() {
             }
             onKeyDown={onInputKeyDown}
             placeholder="Tìm tài liệu, quy chuẩn, RFI, lỗi, đề xuất..."
-            className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
+            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
             aria-label="Search query"
+            aria-autocomplete="list"
+            aria-controls="cmdk-listbox"
           />
           <button
             type="button"
             onClick={() => setOpen(false)}
-            aria-label="Close"
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            aria-label="Đóng"
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
-            <X size={14} />
+            <X size={14} aria-hidden="true" />
           </button>
         </div>
 
@@ -230,28 +233,32 @@ export function CommandPalette() {
           {query.trim().length < 2 ? (
             <EmptyHint />
           ) : search.isPending ? (
-            <p className="px-4 py-8 text-center text-sm text-slate-500">
+            <p
+              role="status"
+              aria-live="polite"
+              className="px-4 py-8 text-center text-sm text-muted-foreground"
+            >
               Đang tìm...
             </p>
           ) : search.isError ? (
-            <div className="flex items-start gap-2 px-4 py-6 text-sm text-red-700">
-              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <div role="alert" className="flex items-start gap-2 px-4 py-6 text-sm text-destructive">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
               <p>
                 Lỗi tìm kiếm:{" "}
                 {(search.error as Error)?.message ?? "thử lại sau."}
               </p>
             </div>
           ) : results.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-slate-500">
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
               Không có kết quả cho{" "}
-              <span className="font-medium text-slate-700">"{query}"</span>.
+              <span className="font-medium text-foreground">"{query}"</span>.
             </p>
           ) : (
             <>
               {/* Result-count strip — small but useful: tells the user
                   WHERE matches landed without making them eyeball the
                   scope chip on every row. */}
-              <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-4 py-2 text-[11px]">
+              <div className="flex flex-wrap gap-1.5 border-b px-4 py-2 text-[11px]">
                 {Array.from(countsByScope.entries()).map(([scope, n]) => (
                   <span
                     key={scope}
@@ -262,7 +269,7 @@ export function CommandPalette() {
                   </span>
                 ))}
               </div>
-              <ul role="listbox">
+              <ul id="cmdk-listbox" role="listbox">
                 {results.map((r, i) => (
                   <li key={`${r.scope}-${r.id}`}>
                     <button
@@ -271,8 +278,8 @@ export function CommandPalette() {
                       aria-selected={i === selectedIdx}
                       onClick={() => onResultClick(r)}
                       onMouseEnter={() => setSelectedIdx(i)}
-                      className={`flex w-full items-start gap-3 px-4 py-2.5 text-left ${
-                        i === selectedIdx ? "bg-slate-50" : "bg-white"
+                      className={`flex w-full items-start gap-3 px-4 py-2.5 text-left focus-visible:outline-none ${
+                        i === selectedIdx ? "bg-accent" : "bg-popover"
                       }`}
                     >
                       <span
@@ -283,18 +290,18 @@ export function CommandPalette() {
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-baseline gap-2">
-                          <p className="truncate text-sm font-medium text-slate-900">
+                          <p className="truncate text-sm font-medium text-foreground">
                             {r.title}
                           </p>
                           <MatchChip matchedOn={r.matched_on} />
                         </div>
                         {r.snippet && (
-                          <p className="mt-0.5 truncate text-xs text-slate-500">
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
                             {r.snippet}
                           </p>
                         )}
                         {r.project_name && (
-                          <p className="mt-0.5 text-[11px] text-slate-400">
+                          <p className="mt-0.5 text-[11px] text-muted-foreground/80">
                             {r.project_name}
                           </p>
                         )}
@@ -308,7 +315,7 @@ export function CommandPalette() {
         </div>
 
         {/* ---------- Footer: keyboard hints ---------- */}
-        <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/50 px-4 py-2 text-[11px] text-slate-500">
+        <div className="flex items-center justify-between border-t bg-muted/40 px-4 py-2 text-[11px] text-muted-foreground">
           <span>
             <Kbd>↑</Kbd> <Kbd>↓</Kbd> điều hướng · <Kbd>↵</Kbd> mở ·{" "}
             <Kbd>esc</Kbd> đóng
@@ -355,7 +362,7 @@ function MatchChip({ matchedOn }: { matchedOn: MatchedOn | null }) {
 
 function EmptyHint() {
   return (
-    <div className="px-4 py-8 text-center text-xs text-slate-500">
+    <div className="px-4 py-8 text-center text-xs text-muted-foreground">
       <p>
         Gõ ít nhất 2 ký tự để tìm trên tất cả module:
       </p>
@@ -377,7 +384,7 @@ function EmptyHint() {
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="rounded border border-slate-300 bg-white px-1 py-0.5 font-mono text-[10px] text-slate-700">
+    <kbd className="rounded border bg-card px-1 py-0.5 font-mono text-[10px] text-foreground">
       {children}
     </kbd>
   );

@@ -5,6 +5,14 @@ import { useState } from "react";
 import { Plus, Sparkles } from "lucide-react";
 
 import {
+  Alert,
+  Button,
+  EmptyState,
+  Input,
+  PageHeader,
+  Spinner,
+} from "@aec/ui/primitives";
+import {
   useAcceptCandidate,
   useChangeOrders,
   useCreateChangeOrder,
@@ -23,13 +31,13 @@ const STATUS_FILTERS: Array<{ value: string; label: string }> = [
 ];
 
 const STATUS_BADGE: Record<string, string> = {
-  draft: "bg-slate-100 text-slate-700",
+  draft: "bg-muted text-muted-foreground",
   submitted: "bg-amber-100 text-amber-700",
   reviewed: "bg-blue-100 text-blue-700",
   approved: "bg-emerald-100 text-emerald-700",
   rejected: "bg-red-100 text-red-700",
   executed: "bg-purple-100 text-purple-700",
-  cancelled: "bg-zinc-100 text-zinc-600",
+  cancelled: "bg-muted text-muted-foreground",
 };
 
 function formatVnd(n: number | null | undefined): string {
@@ -56,63 +64,49 @@ export default function ChangeOrderPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">Change Orders</h2>
-          <p className="text-sm text-slate-600">
-            Quản lý phát sinh: chi phí, thời gian, lịch sử duyệt. Trợ lý AI có
-            thể phát hiện đề xuất từ RFI hoặc email.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setExtracting(true)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
-          >
-            <Sparkles size={14} />
-            Phát hiện CO bằng AI
-          </button>
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            <Plus size={16} />
-            Tạo CO mới
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Change Orders"
+        description="Quản lý phát sinh: chi phí, thời gian, lịch sử duyệt. Trợ lý AI có thể phát hiện đề xuất từ RFI hoặc email."
+        actions={
+          <>
+            <Button variant="outline" onClick={() => setExtracting(true)}>
+              <Sparkles size={14} />
+              Phát hiện CO bằng AI
+            </Button>
+            <Button onClick={() => setCreating(true)}>
+              <Plus size={16} />
+              Tạo CO mới
+            </Button>
+          </>
+        }
+      />
 
       <div className="flex flex-wrap gap-1.5">
         {STATUS_FILTERS.map((f) => (
-          <button
+          <Button
             key={f.value}
-            type="button"
+            size="sm"
+            variant={statusFilter === f.value ? "default" : "outline"}
+            className="rounded-full"
             onClick={() => setStatusFilter(f.value)}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              statusFilter === f.value
-                ? "bg-blue-600 text-white"
-                : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
-            }`}
           >
             {f.label}
-          </button>
+          </Button>
         ))}
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-slate-500">Đang tải...</p>
-      ) : isError ? (
-        <p className="text-sm text-red-600">Không thể tải danh sách CO.</p>
-      ) : !data?.data.length ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-12 text-center text-sm text-slate-500">
-          Chưa có change order nào.
+        <div className="flex justify-center py-8">
+          <Spinner label="Đang tải" />
         </div>
+      ) : isError ? (
+        <Alert variant="destructive">Không thể tải danh sách CO.</Alert>
+      ) : !data?.data.length ? (
+        <EmptyState title="Chưa có change order nào." />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="overflow-hidden rounded-lg border bg-card">
           <table className="w-full text-sm">
-            <thead className="border-b border-slate-100 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+            <thead className="border-b bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-4 py-2 text-left">Số</th>
                 <th className="px-4 py-2 text-left">Tên</th>
@@ -122,13 +116,13 @@ export default function ChangeOrderPage() {
                 <th className="px-4 py-2 text-left">Người đề xuất</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y">
               {data.data.map((co) => (
-                <tr key={co.id} className="hover:bg-slate-50">
+                <tr key={co.id} className="hover:bg-muted/40">
                   <td className="px-4 py-2 font-mono text-xs">
                     <Link
                       href={`/changeorder/${co.id}`}
-                      className="text-blue-600 hover:underline"
+                      className="text-primary hover:underline"
                     >
                       {co.number}
                     </Link>
@@ -137,21 +131,21 @@ export default function ChangeOrderPage() {
                   <td className="px-4 py-2">
                     <span
                       className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                        STATUS_BADGE[co.status] ?? "bg-slate-100 text-slate-700"
+                        STATUS_BADGE[co.status] ?? "bg-muted text-muted-foreground"
                       }`}
                     >
                       {co.status}
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-right font-medium text-slate-900">
+                  <td className="px-4 py-2 text-right font-medium text-foreground">
                     {formatVnd(co.cost_impact_vnd)}
                   </td>
-                  <td className="px-4 py-2 text-right text-slate-700">
+                  <td className="px-4 py-2 text-right text-foreground">
                     {co.schedule_impact_days != null
                       ? `${co.schedule_impact_days} ngày`
                       : "—"}
                   </td>
-                  <td className="px-4 py-2 text-xs text-slate-600">
+                  <td className="px-4 py-2 text-xs text-muted-foreground">
                     {co.initiator ?? "—"}
                   </td>
                 </tr>
@@ -188,64 +182,53 @@ function CreateCoDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-        <h3 className="text-lg font-semibold text-slate-900">Tạo CO mới</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
+      <div className="w-full max-w-md rounded-xl bg-card p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-foreground">Tạo CO mới</h3>
         <div className="mt-4 space-y-3">
-          <input
-            type="text"
+          <Input
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
             placeholder="Mã dự án (UUID)"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-          <input
-            type="text"
+          <Input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Tên CO"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
           <textarea
             rows={3}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Mô tả phát sinh"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
           />
           <div className="grid grid-cols-2 gap-2">
-            <input
+            <Input
               type="number"
               value={cost}
               onChange={(e) => setCost(e.target.value)}
               placeholder="Chi phí (VND)"
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
-            <input
+            <Input
               type="number"
               value={days}
               onChange={(e) => setDays(e.target.value)}
               placeholder="Số ngày trễ"
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
         </div>
         <div className="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-          >
+          <Button variant="ghost" onClick={onClose}>
             Huỷ
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             onClick={onSubmit}
-            disabled={!projectId || !title || create.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            disabled={!projectId || !title}
+            loading={create.isPending}
           >
             {create.isPending ? "Đang tạo..." : "Tạo"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -269,98 +252,89 @@ function ExtractDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
-        <h3 className="text-lg font-semibold text-slate-900">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-card p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-foreground">
           AI: Phát hiện CO từ email/RFI
         </h3>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-muted-foreground">
           Dán nội dung email từ chủ đầu tư hoặc RFI. AI sẽ đề xuất các CO
           tiềm năng kèm ước tính chi phí và thời gian.
         </p>
         <div className="mt-4 space-y-3">
-          <input
-            type="text"
+          <Input
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
             placeholder="Mã dự án (UUID)"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
           <textarea
             rows={6}
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Dán email/RFI vào đây..."
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
           />
-          <button
-            type="button"
+          <Button
             onClick={onExtract}
-            disabled={!projectId || !text.trim() || extract.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            disabled={!projectId || !text.trim()}
+            loading={extract.isPending}
           >
             <Sparkles size={14} />
             {extract.isPending ? "Đang phân tích..." : "Phân tích"}
-          </button>
+          </Button>
         </div>
 
         {candidates && candidates.length > 0 && (
           <div className="mt-6 space-y-3">
-            <h4 className="text-sm font-semibold text-slate-900">
+            <h4 className="text-sm font-semibold text-foreground">
               Đề xuất từ AI ({candidates.length})
             </h4>
             {candidates.map((c) => (
               <div
                 key={c.id}
-                className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 text-sm"
+                className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm"
               >
                 <div className="flex items-baseline justify-between">
-                  <h5 className="font-medium text-slate-900">
+                  <h5 className="font-medium text-foreground">
                     {c.proposal.title}
                   </h5>
                   {c.proposal.confidence_pct != null && (
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-muted-foreground">
                       Tin cậy: {c.proposal.confidence_pct}%
                     </span>
                   )}
                 </div>
-                <p className="mt-1 text-slate-700">{c.proposal.description}</p>
-                <p className="mt-2 text-xs text-slate-600">
+                <p className="mt-1 text-foreground">{c.proposal.description}</p>
+                <p className="mt-2 text-xs text-muted-foreground">
                   {c.proposal.cost_impact_vnd_estimate != null &&
                     `Chi phí: ${formatVnd(c.proposal.cost_impact_vnd_estimate as number)}`}
                   {c.proposal.schedule_impact_days_estimate != null &&
                     ` · Trễ ${c.proposal.schedule_impact_days_estimate} ngày`}
                 </p>
                 <div className="mt-3 flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      accept.mutate({ candidateId: c.id })
-                    }
+                  <Button
+                    variant="success"
+                    size="sm"
+                    onClick={() => accept.mutate({ candidateId: c.id })}
                     disabled={accept.isPending || c.accepted_co_id != null}
-                    className="rounded border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
                   >
                     {c.accepted_co_id ? "Đã chấp nhận" : "Chấp nhận → tạo CO"}
-                  </button>
+                  </Button>
                 </div>
               </div>
             ))}
           </div>
         )}
         {candidates && candidates.length === 0 && (
-          <p className="mt-6 text-sm text-slate-500">
+          <p className="mt-6 text-sm text-muted-foreground">
             AI không phát hiện CO nào trong nội dung này.
           </p>
         )}
 
         <div className="mt-6 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-          >
+          <Button variant="ghost" onClick={onClose}>
             Đóng
-          </button>
+          </Button>
         </div>
       </div>
     </div>

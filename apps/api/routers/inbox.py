@@ -16,7 +16,6 @@ record on the source module's page.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -52,17 +51,14 @@ async def my_inbox(
     user_id = auth.user_id
 
     async with TenantAwareSession(auth.organization_id) as session:
-        # Six small queries, fanned out in parallel. Each is <2ms typically;
-        # gathering them keeps the endpoint under a 50ms budget even on a
-        # tenant with thousands of open items per source.
-        rfis, punch_items, defects, submittals, cos, candidates = await asyncio.gather(
-            _rfis_assigned(session, user_id, project_id, limit_per_source),
-            _punch_items_assigned(session, user_id, project_id, limit_per_source),
-            _defects_assigned(session, user_id, project_id, limit_per_source),
-            _submittals_for_review(session, project_id, limit_per_source),
-            _change_orders_for_review(session, project_id, limit_per_source),
-            _co_candidates_pending(session, project_id, limit_per_source),
-        )
+        # Run queries sequentially — asyncpg connections don't support
+        # concurrent operations on the same session object.
+        rfis = await _rfis_assigned(session, user_id, project_id, limit_per_source)
+        punch_items = await _punch_items_assigned(session, user_id, project_id, limit_per_source)
+        defects = await _defects_assigned(session, user_id, project_id, limit_per_source)
+        submittals = await _submittals_for_review(session, project_id, limit_per_source)
+        cos = await _change_orders_for_review(session, project_id, limit_per_source)
+        candidates = await _co_candidates_pending(session, project_id, limit_per_source)
 
     items: list[InboxItem] = [*rfis, *punch_items, *defects, *submittals, *cos, *candidates]
 
@@ -172,11 +168,11 @@ async def _defects_assigned(session: Any, user_id: UUID, project_id: UUID | None
             text(
                 f"""
             SELECT d.id, d.project_id, p.name AS project_name,
-                   d.description, d.status, d.priority, d.due_date, d.created_at
+                   d.title AS description, d.status, d.priority, d.reported_at AS created_at
             FROM defects d
             LEFT JOIN projects p ON p.id = d.project_id
             WHERE {where}
-            ORDER BY d.due_date NULLS LAST, d.created_at DESC
+            ORDER BY d.reported_at DESC
             LIMIT :limit
             """
             ),
@@ -194,7 +190,7 @@ async def _defects_assigned(session: Any, user_id: UUID, project_id: UUID | None
             subtitle=None,
             status=r._mapping.get("status"),
             severity=r._mapping.get("priority"),
-            due_date=r._mapping.get("due_date"),
+            due_date=None,
             created_at=r._mapping.get("created_at"),
             deep_link="/handover/defects",
         )
@@ -206,10 +202,10 @@ async def _defects_assigned(session: Any, user_id: UUID, project_id: UUID | None
 
 
 async def _submittals_for_review(session: Any, project_id: UUID | None, limit: int) -> list[InboxItem]:
-    where = "ball_in_court = 'designer' AND status IN ('pending_review', 'under_review', 'revise_resubmit')"
+    where = "s.ball_in_court = 'designer' AND s.status IN ('pending_review', 'under_review', 'revise_resubmit')"
     params: dict[str, Any] = {"limit": limit}
     if project_id is not None:
-        where += " AND project_id = :pid"
+        where += " AND s.project_id = :pid"
         params["pid"] = str(project_id)
     rows = (
         await session.execute(
@@ -246,10 +242,10 @@ async def _submittals_for_review(session: Any, project_id: UUID | None, limit: i
 
 
 async def _change_orders_for_review(session: Any, project_id: UUID | None, limit: int) -> list[InboxItem]:
-    where = "status IN ('submitted', 'reviewed')"
+    where = "co.status IN ('submitted', 'reviewed')"
     params: dict[str, Any] = {"limit": limit}
     if project_id is not None:
-        where += " AND project_id = :pid"
+        where += " AND co.project_id = :pid"
         params["pid"] = str(project_id)
     rows = (
         await session.execute(
@@ -285,10 +281,10 @@ async def _change_orders_for_review(session: Any, project_id: UUID | None, limit
 
 
 async def _co_candidates_pending(session: Any, project_id: UUID | None, limit: int) -> list[InboxItem]:
-    where = "accepted_co_id IS NULL AND rejected_at IS NULL"
+    where = "c.accepted_co_id IS NULL AND c.rejected_at IS NULL"
     params: dict[str, Any] = {"limit": limit}
     if project_id is not None:
-        where += " AND project_id = :pid"
+        where += " AND c.project_id = :pid"
         params["pid"] = str(project_id)
     rows = (
         await session.execute(

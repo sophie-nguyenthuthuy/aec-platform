@@ -2,11 +2,121 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens, expressed as CSS custom properties so we can theme
+ * (and ship dark mode) without touching Tailwind config. Values are
+ * raw "H S% L%" triplets — Tailwind's `hsl(var(--token) / <alpha>)`
+ * pattern lets utilities like `bg-primary/10` keep working.
+ */
 :root {
   --radius: 0.5rem;
+
+  /* Surfaces */
+  --background: 210 40% 98%;       /* app background — subtle off-white so cards pop */
+  --foreground: 222.2 47.4% 11.2%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 47.4% 11.2%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 47.4% 11.2%;
+
+  /* Brand */
+  --primary: 221.2 83.2% 53.3%;
+  --primary-foreground: 210 40% 98%;
+
+  /* Neutrals */
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+
+  /* Semantic */
+  --destructive: 0 72.2% 50.6%;
+  --destructive-foreground: 210 40% 98%;
+  --success: 142.1 70.6% 35.3%;
+  --success-foreground: 210 40% 98%;
+  --warning: 32.1 94.6% 43.7%;
+  --warning-foreground: 210 40% 98%;
+
+  /* Lines & focus */
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 221.2 83.2% 53.3%;
 }
 
-body {
-  @apply bg-background text-foreground;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: 222.2 47.4% 11.2%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 47.4% 14%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 47.4% 14%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 50%;
+    --destructive-foreground: 210 40% 98%;
+    --success: 142.1 70.6% 45%;
+    --success-foreground: 222.2 47.4% 11.2%;
+    --warning: 32.1 94.6% 53%;
+    --warning-foreground: 222.2 47.4% 11.2%;
+    --border: 217.2 32.6% 25%;
+    --input: 217.2 32.6% 25%;
+    --ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Make sure focus is visible everywhere — even on elements that
+     overwrite outline. The shared primitives also opt into this via
+     `focus-visible:ring-2` but we keep a fallback for raw HTML elements
+     (e.g. anchor links) that don't go through the design system. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Skip-link styling — visually hidden until keyboard-focused. */
+  .skip-link {
+    @apply sr-only;
+  }
+  .skip-link:focus,
+  .skip-link:focus-visible {
+    @apply not-sr-only fixed left-3 top-3 z-[100] rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow-md;
+  }
+}
+
+/* Honor reduced-motion: kill non-essential transitions/animations. We
+   keep opacity transitions (they're informational) but drop transforms,
+   which are the typical source of motion sickness. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

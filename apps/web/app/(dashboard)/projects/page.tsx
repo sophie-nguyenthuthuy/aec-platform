@@ -6,6 +6,14 @@ import { useState } from "react";
 import { Building2, Search } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import {
+  Alert,
+  Button,
+  EmptyState,
+  Input,
+  PageHeader,
+  Spinner,
+} from "@aec/ui/primitives";
 import { apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/auth-context";
 import { useProjects } from "@/hooks/projects";
@@ -22,7 +30,7 @@ const STATUS_FILTERS: Array<{ value: string; label: string }> = [
 ];
 
 const STATUS_BADGE: Record<string, string> = {
-  planning: "bg-slate-100 text-slate-700",
+  planning: "bg-muted text-muted-foreground",
   design: "bg-indigo-100 text-indigo-700",
   bidding: "bg-amber-100 text-amber-700",
   construction: "bg-blue-100 text-blue-700",
@@ -59,60 +67,53 @@ export default function ProjectsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">Dự án</h2>
-          <p className="text-sm text-slate-600">
-            Tổng quan toàn bộ dự án — nhấn vào một dự án để xem trạng thái từng
-            module (CodeGuard, Drawbridge, CostPulse, Pulse, Handover, ...).
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Dự án"
+        description="Tổng quan toàn bộ dự án — nhấn vào một dự án để xem trạng thái từng module (CodeGuard, Drawbridge, CostPulse, Pulse, Handover, ...)."
+      />
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative">
           <Search
             size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
           />
-          <input
-            type="text"
+          <Input
             value={q}
             onChange={(e) => {
               setQ(e.target.value);
               setPage(1);
             }}
             placeholder="Tìm theo tên dự án..."
-            className="rounded-md border border-slate-300 bg-white py-1.5 pl-9 pr-3 text-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
+            className="pl-9"
           />
         </div>
         <div className="flex flex-wrap gap-1.5">
           {STATUS_FILTERS.map((f) => (
-            <button
+            <Button
               key={f.value}
-              type="button"
+              size="sm"
+              variant={statusFilter === f.value ? "default" : "outline"}
+              className="rounded-full"
               onClick={() => {
                 setStatusFilter(f.value);
                 setPage(1);
               }}
-              className={`rounded-full px-3 py-1 text-xs font-medium ${
-                statusFilter === f.value
-                  ? "bg-blue-600 text-white"
-                  : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
-              }`}
             >
               {f.label}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-slate-500">Đang tải...</p>
+        <div className="flex justify-center py-8">
+          <Spinner label="Đang tải" />
+        </div>
       ) : isError ? (
-        <p className="text-sm text-red-600">
+        <Alert variant="destructive">
           Không thể tải danh sách dự án. Vui lòng thử lại.
-        </p>
+        </Alert>
       ) : !data?.data.length ? (
         <EmptyProjectsState />
       ) : (
@@ -122,14 +123,14 @@ export default function ProjectsPage() {
               <Link
                 key={p.id}
                 href={`/projects/${p.id}`}
-                className="block rounded-xl border border-slate-200 bg-white p-5 transition hover:border-blue-300 hover:shadow-sm"
+                className="block rounded-xl border bg-card p-5 transition hover:border-primary/40 hover:shadow-sm"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <h3 className="truncate text-base font-semibold text-slate-900">
+                    <h3 className="truncate text-base font-semibold text-foreground">
                       {p.name}
                     </h3>
-                    <p className="mt-0.5 text-xs text-slate-500">
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       {p.type ?? "—"} ·{" "}
                       {[p.address?.district, p.address?.city]
                         .filter(Boolean)
@@ -138,7 +139,7 @@ export default function ProjectsPage() {
                   </div>
                   <span
                     className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                      STATUS_BADGE[p.status] ?? "bg-slate-100 text-slate-700"
+                      STATUS_BADGE[p.status] ?? "bg-muted text-muted-foreground"
                     }`}
                   >
                     {p.status}
@@ -147,26 +148,26 @@ export default function ProjectsPage() {
 
                 <dl className="mt-4 grid grid-cols-3 gap-2 text-xs">
                   <div>
-                    <dt className="text-slate-500">Ngân sách</dt>
-                    <dd className="mt-0.5 font-medium text-slate-800">
+                    <dt className="text-muted-foreground">Ngân sách</dt>
+                    <dd className="mt-0.5 font-medium text-foreground">
                       {formatVnd(p.budget_vnd)}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-slate-500">Khởi công</dt>
-                    <dd className="mt-0.5 font-medium text-slate-800">
+                    <dt className="text-muted-foreground">Khởi công</dt>
+                    <dd className="mt-0.5 font-medium text-foreground">
                       {formatDate(p.start_date)}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-slate-500">Diện tích</dt>
-                    <dd className="mt-0.5 font-medium text-slate-800">
+                    <dt className="text-muted-foreground">Diện tích</dt>
+                    <dd className="mt-0.5 font-medium text-foreground">
                       {p.area_sqm ? `${p.area_sqm.toLocaleString("vi-VN")} m²` : "—"}
                     </dd>
                   </div>
                 </dl>
 
-                <div className="mt-4 flex items-center gap-3 border-t border-slate-100 pt-3 text-[11px]">
+                <div className="mt-4 flex items-center gap-3 border-t pt-3 text-[11px]">
                   <CounterPill label="Tasks mở" value={p.open_tasks} tone="blue" />
                   <CounterPill
                     label="CO mở"
@@ -205,7 +206,7 @@ function CounterPill({
   const colors: Record<typeof tone, string> = {
     blue: "text-blue-700 bg-blue-50",
     amber: "text-amber-700 bg-amber-50",
-    slate: "text-slate-700 bg-slate-50",
+    slate: "text-foreground bg-muted/40",
   };
   return (
     <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 ${colors[tone]}`}>
@@ -229,27 +230,27 @@ function Pagination({
   const totalPages = Math.max(1, Math.ceil(total / perPage));
   if (totalPages <= 1) return null;
   return (
-    <div className="flex items-center justify-between border-t border-slate-100 pt-4 text-xs text-slate-600">
+    <div className="flex items-center justify-between border-t pt-4 text-xs text-muted-foreground">
       <span>
         Trang {page} / {totalPages} · {total} dự án
       </span>
       <div className="flex gap-1">
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="sm"
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
-          className="rounded border border-slate-200 px-3 py-1 hover:bg-slate-50 disabled:opacity-50"
         >
           Trước
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
-          className="rounded border border-slate-200 px-3 py-1 hover:bg-slate-50 disabled:opacity-50"
         >
           Sau
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -300,35 +301,30 @@ function EmptyProjectsState() {
   });
 
   return (
-    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-12 text-center">
-      <Building2
-        size={32}
-        className="mx-auto mb-3 text-slate-400"
-        aria-hidden
-      />
-      <p className="text-sm font-medium text-slate-700">Chưa có dự án nào.</p>
-      <p className="mt-1 text-xs text-slate-500">
-        Dự án thường được tạo từ một đề xuất đã trúng (WinWork) hoặc nhập trực
-        tiếp qua API. Nếu bạn đang đánh giá nền tảng, có thể nạp dữ liệu mẫu:
-      </p>
-      <button
-        type="button"
-        onClick={() => {
-          setError(null);
-          seed.mutate();
-        }}
-        disabled={seed.isPending}
-        className="mx-auto mt-4 inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-      >
-        {seed.isPending ? "Đang nạp..." : "Nạp dữ liệu demo"}
-      </button>
-      <p className="mt-2 text-[11px] text-slate-400">
-        Tạo 1 dự án mẫu với đề xuất, dự toán, change orders, RFI, defects,
-        và 5 visit + ảnh SiteEye. An toàn để chạy lại — idempotent.
-      </p>
-      {error && (
-        <p className="mx-auto mt-3 max-w-md text-xs text-red-700">{error}</p>
-      )}
-    </div>
+    <EmptyState
+      icon={<Building2 size={20} />}
+      title="Chưa có dự án nào."
+      description="Dự án thường được tạo từ một đề xuất đã trúng (WinWork) hoặc nhập trực tiếp qua API. Nếu bạn đang đánh giá nền tảng, có thể nạp dữ liệu mẫu:"
+      action={
+        <div className="flex flex-col items-center gap-2">
+          <Button
+            onClick={() => {
+              setError(null);
+              seed.mutate();
+            }}
+            loading={seed.isPending}
+          >
+            {seed.isPending ? "Đang nạp..." : "Nạp dữ liệu demo"}
+          </Button>
+          <p className="text-[11px] text-muted-foreground">
+            Tạo 1 dự án mẫu với đề xuất, dự toán, change orders, RFI, defects,
+            và 5 visit + ảnh SiteEye. An toàn để chạy lại — idempotent.
+          </p>
+          {error && (
+            <p className="mt-1 max-w-md text-xs text-destructive">{error}</p>
+          )}
+        </div>
+      }
+    />
   );
 }

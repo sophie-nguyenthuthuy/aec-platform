@@ -6,6 +6,7 @@ import { Plus, X } from "lucide-react";
 import { RFICard, type Rfi, type RfiPriority, type RfiStatus } from "@aec/ui/drawbridge";
 import { useSession } from "@/lib/auth-context";
 import { useAnswerRFI, useCreateRFI, useRFIs } from "@/hooks/drawbridge";
+import { ProjectSelect } from "@/app/(dashboard)/_components/ProjectSelect";
 
 const COLUMNS: Array<{ key: RfiStatus; label: string; tone: string }> = [
   { key: "open", label: "Đang mở", tone: "bg-blue-50 border-blue-200" },
@@ -13,7 +14,12 @@ const COLUMNS: Array<{ key: RfiStatus; label: string; tone: string }> = [
   { key: "closed", label: "Đã đóng", tone: "bg-slate-50 border-slate-200" },
 ];
 
-const PRIORITIES: RfiPriority[] = ["low", "normal", "high", "urgent"];
+const PRIORITIES: Array<{ value: RfiPriority; label: string }> = [
+  { value: "low", label: "Thấp" },
+  { value: "normal", label: "Bình thường" },
+  { value: "high", label: "Cao" },
+  { value: "urgent", label: "Khẩn cấp" },
+];
 
 export default function RFITrackerPage() {
   const session = useSession();
@@ -42,14 +48,9 @@ export default function RFITrackerPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-xl font-semibold text-slate-900">RFI tracker</h2>
+        <h2 className="text-xl font-semibold text-slate-900">Theo dõi RFI</h2>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <input
-            placeholder="project_id"
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            className="w-64 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-          />
+          <ProjectSelect value={projectId} onChange={setProjectId} />
           <select
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value as RfiPriority | "")}
@@ -57,8 +58,8 @@ export default function RFITrackerPage() {
           >
             <option value="">Mọi mức độ</option>
             {PRIORITIES.map((p) => (
-              <option key={p} value={p}>
-                {p}
+              <option key={p.value} value={p.value}>
+                {p.label}
               </option>
             ))}
           </select>
@@ -171,11 +172,12 @@ function CreateRfiDialog({
             <select
               value={priority}
               onChange={(e) => setPriority(e.target.value as RfiPriority)}
+
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             >
               {PRIORITIES.map((p) => (
-                <option key={p} value={p}>
-                  {p}
+                <option key={p.value} value={p.value}>
+                  {p.label}
                 </option>
               ))}
             </select>

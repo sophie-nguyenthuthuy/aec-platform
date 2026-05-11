@@ -1,4 +1,4 @@
-.PHONY: seed-codeguard seed-demo eval-codeguard test test-cov test-api test-api-cov test-api-integration test-api-integration-up test-ml test-ml-cov test-ui test-ui-cov test-web test-web-unit test-web-unit-cov hooks lint backfill-rfi-embeddings backfill-dailylog
+.PHONY: seed-codeguard seed-codeguard-all seed-codeguard-data seed-demo eval-codeguard test test-cov test-api test-api-cov test-api-integration test-api-integration-up test-ml test-ml-cov test-ui test-ui-cov test-web test-web-unit test-web-unit-cov hooks lint backfill-rfi-embeddings backfill-dailylog
 
 # Install local pre-commit hooks. Run once per clone. After this, every
 # `git commit` runs ruff check + ruff format + basic hygiene checks on
@@ -28,6 +28,60 @@ seed-codeguard:
 		--category fire_safety \
 		--effective 2022-10-25 \
 		--language vi
+
+# Populate every CODEGUARD surface from committed fixtures: regulations
+# + chunks (NULL embeddings — no OpenAI cost), 8 sample compliance_checks,
+# 3 permit checklists across jurisdictions, the org's monthly quota,
+# three months of usage, the quota audit-log paper trail, and per-route
+# user usage attribution. Idempotent — re-running upserts existing rows.
+#
+# Use this when you want the dashboard pages (/codeguard/history,
+# /codeguard/quota, /codeguard/regulations) to render with realistic
+# data WITHOUT burning OpenAI credits. For semantic retrieval (Q&A)
+# to actually return hits, run `make seed-codeguard-all` instead.
+#
+# Requires DATABASE_URL pointing at a migrated DB (alembic head).
+seed-codeguard-data:
+	cd apps/api && PYTHONPATH=".:../:../ml" python -m scripts.seed_codeguard
+
+# Full CODEGUARD bootstrap: ingest every fixture (with real embeddings,
+# so retrieval works end-to-end) + populate the audit / quota / history
+# surfaces via the data seed. Costs ~30-50¢ in OpenAI embedding credits
+# the first run; chunks are wiped and re-written on subsequent runs.
+#
+# Requires DATABASE_URL + OPENAI_API_KEY in the environment.
+seed-codeguard-all:
+	PYTHONPATH=apps/api:apps/ml python -m pipelines.codeguard_ingest \
+		--source apps/ml/fixtures/codeguard/qcvn_06_2022_excerpt.md \
+		--code "QCVN 06:2022/BXD" \
+		--country VN --jurisdiction national \
+		--category fire_safety --effective 2022-10-25 --language vi
+	PYTHONPATH=apps/api:apps/ml python -m pipelines.codeguard_ingest \
+		--source apps/ml/fixtures/codeguard/qcvn_10_2014_accessibility_excerpt.md \
+		--code "QCVN 10:2014/BXD" \
+		--country VN --jurisdiction national \
+		--category accessibility --effective 2014-07-01 --language vi
+	PYTHONPATH=apps/api:apps/ml python -m pipelines.codeguard_ingest \
+		--source apps/ml/fixtures/codeguard/tcvn_5574_2018_concrete_structure_excerpt.md \
+		--code "TCVN 5574:2018" \
+		--country VN --jurisdiction national \
+		--category structure --effective 2018-06-30 --language vi
+	PYTHONPATH=apps/api:apps/ml python -m pipelines.codeguard_ingest \
+		--source apps/ml/fixtures/codeguard/qcvn_01_2021_planning_zoning_excerpt.md \
+		--code "QCVN 01:2021/BXD" \
+		--country VN --jurisdiction national \
+		--category zoning --effective 2021-07-05 --language vi
+	PYTHONPATH=apps/api:apps/ml python -m pipelines.codeguard_ingest \
+		--source apps/ml/fixtures/codeguard/qcvn_09_2017_building_energy_excerpt.md \
+		--code "QCVN 09:2017/BXD" \
+		--country VN --jurisdiction national \
+		--category energy --effective 2017-12-01 --language vi
+	PYTHONPATH=apps/api:apps/ml python -m pipelines.codeguard_ingest \
+		--source apps/ml/fixtures/codeguard/tcvn_2737_2023_loads_excerpt.md \
+		--code "TCVN 2737:2023" \
+		--country VN --jurisdiction national \
+		--category structure --effective 2023-12-31 --language vi
+	cd apps/api && PYTHONPATH=".:../:../ml" python -m scripts.seed_codeguard
 
 # Bootstrap a demo organization populated across every major workflow:
 # project, site visits + photos, an approved estimate, two change orders

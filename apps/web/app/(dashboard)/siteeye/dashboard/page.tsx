@@ -8,6 +8,7 @@ import {
   ProgressGauge,
   SafetyBadge,
 } from "@aec/ui/siteeye";
+import { EmptyState, PageHeader } from "@aec/ui/primitives";
 import {
   usePhotos,
   useProgressTimeline,
@@ -29,12 +30,14 @@ export default function SiteDashboardPage() {
 
   if (!projectId) {
     return (
-      <p className="text-sm text-gray-600">
-        Select a project first.{" "}
-        <Link href={"/projects" as Route} className="text-sky-600 underline">
-          Browse projects
-        </Link>
-      </p>
+      <EmptyState
+        title="Select a project first."
+        action={
+          <Link href={"/projects" as Route} className="text-primary underline">
+            Browse projects
+          </Link>
+        }
+      />
     );
   }
 
@@ -48,28 +51,28 @@ export default function SiteDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-gray-900">Site dashboard</h1>
+      <PageHeader title="Site dashboard" />
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="rounded-lg border bg-card p-4">
           <ProgressGauge
             value={latest?.overall_progress_pct ?? 0}
             scheduleStatus={timeline?.schedule_status ?? "unknown"}
           />
         </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="mb-2 text-sm font-semibold text-gray-600">Phase progress</h2>
+        <div className="rounded-lg border bg-card p-4">
+          <h2 className="mb-2 text-sm font-semibold text-muted-foreground">Phase progress</h2>
           <PhaseBar phaseProgress={latest?.phase_progress ?? {}} />
         </div>
-        <div className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-gray-600">Safety</h2>
+        <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
+          <h2 className="text-sm font-semibold text-muted-foreground">Safety</h2>
           <div className="flex items-center justify-between">
-            <span className="text-2xl font-semibold text-gray-900">{openIncidents}</span>
+            <span className="text-2xl font-semibold text-foreground">{openIncidents}</span>
             <SafetyBadge status={safetyStatus} />
           </div>
           <Link
             href="/siteeye/safety"
-            className="text-xs text-sky-600 hover:underline"
+            className="text-xs text-primary hover:underline"
           >
             View incidents →
           </Link>
@@ -78,8 +81,8 @@ export default function SiteDashboardPage() {
 
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-600">Recent photos</h2>
-          <Link href="/siteeye/visits" className="text-xs text-sky-600 hover:underline">
+          <h2 className="text-sm font-semibold text-muted-foreground">Recent photos</h2>
+          <Link href="/siteeye/visits" className="text-xs text-primary hover:underline">
             All visits →
           </Link>
         </div>

@@ -3,8 +3,14 @@ import Link from "next/link";
 import { useState } from "react";
 import type { ProposalStatus } from "@aec/types/winwork";
 
-import { Button } from "@aec/ui/primitives/button";
-import { Input } from "@aec/ui/primitives/input";
+import {
+  Button,
+  EmptyState,
+  Input,
+  PageHeader,
+  Spinner,
+  buttonStyles,
+} from "@aec/ui/primitives";
 import { ProposalCard } from "@aec/ui/winwork/ProposalCard";
 import { useProposals } from "@/hooks/winwork/useProposals";
 
@@ -21,18 +27,15 @@ export default function WinWorkListPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Proposals</h1>
-          <p className="text-sm text-muted-foreground">Track and manage client proposals</p>
-        </div>
-        <Link
-          href="/winwork/proposals/new"
-          className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          New proposal
-        </Link>
-      </div>
+      <PageHeader
+        title="Proposals"
+        description="Track and manage client proposals"
+        actions={
+          <Link href="/winwork/proposals/new" className={buttonStyles({})}>
+            New proposal
+          </Link>
+        }
+      />
 
       <div className="flex flex-wrap gap-2">
         <div className="flex flex-wrap gap-1">
@@ -56,11 +59,11 @@ export default function WinWorkListPage() {
       </div>
 
       {isLoading ? (
-        <div className="text-sm text-muted-foreground">Loading…</div>
-      ) : (data?.items ?? []).length === 0 ? (
-        <div className="rounded-md border p-8 text-center text-sm text-muted-foreground">
-          No proposals yet.
+        <div className="flex justify-center py-8">
+          <Spinner label="Loading proposals" />
         </div>
+      ) : (data?.items ?? []).length === 0 ? (
+        <EmptyState title="No proposals yet." />
       ) : (
         <div className="grid gap-3">
           {(data?.items ?? []).map((p) => (

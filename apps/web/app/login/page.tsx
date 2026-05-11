@@ -1,8 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
+import { Alert, Button, FormField, Input } from "@aec/ui/primitives";
+
+import { AuthShell } from "@/components/AuthShell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 /**
@@ -16,7 +20,7 @@ export default function LoginPage() {
   const params = useSearchParams();
   const next = params.get("next") || "/";
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(params.get("email") ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -42,54 +46,68 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-5 rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
-      >
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">AEC Platform</h1>
-          <p className="text-sm text-slate-600">Đăng nhập để tiếp tục</p>
-        </div>
+    <AuthShell
+      title="AEC Platform"
+      description="Đăng nhập để tiếp tục"
+      footer={
+        <>
+          Chưa có tài khoản?{" "}
+          <Link
+            href="/signup"
+            className="font-medium text-primary underline-offset-4 hover:underline"
+          >
+            Đăng ký
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
+        <FormField label="Email" required>
+          <Input
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+        </FormField>
 
-        <div className="space-y-3">
-          <label className="block">
-            <span className="block text-xs font-medium text-slate-700">Email</span>
-            <input
-              type="email"
-              required
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-            />
-          </label>
+        <FormField
+          label="Mật khẩu"
+          required
+          help={
+            <Link
+              href="/forgot-password"
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              Quên mật khẩu?
+            </Link>
+          }
+        >
+          <Input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </FormField>
 
-          <label className="block">
-            <span className="block text-xs font-medium text-slate-700">Mật khẩu</span>
-            <input
-              type="password"
-              required
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-            />
-          </label>
-        </div>
+        {error && (
+          <Alert variant="destructive">
+            <p>{error}</p>
+          </Alert>
+        )}
 
-        {error ? (
-          <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>
-        ) : null}
-
-        <button
+        <Button
           type="submit"
-          disabled={submitting}
-          className="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-full"
+          loading={submitting}
+          loadingText="Đang đăng nhập"
         >
           {submitting ? "Đang đăng nhập…" : "Đăng nhập"}
-        </button>
+        </Button>
       </form>
-    </div>
+    </AuthShell>
   );
 }
