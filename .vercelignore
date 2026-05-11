@@ -1,13 +1,24 @@
-# Vercel zero-config treats any file in `/api/` at the project root as a
-# Python (or Node, depending on extension) serverless function. For this
-# project, the FastAPI under `api/index.py` is deployed as a SEPARATE
-# Vercel project (root-dir = `./`, framework = Other) — we don't want
-# the frontend's deploy to also try to bundle it. Excluding here is
-# defence-in-depth on top of setting `Root Directory = apps/web` in
-# the Vercel project settings.
-api/
+# Vercel reads this file relative to a project's Root Directory.
+#
+# This repo deploys as TWO Vercel projects:
+#   * aec-platform-web   — Root Directory = apps/web
+#                          (this .vercelignore is NOT read by that project,
+#                           since it's outside apps/web)
+#   * aec-platform-api   — Root Directory = ./
+#                          (this .vercelignore IS read)
+#
+# The API project deploys the FastAPI via api/index.py as a Python
+# serverless function. We exclude the heavyweight Next.js + UI source
+# trees from its build context to stay under Vercel's 50MB function
+# bundle limit on the Hobby tier.
 
-# Local dev artefacts that should never reach the deploy.
+apps/web/
+packages/ui/
+packages/types/
+node_modules/
+.next/
+
+# Local dev artefacts that should never reach either deploy.
 *.log
 .DS_Store
 .env
