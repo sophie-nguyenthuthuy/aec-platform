@@ -275,6 +275,7 @@ def compute_monthly_contribution(
     pays into BHXH (no BHYT/BHTN).
     """
     salary = Decimal(basic_salary_vnd)
+
     def _vnd(v: Decimal) -> int:
         return int(v.quantize(Decimal("1")))
 
@@ -287,15 +288,8 @@ def compute_monthly_contribution(
         "bhtn_employee": _vnd(salary * rates.bhtn_employee) if bhtn else 0,
         "kpcd_employer": _vnd(salary * rates.kpcd_employer),  # always
     }
-    out["employer_total"] = (
-        out["bhxh_employer"]
-        + out["bhyt_employer"]
-        + out["bhtn_employer"]
-        + out["kpcd_employer"]
-    )
-    out["employee_total"] = (
-        out["bhxh_employee"] + out["bhyt_employee"] + out["bhtn_employee"]
-    )
+    out["employer_total"] = out["bhxh_employer"] + out["bhyt_employer"] + out["bhtn_employer"] + out["kpcd_employer"]
+    out["employee_total"] = out["bhxh_employee"] + out["bhyt_employee"] + out["bhtn_employee"]
     return out
 
 
@@ -314,9 +308,13 @@ class PermitCreate(BaseModel):
 
     @model_validator(mode="after")
     def _required_needs_dates(self) -> PermitCreate:
-        if self.exemption_type == PermitExemptionType.required and self.issue_date and self.expiry_date:
-            if self.expiry_date <= self.issue_date:
-                raise ValueError("expiry_date must be after issue_date")
+        if (
+            self.exemption_type == PermitExemptionType.required
+            and self.issue_date
+            and self.expiry_date
+            and self.expiry_date <= self.issue_date
+        ):
+            raise ValueError("expiry_date must be after issue_date")
         return self
 
 

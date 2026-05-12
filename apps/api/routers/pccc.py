@@ -222,9 +222,7 @@ async def list_certs(
             .mappings()
             .all()
         )
-        total = (
-            await session.execute(text(f"SELECT COUNT(*) FROM fire_certs c WHERE {where}"), params)
-        ).scalar_one()
+        total = (await session.execute(text(f"SELECT COUNT(*) FROM fire_certs c WHERE {where}"), params)).scalar_one()
 
     items = [CertSummary.model_validate(dict(r)).model_dump(mode="json") for r in rows]
     return paginated(items, page=offset // limit + 1, per_page=limit, total=total)
@@ -403,10 +401,7 @@ async def transition_cert(
                 status_code=422,
                 detail={
                     "code": "invalid_transition",
-                    "message": (
-                        f"Cannot transition cert from '{cur_status.value}' to "
-                        f"'{payload.to_status.value}'."
-                    ),
+                    "message": (f"Cannot transition cert from '{cur_status.value}' to '{payload.to_status.value}'."),
                     "allowed": [s.value for s in sorted(allowed, key=lambda x: x.value)],
                 },
             )
@@ -439,12 +434,8 @@ async def transition_cert(
         if payload.to_status == CertStatus.submitted:
             assigns.append("submitted_date = COALESCE(submitted_date, CURRENT_DATE)")
         if payload.to_status == CertStatus.rejected and payload.rejection_reason:
-            assigns.append(
-                "notes = COALESCE(notes || E'\\n', '') || :rejection_reason"
-            )
-            params["rejection_reason"] = (
-                f"[{payload.decision_date or 'no-date'}] Rejected: {payload.rejection_reason}"
-            )
+            assigns.append("notes = COALESCE(notes || E'\\n', '') || :rejection_reason")
+            params["rejection_reason"] = f"[{payload.decision_date or 'no-date'}] Rejected: {payload.rejection_reason}"
 
         row = (
             (
@@ -537,9 +528,7 @@ async def log_inspection(
                         "findings": _json([f.model_dump(mode="json") for f in payload.findings]),
                         "summary": payload.summary,
                         "next_steps": payload.next_steps,
-                        "report_file_id": str(payload.report_file_id)
-                        if payload.report_file_id
-                        else None,
+                        "report_file_id": str(payload.report_file_id) if payload.report_file_id else None,
                     },
                 )
             )
@@ -754,10 +743,10 @@ async def list_alerts(
 ):
     """Three alert kinds:
 
-      * `expiring_soon` — acceptance certs with expiry within window
-      * `non_compliances_open` — certs with ≥1 `non_compliant` checklist
-      * `inspection_overdue` — certs `submitted` > 45 days with no
-        inspection logged
+    * `expiring_soon` — acceptance certs with expiry within window
+    * `non_compliances_open` — certs with ≥1 `non_compliant` checklist
+    * `inspection_overdue` — certs `submitted` > 45 days with no
+      inspection logged
     """
     params: dict[str, Any] = {
         "org": str(auth.organization_id),

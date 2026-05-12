@@ -63,9 +63,7 @@ class EvidenceKind(StrEnum):
 
 
 # Roles that must approve before a BBNT can finalize.
-MANDATORY_ROLES: frozenset[SignatoryRole] = frozenset(
-    {SignatoryRole.cdt, SignatoryRole.tvgs, SignatoryRole.nt}
-)
+MANDATORY_ROLES: frozenset[SignatoryRole] = frozenset({SignatoryRole.cdt, SignatoryRole.tvgs, SignatoryRole.nt})
 
 
 # ---------- Quantity row (typed item inside the JSONB column) ----------

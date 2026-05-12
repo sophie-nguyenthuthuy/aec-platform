@@ -23,6 +23,7 @@ check code compliance, automate drawing QA, and hand over assets to clients.
 | 13 | **InvoiceVN** | `einvoice` | HĐĐT issue/receive per NĐ 123/2020 + TT 78/2021. Server-computed VAT breakdown across 0/5/8/10% rates, MST format + GDT-status cache, GDT submission lifecycle + accept-reject callback, 24h cancellation window. |
 | 14 | **LotusEdge** | `greenmark` | VGBC LOTUS + IFC EDGE green-building scoring. Per-credit catalog seeded from VGBC v3 / EDGE templates, per-category breakdown, gap-to-next-level engine recommends highest-points credits to push the score across the next threshold. |
 | 15 | **BondLine** | `bondline` | VN bank-issued bonds (bảo lãnh dự thầu / thực hiện / tạm ứng / bảo hành) per Luật Đấu thầu 2023 + NĐ 24/2024. Bank-code allow-list (VCB/BIDV/TCB/…), claim workflow with default-call auto-flips, coverage-below-contract + 14/30/60-day expiry alerts. |
+| 16 | **WorkforceVN** | `workforce` | Worker manifest, ATLĐ training (NĐ 44/2016 — 6 groups, 2y/3y renewal cycles), BHXH/BHYT/BHTN enrollment with monthly contribution math (17.5/8/3/1.5/1/1 + 2% KPCĐ), foreign worker permits per NĐ 152/2020, project assignments + compliance alerts. |
 
 ## Monorepo layout
 

@@ -158,9 +158,7 @@ async def list_workers(
             .mappings()
             .all()
         )
-        total = (
-            await session.execute(text(f"SELECT COUNT(*) FROM workers w WHERE {where}"), params)
-        ).scalar_one()
+        total = (await session.execute(text(f"SELECT COUNT(*) FROM workers w WHERE {where}"), params)).scalar_one()
 
     items = [WorkerSummary.model_validate(dict(r)).model_dump(mode="json") for r in rows]
     return paginated(items, page=offset // limit + 1, per_page=limit, total=total)
@@ -504,11 +502,15 @@ async def create_permit(
 ):
     async with TenantAwareSession(auth.organization_id) as session:
         worker = (
-            await session.execute(
-                text("SELECT id, nationality FROM workers WHERE id = :id AND organization_id = :org"),
-                {"id": str(worker_id), "org": str(auth.organization_id)},
+            (
+                await session.execute(
+                    text("SELECT id, nationality FROM workers WHERE id = :id AND organization_id = :org"),
+                    {"id": str(worker_id), "org": str(auth.organization_id)},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if worker is None:
             raise HTTPException(status_code=404, detail="worker_not_found")
         if worker["nationality"] == "VN":

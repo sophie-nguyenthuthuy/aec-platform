@@ -145,9 +145,7 @@ async def list_certifications(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    filters = CertListFilters(
-        project_id=project_id, system=system, status=cert_status, limit=limit, offset=offset
-    )
+    filters = CertListFilters(project_id=project_id, system=system, status=cert_status, limit=limit, offset=offset)
     where, params = _cert_where(filters, auth.organization_id)
     async with TenantAwareSession(auth.organization_id) as session:
         rows = (

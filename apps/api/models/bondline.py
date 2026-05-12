@@ -72,14 +72,10 @@ class Bond(Base):
     released_at: Mapped[date | None] = mapped_column(Date)
     released_reason: Mapped[str | None] = mapped_column(Text)
     # Reference to the original signed bond letter (scanned PDF).
-    bond_file_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL")
-    )
+    bond_file_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL"))
     contract_no: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
@@ -87,9 +83,7 @@ class Bond(Base):
         # An (org, bank, bond_no) triple is unique — banks issue unique
         # numbers, so two rows with the same (bank, bond_no) is a data
         # quality bug.
-        UniqueConstraint(
-            "organization_id", "issuing_bank", "bond_no", name="uq_bonds_org_bank_no"
-        ),
+        UniqueConstraint("organization_id", "issuing_bank", "bond_no", name="uq_bonds_org_bank_no"),
     )
 
 
@@ -129,7 +123,5 @@ class BondClaim(Base):
     evidence_file_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL")
     )
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())

@@ -101,19 +101,13 @@ class PaymentClaim(Base):
     due_at: Mapped[date | None] = mapped_column(Date)
     paid_at: Mapped[date | None] = mapped_column(Date)
     payment_reference: Mapped[str | None] = mapped_column(Text)
-    pdf_file_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL")
-    )
+    pdf_file_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL"))
     notes: Mapped[str | None] = mapped_column(Text)
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
-    __table_args__ = (
-        UniqueConstraint("project_id", "claim_no", name="uq_payment_claims_project_claim_no"),
-    )
+    __table_args__ = (UniqueConstraint("project_id", "claim_no", name="uq_payment_claims_project_claim_no"),)
 
 
 class PaymentClaimLine(Base):
@@ -157,9 +151,7 @@ class PaymentClaimLine(Base):
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
-    __table_args__ = (
-        UniqueConstraint("claim_id", "work_item_code", name="uq_payment_claim_lines_claim_workitem"),
-    )
+    __table_args__ = (UniqueConstraint("claim_id", "work_item_code", name="uq_payment_claim_lines_claim_workitem"),)
 
 
 class PaymentClaimEvidence(Base):
@@ -183,9 +175,7 @@ class PaymentClaimEvidence(Base):
         nullable=False,
     )
     kind: Mapped[str] = mapped_column(Text, nullable=False)
-    file_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL")
-    )
+    file_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL"))
     external_ref: Mapped[str | None] = mapped_column(Text)
     caption: Mapped[str | None] = mapped_column(Text)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)

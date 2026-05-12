@@ -247,9 +247,7 @@ async def list_invoices(
             .mappings()
             .all()
         )
-        total = (
-            await session.execute(text(f"SELECT COUNT(*) FROM einvoices i WHERE {where}"), params)
-        ).scalar_one()
+        total = (await session.execute(text(f"SELECT COUNT(*) FROM einvoices i WHERE {where}"), params)).scalar_one()
 
     items = [InvoiceSummary.model_validate(dict(r)).model_dump(mode="json") for r in rows]
     return paginated(items, page=offset // limit + 1, per_page=limit, total=total)
@@ -353,8 +351,7 @@ async def update_invoice(
                 detail={
                     "code": "invoice_not_draft",
                     "message": (
-                        "Hoá đơn đã phát hành — không sửa được. Phát hành hoá "
-                        "đơn điều chỉnh để xử lý sai sót."
+                        "Hoá đơn đã phát hành — không sửa được. Phát hành hoá đơn điều chỉnh để xử lý sai sót."
                     ),
                 },
             )
@@ -605,10 +602,7 @@ async def cancel_invoice(
                     status_code=409,
                     detail={
                         "code": "cancel_window_closed",
-                        "message": (
-                            "Đã quá 24h kể từ khi GDT chấp thuận — chỉ có thể "
-                            "lập hoá đơn điều chỉnh."
-                        ),
+                        "message": ("Đã quá 24h kể từ khi GDT chấp thuận — chỉ có thể lập hoá đơn điều chỉnh."),
                     },
                 )
 

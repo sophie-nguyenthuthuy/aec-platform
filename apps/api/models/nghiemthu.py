@@ -83,18 +83,14 @@ class AcceptanceRecord(Base):
     # to be fixed. Persisted as text so site managers can use VN.
     conclusion: Mapped[str | None] = mapped_column(Text)
     # Link to the rendered PDF blob (storage in `files`).
-    pdf_file_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL")
-    )
+    pdf_file_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL"))
     # When this BBNT was replaced by a later revision — see class docstring.
     superseded_by_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("acceptance_records.id", ondelete="SET NULL"),
     )
     finalized_at: Mapped[datetime | None] = mapped_column(TZ)
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
@@ -147,9 +143,7 @@ class AcceptanceSignatory(Base):
     __table_args__ = (
         # A given (record, role, org_name) is unique — prevents two
         # rows for the same TVGS firm on the same BBNT.
-        UniqueConstraint(
-            "record_id", "role", "org_name", name="uq_acceptance_signatories_record_party"
-        ),
+        UniqueConstraint("record_id", "role", "org_name", name="uq_acceptance_signatories_record_party"),
     )
 
 
@@ -177,9 +171,7 @@ class AcceptanceEvidence(Base):
     # `photo` | `document` | `test_cert` | `drawing_ref` |
     # `dailylog_ref` | `task_ref`
     kind: Mapped[str] = mapped_column(Text, nullable=False)
-    file_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL")
-    )
+    file_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL"))
     # For non-file references (e.g. "/dailylog/<id>") — captures the
     # cross-module link without enforcing a hard FK across module
     # boundaries.

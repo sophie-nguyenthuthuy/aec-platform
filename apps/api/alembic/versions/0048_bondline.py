@@ -5,8 +5,13 @@ Tables:
   * bond_claims  — claim / extension / cancellation requests
 
 Revision ID: 0048_bondline
-Revises: 0047_greenmark
+Revises: c16cdbca5b41 (post-merge with codeguard branch)
 Create Date: 2026-05-12
+
+The merge point `c16cdbca5b41` reconciles `0046_codeguard_user_usage`
+(parallel branch landed off `0045_codeguard_quota_rls`) with
+`0047_greenmark`. Chaining 0048 off the merge keeps the alembic DAG
+single-headed after both feature lines converge.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "0048_bondline"
-down_revision = "0047_greenmark"
+down_revision = "c16cdbca5b41"
 branch_labels = None
 depends_on = None
 

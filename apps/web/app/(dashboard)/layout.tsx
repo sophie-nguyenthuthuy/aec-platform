@@ -31,6 +31,7 @@ const NAV: NavItem[] = [
   { href: "/einvoice" as Route, label: "Hoá đơn ĐT" },
   { href: "/greenmark" as Route, label: "LOTUS / EDGE" },
   { href: "/bondline" as Route, label: "Bảo lãnh" },
+  { href: "/workforce" as Route, label: "Nhân công" },
   { section: "Bàn giao", href: "/handover" as Route, label: "Handover" },
   { href: "/punchlist" as Route, label: "Punch list" },
   { section: "Cài đặt", href: "/settings/members" as Route, label: "Thành viên" },

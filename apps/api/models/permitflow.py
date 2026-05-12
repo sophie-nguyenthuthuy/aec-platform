@@ -77,9 +77,7 @@ class PermitDossier(Base):
     )
     land_parcel_no: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
@@ -141,9 +139,7 @@ class PermitStage(Base):
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
-    __table_args__ = (
-        UniqueConstraint("dossier_id", "stage_code", name="uq_permit_stages_dossier_stage"),
-    )
+    __table_args__ = (UniqueConstraint("dossier_id", "stage_code", name="uq_permit_stages_dossier_stage"),)
 
 
 class PermitSubmission(Base):
@@ -172,9 +168,7 @@ class PermitSubmission(Base):
     # `initial` | `rfi_response` | `resubmission` | `withdrawal_request`
     submission_type: Mapped[str] = mapped_column(Text, nullable=False, default="initial")
     submitted_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
-    submitted_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    submitted_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     # Receipt number issued by the one-stop shop (số biên nhận).
     receipt_number: Mapped[str | None] = mapped_column(Text)
     # File ids that comprise this submission packet (signed PDFs + DWG).
@@ -186,6 +180,4 @@ class PermitSubmission(Base):
     outcome_at: Mapped[datetime | None] = mapped_column(TZ)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
-    __table_args__ = (
-        UniqueConstraint("stage_id", "round_number", name="uq_permit_submissions_stage_round"),
-    )
+    __table_args__ = (UniqueConstraint("stage_id", "round_number", name="uq_permit_submissions_stage_round"),)

@@ -44,9 +44,7 @@ class VatRate:
     STANDARD = Decimal("0.10")
 
 
-VALID_VAT_RATES: frozenset[Decimal] = frozenset(
-    {VatRate.EXPORT, VatRate.ESSENTIAL, VatRate.REDUCED, VatRate.STANDARD}
-)
+VALID_VAT_RATES: frozenset[Decimal] = frozenset({VatRate.EXPORT, VatRate.ESSENTIAL, VatRate.REDUCED, VatRate.STANDARD})
 
 
 # ---------- MST validation ----------
@@ -144,9 +142,7 @@ class EInvoiceLineCreate(BaseModel):
         if v is None:
             return v
         if v not in VALID_VAT_RATES:
-            raise ValueError(
-                f"vat_rate must be one of {{None, 0, 0.05, 0.08, 0.10}}, got {v}"
-            )
+            raise ValueError(f"vat_rate must be one of {{None, 0, 0.05, 0.08, 0.10}}, got {v}")
         return v
 
 

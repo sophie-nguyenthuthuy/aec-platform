@@ -305,10 +305,7 @@ async def update_claim(
         cur = await _ensure_draft(session, claim_id, auth.organization_id)
         # Tax-rate edits force a recompute so the header doesn't go
         # stale relative to the lines.
-        needs_recompute = any(
-            f is not None
-            for f in (payload.vat_pct, payload.retention_pct, payload.tndn_pct)
-        )
+        needs_recompute = any(f is not None for f in (payload.vat_pct, payload.retention_pct, payload.tndn_pct))
 
         row = (
             (
@@ -380,11 +377,7 @@ async def add_line(
         cumulative_qty = Decimal(prior_qty) + payload.this_period_qty
         this_amount = int((payload.this_period_qty * payload.unit_rate_vnd).to_integral_value())
         cumulative_amount = int((cumulative_qty * payload.unit_rate_vnd).to_integral_value())
-        completion_pct = (
-            (cumulative_qty / payload.planned_qty * Decimal("100"))
-            if payload.planned_qty > 0
-            else None
-        )
+        completion_pct = (cumulative_qty / payload.planned_qty * Decimal("100")) if payload.planned_qty > 0 else None
 
         row = (
             (
@@ -661,8 +654,7 @@ async def sign_claim(
                 detail={
                     "code": "claim_not_in_review",
                     "message": (
-                        f"Claim ở trạng thái '{cur_status.value}' — chỉ ký được "
-                        "khi 'submitted' hoặc 'in_review'."
+                        f"Claim ở trạng thái '{cur_status.value}' — chỉ ký được khi 'submitted' hoặc 'in_review'."
                     ),
                 },
             )

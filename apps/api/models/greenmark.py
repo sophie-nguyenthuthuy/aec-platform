@@ -76,9 +76,7 @@ class GreenCertification(Base):
     valid_until: Mapped[date | None] = mapped_column(Date)
     assessor_name: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
@@ -139,6 +137,4 @@ class GreenCredit(Base):
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
-    __table_args__ = (
-        UniqueConstraint("certification_id", "code", name="uq_green_credits_cert_code"),
-    )
+    __table_args__ = (UniqueConstraint("certification_id", "code", name="uq_green_credits_cert_code"),)

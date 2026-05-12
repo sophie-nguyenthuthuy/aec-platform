@@ -1,3 +1,20 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "echo 'no build step — Vercel autodetects api/index.py as a Python function'",
+  "installCommand": "echo 'no install at project level — api/requirements.txt is installed per-function'",
+  "outputDirectory": "public",
+  "functions": {
+    "api/index.py": {
+      "runtime": "@vercel/python@4.3.0",
+      "maxDuration": 60,
+      "includeFiles": "apps/api/**/*.py,apps/ml/**/*.py,apps/api/alembic/**/*"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.py"
+    }
+  ]
 }

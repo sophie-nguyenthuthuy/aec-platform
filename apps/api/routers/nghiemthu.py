@@ -284,8 +284,7 @@ async def update_record(
                 detail={
                     "code": "record_locked_by_signature",
                     "message": (
-                        "BBNT đã có chữ ký — không thể chỉnh sửa nội dung. "
-                        "Tạo bản sửa đổi mới và đánh dấu superseded."
+                        "BBNT đã có chữ ký — không thể chỉnh sửa nội dung. Tạo bản sửa đổi mới và đánh dấu superseded."
                     ),
                 },
             )
@@ -412,9 +411,7 @@ async def sign_signatory(
                 status_code=409,
                 detail={
                     "code": "record_already_final",
-                    "message": (
-                        "BBNT đã ở trạng thái cuối cùng — không nhận thêm chữ ký."
-                    ),
+                    "message": ("BBNT đã ở trạng thái cuối cùng — không nhận thêm chữ ký."),
                 },
             )
 
@@ -438,9 +435,7 @@ async def sign_signatory(
                         "decision": payload.decision.value,
                         "comment": payload.comment,
                         "signed_at": signed_at,
-                        "signature_file_id": str(payload.signature_file_id)
-                        if payload.signature_file_id
-                        else None,
+                        "signature_file_id": str(payload.signature_file_id) if payload.signature_file_id else None,
                         "user_id": str(auth.user_id),
                     },
                 )
@@ -623,10 +618,7 @@ async def finalize_record(
                     record_id=record_id,
                     status=AcceptanceStatus.rejected,
                     rejected_by_roles=rejected_roles,
-                    message=(
-                        "Có bên bắt buộc đã từ chối — BBNT bị reject. "
-                        "Cần tạo bản sửa đổi để xử lý các tồn đọng."
-                    ),
+                    message=("Có bên bắt buộc đã từ chối — BBNT bị reject. Cần tạo bản sửa đổi để xử lý các tồn đọng."),
                 ).model_dump(mode="json")
             )
 
@@ -635,9 +627,7 @@ async def finalize_record(
                 FinalizeResult(
                     record_id=record_id,
                     status=AcceptanceStatus(record["status"]),
-                    mandatory_pending_roles=sorted(
-                        set(missing_roles) | set(pending_roles), key=lambda r: r.value
-                    ),
+                    mandatory_pending_roles=sorted(set(missing_roles) | set(pending_roles), key=lambda r: r.value),
                     message="Còn bên bắt buộc chưa ký — chưa thể finalize.",
                 ).model_dump(mode="json")
             )

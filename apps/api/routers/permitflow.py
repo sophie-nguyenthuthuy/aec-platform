@@ -131,9 +131,7 @@ async def create_dossier(
                         "classification": payload.classification.value,
                         "investment_type": payload.investment_type.value,
                         "location": _json(payload.location),
-                        "land_cert_file_id": str(payload.land_cert_file_id)
-                        if payload.land_cert_file_id
-                        else None,
+                        "land_cert_file_id": str(payload.land_cert_file_id) if payload.land_cert_file_id else None,
                         "land_parcel_no": payload.land_parcel_no,
                         "notes": payload.notes,
                         "created_by": str(auth.user_id),
@@ -325,9 +323,7 @@ async def get_dossier(
         subs_by_stage.setdefault(s["stage_id"], []).append(PermitSubmission.model_validate(dict(s)))
 
     stages = [
-        StageWithSubmissions.model_validate(
-            {**dict(s), "submissions": subs_by_stage.get(s["id"], [])}
-        )
+        StageWithSubmissions.model_validate({**dict(s), "submissions": subs_by_stage.get(s["id"], [])})
         for s in stage_rows
     ]
     detail = DossierDetail.model_validate({**dict(dossier), "stages": stages})
@@ -529,10 +525,7 @@ async def transition_stage(
                 status_code=422,
                 detail={
                     "code": "invalid_transition",
-                    "message": (
-                        f"Cannot transition stage from '{cur_status.value}' "
-                        f"to '{payload.to_status.value}'."
-                    ),
+                    "message": (f"Cannot transition stage from '{cur_status.value}' to '{payload.to_status.value}'."),
                     "allowed": [s.value for s in sorted(allowed, key=lambda x: x.value)],
                 },
             )
@@ -541,11 +534,7 @@ async def transition_stage(
         # didn't supply one. GPXD lapses 12 months after issuance unless
         # construction has started; PCCC fire-safety cert valid 5 years.
         expiry_date = payload.expiry_date
-        if (
-            payload.to_status == StageStatus.approved
-            and expiry_date is None
-            and payload.decision_date is not None
-        ):
+        if payload.to_status == StageStatus.approved and expiry_date is None and payload.decision_date is not None:
             stage_code = StageCode(current["stage_code"])
             if stage_code == StageCode.gpxd:
                 expiry_date = payload.decision_date + timedelta(days=365)
@@ -570,12 +559,8 @@ async def transition_stage(
             # Append rejection reason to existing notes rather than
             # overwriting — useful when stage churns through multiple
             # rejections during back-and-forth with the authority.
-            assigns.append(
-                "notes = COALESCE(notes || E'\\n', '') || :rejection_reason"
-            )
-            params["rejection_reason"] = (
-                f"[{payload.decision_date or 'no-date'}] Rejected: {payload.rejection_reason}"
-            )
+            assigns.append("notes = COALESCE(notes || E'\\n', '') || :rejection_reason")
+            params["rejection_reason"] = f"[{payload.decision_date or 'no-date'}] Rejected: {payload.rejection_reason}"
         if payload.to_status == StageStatus.submitted:
             assigns.append("submitted_date = COALESCE(submitted_date, CURRENT_DATE)")
 

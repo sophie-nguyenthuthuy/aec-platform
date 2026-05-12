@@ -87,16 +87,12 @@ class FireCert(Base):
         ARRAY(Text),
         default=list,
     )
-    created_by: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
     __table_args__ = (
-        UniqueConstraint(
-            "project_id", "cert_type", "reference_no", name="uq_fire_certs_project_type_ref"
-        ),
+        UniqueConstraint("project_id", "cert_type", "reference_no", name="uq_fire_certs_project_type_ref"),
     )
 
 
@@ -136,9 +132,7 @@ class FireInspection(Base):
     )
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
-    __table_args__ = (
-        UniqueConstraint("cert_id", "round_number", name="uq_fire_inspections_cert_round"),
-    )
+    __table_args__ = (UniqueConstraint("cert_id", "round_number", name="uq_fire_inspections_cert_round"),)
 
 
 class FireChecklistItem(Base):

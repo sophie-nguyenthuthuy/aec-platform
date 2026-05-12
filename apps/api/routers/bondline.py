@@ -137,9 +137,7 @@ async def list_bonds(
             .mappings()
             .all()
         )
-        total = (
-            await session.execute(text(f"SELECT COUNT(*) FROM bonds b WHERE {where}"), params)
-        ).scalar_one()
+        total = (await session.execute(text(f"SELECT COUNT(*) FROM bonds b WHERE {where}"), params)).scalar_one()
 
     items = [BondSummary.model_validate(dict(r)).model_dump(mode="json") for r in rows]
     return paginated(items, page=offset // limit + 1, per_page=limit, total=total)
@@ -347,9 +345,7 @@ async def file_claim(
                         "claim_amount": payload.claim_amount_vnd,
                         "filed_date": payload.filed_date,
                         "reason": payload.reason,
-                        "evidence_file_id": str(payload.evidence_file_id)
-                        if payload.evidence_file_id
-                        else None,
+                        "evidence_file_id": str(payload.evidence_file_id) if payload.evidence_file_id else None,
                         "created_by": str(auth.user_id),
                     },
                 )
@@ -445,11 +441,11 @@ async def list_alerts(
     expiring_within_days: int = Query(60, ge=1, le=365),
 ):
     """Three alert kinds:
-      * `expiring_soon` — active bonds with expiry in window
-      * `expired_not_released` — past expiry but still status=active
-        (operational issue — release or extend)
-      * `coverage_below_contract` — face_amount / contract_value <
-        contracted coverage_pct
+    * `expiring_soon` — active bonds with expiry in window
+    * `expired_not_released` — past expiry but still status=active
+      (operational issue — release or extend)
+    * `coverage_below_contract` — face_amount / contract_value <
+      contracted coverage_pct
     """
     params: dict[str, Any] = {
         "org": str(auth.organization_id),
