@@ -40,16 +40,18 @@ describe("<ScraperRunsPanel>", () => {
     const run = makeRun({ scraped: 100, unmatched: 5 });  // 5%
     render(<ScraperRunsPanel runs={[run]} />);
 
+    // Status badge labels render in Vietnamese: OK / Lệch (drift) / Lỗi
+    // (failed).
     expect(screen.getByText("OK")).toBeInTheDocument();
-    expect(screen.queryByText("Drift")).not.toBeInTheDocument();
-    expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Lệch")).not.toBeInTheDocument();
+    expect(screen.queryByText("Lỗi")).not.toBeInTheDocument();
   });
 
   test("renders Drift badge when ratio is at or above 30%", () => {
     const run = makeRun({ scraped: 10, unmatched: 4 });  // 40%
     render(<ScraperRunsPanel runs={[run]} />);
 
-    expect(screen.getByText("Drift")).toBeInTheDocument();
+    expect(screen.getByText("Lệch")).toBeInTheDocument();
     expect(screen.queryByText("OK")).not.toBeInTheDocument();
   });
 
@@ -57,9 +59,9 @@ describe("<ScraperRunsPanel>", () => {
     const run = makeRun({ ok: false, error: "upstream 500", scraped: 100, unmatched: 5 });
     render(<ScraperRunsPanel runs={[run]} />);
 
-    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.getByText("Lỗi")).toBeInTheDocument();
     expect(screen.queryByText("OK")).not.toBeInTheDocument();
-    expect(screen.queryByText("Drift")).not.toBeInTheDocument();
+    expect(screen.queryByText("Lệch")).not.toBeInTheDocument();
   });
 
   test("shows error preview text when run.ok is false", () => {
@@ -74,14 +76,18 @@ describe("<ScraperRunsPanel>", () => {
 
   test("renders empty state when runs is empty", () => {
     render(<ScraperRunsPanel runs={[]} />);
-    expect(screen.getByText(/No scraper runs yet/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Chưa có lần thu thập nào/i),
+    ).toBeInTheDocument();
   });
 
   test("renders loading state while fetching", () => {
     render(<ScraperRunsPanel runs={[]} isLoading />);
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.getByText("Đang tải…")).toBeInTheDocument();
     // Empty-state copy must NOT also show — would be a confusing race.
-    expect(screen.queryByText(/No scraper runs yet/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Chưa có lần thu thập nào/i),
+    ).not.toBeInTheDocument();
   });
 
   test("renders error state when an error is provided", () => {
@@ -115,9 +121,10 @@ describe("<ScraperRunsPanel>", () => {
     ];
     render(<ScraperRunsPanel runs={runs} />);
 
-    // Format: "2 ok · 1 failed · 1 drifting"
+    // Header summary uses VN labels: "X ok · X lỗi · X lệch".
+    // The "ok" token is left in English (it's a 2-letter status acronym).
     expect(screen.getByText(/2 ok/)).toBeInTheDocument();
-    expect(screen.getByText(/1 failed/)).toBeInTheDocument();
-    expect(screen.getByText(/1 drifting/)).toBeInTheDocument();
+    expect(screen.getByText(/1 lỗi/)).toBeInTheDocument();
+    expect(screen.getByText(/1 lệch/)).toBeInTheDocument();
   });
 });

@@ -91,10 +91,11 @@ describe("<QuoteComparisonTable> — Pick winner UX", () => {
       />,
     );
 
-    // The "Pick" label appears as both a row header (<td>) and the
-    // button (<button>). Both must exist when the row is rendered.
+    // The "Pick" row-header label is still rendered in English (the
+    // <td> caption). The actual button label renders in Vietnamese
+    // ("Chọn"); both must exist when the row is rendered.
     expect(screen.getAllByText("Pick").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Pick" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Chọn" })).toBeInTheDocument();
   });
 
   test("hides Pick row when RFQ is already closed", () => {
@@ -136,9 +137,10 @@ describe("<QuoteComparisonTable> — Pick winner UX", () => {
       />,
     );
 
-    // Winner shows the badge, not a Pick button.
-    expect(screen.getByText(/✓ Accepted/i)).toBeInTheDocument();
-    const pickButtons = screen.getAllByRole("button", { name: "Pick" });
+    // Winner shows the badge, not a Pick button. Badge copy is VN
+    // ("Đã chọn"); the loser column still shows a "Chọn" button.
+    expect(screen.getByText(/✓ Đã chọn/i)).toBeInTheDocument();
+    const pickButtons = screen.getAllByRole("button", { name: "Chọn" });
     expect(pickButtons).toHaveLength(1);
   });
 
@@ -154,7 +156,7 @@ describe("<QuoteComparisonTable> — Pick winner UX", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Pick" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chọn" }));
     expect(onAccept).toHaveBeenCalledWith(a);
   });
 
@@ -172,10 +174,10 @@ describe("<QuoteComparisonTable> — Pick winner UX", () => {
       />,
     );
 
-    // The accepting supplier's button shows "Picking…"; both buttons
-    // disabled (so the buyer can't flip-flop mid-flight).
-    expect(screen.getByRole("button", { name: "Picking…" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Pick" })).toBeDisabled();
+    // The accepting supplier's button shows "Đang chọn…"; both
+    // buttons disabled (so the buyer can't flip-flop mid-flight).
+    expect(screen.getByRole("button", { name: "Đang chọn…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Chọn" })).toBeDisabled();
   });
 
   test("renders placeholder instead of Pick button for suppliers with no quote", () => {
@@ -189,7 +191,7 @@ describe("<QuoteComparisonTable> — Pick winner UX", () => {
       />,
     );
 
-    // No clickable Pick button for a non-responding supplier.
-    expect(screen.queryByRole("button", { name: "Pick" })).not.toBeInTheDocument();
+    // No clickable Pick button ("Chọn") for a non-responding supplier.
+    expect(screen.queryByRole("button", { name: "Chọn" })).not.toBeInTheDocument();
   });
 });

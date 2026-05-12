@@ -12,15 +12,19 @@ import { WinLossTag } from "../WinLossTag";
  */
 
 describe("WinLossTag", () => {
+  // Labels render in Vietnamese (product default locale = vi). If the
+  // shared UI component is ever refactored to a prop-driven label map
+  // or to next-intl translations, update both this list and the
+  // component's LABEL map in one commit.
   const cases: Array<[
     "draft" | "sent" | "won" | "lost" | "expired",
     string,
   ]> = [
-    ["draft", "Draft"],
-    ["sent", "Sent"],
-    ["won", "Won"],
-    ["lost", "Lost"],
-    ["expired", "Expired"],
+    ["draft", "Bản nháp"],
+    ["sent", "Đã gửi"],
+    ["won", "Thắng"],
+    ["lost", "Thua"],
+    ["expired", "Hết hạn"],
   ];
 
   for (const [status, label] of cases) {

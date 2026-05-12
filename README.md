@@ -16,6 +16,9 @@ check code compliance, automate drawing QA, and hand over assets to clients.
 | 6 | **ProjectPulse** | `pulse` | Task Kanban, milestones, change orders, meeting notes → AI client reports (HTML + PDF). |
 | 7 | **Drawbridge** | `drawbridge` | Drawing-set Q&A and markup compliance — pgvector HNSW over drawing text. |
 | 8 | **Handover** | `handover` | Client-facing handover package: O&M manuals, warranties, as-builts. |
+| 9 | **PermitFlow** | `permitflow` | VN permit chain: chủ trương đầu tư → quy hoạch 1/500 → thẩm định TKCS → GPXD → nghiệm thu PCCC. Stage state-machine, ministry-specific submission packs, expiry/lapse alerts. |
+| 10 | **NghieThu** | `nghiemthu` | Statutory acceptance (BBNT) per NĐ 06/2021/NĐ-CP. Công việc / giai đoạn / hoàn thành with CĐT–TVGS–NT signoff matrix, photo + drawing evidence, finalize gate. |
+| 11 | **ThanhToan** | `thanhtoan` | Monthly progress payment claims (hồ sơ thanh toán giai đoạn). VAT 8/10% + retention 5% + TNDN tạm thu 1% computed automatically; CĐT–TVGS signoff lane; cross-period cumulative views. |
 
 ## Monorepo layout
 

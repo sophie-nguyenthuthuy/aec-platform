@@ -455,6 +455,20 @@ async def render_report_pdf(html: str, *, base_url: str | None = None) -> bytes:
             "weasyprint is not installed; run `pip install weasyprint` and "
             "install native deps (libpango, libcairo) to enable PDF export."
         ) from exc
+    except OSError as exc:
+        # WeasyPrint's package init calls cffi to dlopen libgobject /
+        # libpango / libcairo. On a dev box missing those native dylibs
+        # (very common on macOS without `brew install pango cairo
+        # gdk-pixbuf libffi`), the *import* itself raises `OSError:
+        # cannot load library 'gobject-2.0-0'`. Funnel it into the same
+        # graceful exception the route already handles, so the report
+        # falls back to HTML-only instead of surfacing as a 500.
+        raise PDFRendererUnavailable(
+            "weasyprint is installed but its native dependencies "
+            "(libpango / libcairo / libgobject) cannot be loaded. "
+            "On macOS run: brew install pango cairo gdk-pixbuf "
+            "libffi gobject-introspection."
+        ) from exc
 
     # WeasyPrint is CPU-bound and synchronous; push the render into a worker
     # thread so the event loop keeps serving other requests while the PDF
@@ -464,4 +478,24 @@ async def render_report_pdf(html: str, *, base_url: str | None = None) -> bytes:
     def _render() -> bytes:
         return HTML(string=html, base_url=base_url).write_pdf()
 
-    return await asyncio.to_thread(_render)
+    try:
+        return await asyncio.to_thread(_render)
+    except OSError as exc:
+        # WeasyPrint's Python package imports cleanly, but its actual
+        # render touches gobject/pango/cairo via cffi. On a dev box
+        # missing those native dylibs (very common on macOS without
+        # `brew install pango cairo gdk-pixbuf libffi`), cffi raises
+        # `OSError: cannot load library 'gobject-2.0-0'` deep inside
+        # the call stack. The route's contract is that EITHER PDF
+        # rendering or `PDFRendererUnavailable` is the only outcome —
+        # a bare `OSError` would surface as a 500 instead of the
+        # graceful HTML-only fallback. Funnel it into the same exception.
+        message = str(exc).lower()
+        if "cannot load library" in message or "no such file" in message:
+            raise PDFRendererUnavailable(
+                "weasyprint is installed but its native dependencies "
+                "(libpango / libcairo / libgobject) cannot be loaded. "
+                "On macOS run: brew install pango cairo gdk-pixbuf "
+                "libffi gobject-introspection."
+            ) from exc
+        raise

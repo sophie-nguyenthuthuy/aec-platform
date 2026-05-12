@@ -33,10 +33,13 @@ from routers import (  # noqa: E402
     inbox,
     invitations,
     me,
+    nghiemthu,
     notifications,
     onboarding,
     org,
     orgs,
+    pccc,
+    permitflow,
     projects,
     public_rfq,
     pulse,
@@ -45,6 +48,7 @@ from routers import (  # noqa: E402
     search,
     siteeye,
     submittals,
+    thanhtoan,
     webhooks,
     winwork,
 )
@@ -110,6 +114,10 @@ def create_app() -> FastAPI:
     app.include_router(dailylog.router)
     app.include_router(changeorder.router)
     app.include_router(punchlist.router)
+    app.include_router(permitflow.router)
+    app.include_router(nghiemthu.router)
+    app.include_router(thanhtoan.router)
+    app.include_router(pccc.router)
     app.include_router(files.router)
     app.include_router(design_context_router.router)
     # Cross-module admin / ops endpoints (gated by `admin` role).

@@ -29,8 +29,19 @@ depends_on = None
 def upgrade() -> None:
     # halfvec shipped with pgvector 0.7.0 (Apr 2024). 0007_drawbridge_hnsw
     # already runs this — idempotent, but safe to call again here in case
-    # codeguard is applied against a fresh DB without drawbridge.
-    op.execute("ALTER EXTENSION vector UPDATE")
+    # codeguard is applied against a fresh DB without drawbridge. Wrapped
+    # in a DO block to swallow Supabase's pgaudit complaint (the extension
+    # is current on managed hosts anyway).
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            EXECUTE 'ALTER EXTENSION vector UPDATE';
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE 'Skipping ALTER EXTENSION vector UPDATE (%): extension is already current', SQLERRM;
+        END $$;
+        """
+    )
 
     op.execute(
         """

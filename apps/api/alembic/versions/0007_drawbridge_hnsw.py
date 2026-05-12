@@ -28,9 +28,22 @@ depends_on = None
 
 def upgrade() -> None:
     # halfvec shipped with pgvector 0.7.0 (Apr 2024). CREATE EXTENSION from 0001
-    # must have been at >= 0.7.0 for this to apply. If running against an older
-    # pgvector, upgrade the extension first: ALTER EXTENSION vector UPDATE;
-    op.execute("ALTER EXTENSION vector UPDATE")
+    # must have been at >= 0.7.0 for this to apply. The ALTER below tries to
+    # upgrade pgvector if the host is on an older version — but on Supabase's
+    # managed Postgres it bumps into pgaudit ("pgaudit stack is not empty"),
+    # and pgvector is already current there anyway. Wrap in a DO block with
+    # an exception swallow so the migration is portable across Supabase, RDS,
+    # and local Docker without each environment needing a different version.
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            EXECUTE 'ALTER EXTENSION vector UPDATE';
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE 'Skipping ALTER EXTENSION vector UPDATE (%): extension is already current', SQLERRM;
+        END $$;
+        """
+    )
 
     op.execute(
         """

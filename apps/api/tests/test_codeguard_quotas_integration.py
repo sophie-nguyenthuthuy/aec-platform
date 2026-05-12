@@ -800,19 +800,34 @@ async def by_route_test_org(session: AsyncSession):
         text("INSERT INTO organizations (id, name, slug) VALUES (:org, 'By-Route Test Org', :slug)"),
         {"org": str(org_id), "slug": f"by-route-test-{org_id}"},
     )
+    # `users` is the global account row — org-membership lives in
+    # `org_members`, NOT a denormalized `organization_id` column on
+    # users (an older schema had that; 0010 et al. moved it out).
+    # Use the canonical insert + membership row so this fixture works
+    # against the current head.
     await session.execute(
-        text("INSERT INTO users (id, email, organization_id) VALUES (:uid, :email, :org)"),
+        text("INSERT INTO users (id, email) VALUES (:uid, :email)"),
         {
             "uid": str(user_id),
             "email": f"by-route-test-{user_id}@example.com",
-            "org": str(org_id),
         },
+    )
+    await session.execute(
+        text(
+            "INSERT INTO org_members (organization_id, user_id, role) "
+            "VALUES (:org, :uid, 'admin')"
+        ),
+        {"org": str(org_id), "uid": str(user_id)},
     )
     await session.commit()
     yield org_id, user_id
     await session.execute(
         text("DELETE FROM organizations WHERE id = :org"),
         {"org": str(org_id)},
+    )
+    await session.execute(
+        text("DELETE FROM users WHERE id = :uid"),
+        {"uid": str(user_id)},
     )
     await session.commit()
 
@@ -1031,13 +1046,21 @@ async def test_record_user_usage_by_route_does_not_leak_across_orgs(session: Asy
         text("INSERT INTO organizations (id, name, slug) VALUES (:org, 'Iso B', :slug)"),
         {"org": str(org_b), "slug": f"by-route-iso-b-{org_b}"},
     )
+    # Same schema fix as the `by_route_test_org` fixture: users is
+    # global, membership goes in org_members.
     await session.execute(
-        text("INSERT INTO users (id, email, organization_id) VALUES (:uid, :email, :org)"),
+        text("INSERT INTO users (id, email) VALUES (:uid, :email)"),
         {
             "uid": str(user_b),
             "email": f"iso-b-{user_b}@example.com",
-            "org": str(org_b),
         },
+    )
+    await session.execute(
+        text(
+            "INSERT INTO org_members (organization_id, user_id, role) "
+            "VALUES (:org, :uid, 'admin')"
+        ),
+        {"org": str(org_b), "uid": str(user_b)},
     )
     await session.commit()
     try:
@@ -1082,6 +1105,10 @@ async def test_record_user_usage_by_route_does_not_leak_across_orgs(session: Asy
         await session.execute(
             text("DELETE FROM organizations WHERE id = :org"),
             {"org": str(org_b)},
+        )
+        await session.execute(
+            text("DELETE FROM users WHERE id = :uid"),
+            {"uid": str(user_b)},
         )
         await session.commit()
 

@@ -952,7 +952,16 @@ def _safe_json_dumps(obj: Any) -> str:
         if isinstance(o, Decimal):
             return float(o)
         if hasattr(o, "isoformat"):
-            return o.isoformat()
+            # Guard against `.isoformat()` returning a non-string (e.g.
+            # a MagicMock in a test where the mock leaked into the
+            # context, or a third-party class that overrides the name
+            # for something unrelated). Without this check json.dumps
+            # would invoke `_default` on the returned object again,
+            # which has `isoformat` too, which returns yet another
+            # mock — infinite recursion that hangs the request.
+            result = o.isoformat()
+            if isinstance(result, str):
+                return result
         return str(o)
 
     return json.dumps(obj, default=_default, ensure_ascii=False, indent=2)

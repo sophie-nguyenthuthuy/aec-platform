@@ -250,9 +250,21 @@ async def test_ask_omits_sources_for_zero_signal_modules(client, fake_db):
     activity_q = MagicMock()
     activity_q.mappings.return_value.all.return_value = []
     fake_db.push(activity_q)
-    for _ in range(6):
+    # Phase 6 expanded the route from 5 to 14 module-stat queries. The
+    # pushes below have to cover every `.scalar_one()` AND every
+    # `.mappings().first()` the route runs in zero-signal order — the
+    # ordering is interleaved (e.g. a `count(*)` followed by a "latest
+    # row" lookup). We deliberately over-push: any extras spill into
+    # the fallback in conftest, which itself defaults to safe values.
+    # Each mock returns 0 for counts AND None for row lookups so it's
+    # safe regardless of which call site pops it.
+    for _ in range(20):
         s = MagicMock()
         s.scalar_one.return_value = 0
+        s.scalar_one_or_none.return_value = None
+        s.mappings.return_value.first.return_value = None
+        s.mappings.return_value.all.return_value = []
+        s.scalars.return_value.all.return_value = []
         fake_db.push(s)
 
     res = await client.post(

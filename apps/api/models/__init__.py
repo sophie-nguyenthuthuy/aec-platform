@@ -17,12 +17,16 @@ def register_all() -> None:
         drawbridge,  # noqa: F401
         handover,  # noqa: F401
         imports,  # noqa: F401
+        nghiemthu,  # noqa: F401
+        pccc,  # noqa: F401
+        permitflow,  # noqa: F401
         pulse,  # noqa: F401
         punchlist,  # noqa: F401
         schedulepilot,  # noqa: F401
         search,  # noqa: F401
         siteeye,  # noqa: F401
         submittals,  # noqa: F401
+        thanhtoan,  # noqa: F401
         webhooks,  # noqa: F401
         winwork,  # noqa: F401
     )

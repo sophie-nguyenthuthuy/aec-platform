@@ -187,8 +187,19 @@ class FakeAsyncSession:
             return self._execute_results.pop(0)
         result = MagicMock()
         result.scalar_one_or_none.return_value = None
+        # `.scalar_one()` is used by count(*)-style queries. Without a
+        # safer default, the bare MagicMock evaluates as truthy in
+        # `if result.scalar_one():` gates — leaking phantom signal into
+        # tests that didn't explicitly mock every counter. Tests that
+        # need a non-zero count push their own MagicMock.
+        result.scalar_one.return_value = 0
         result.scalars.return_value.all.return_value = []
         result.mappings.return_value.all.return_value = []
+        # `.mappings().first()` is used by single-row-of-fields queries
+        # (e.g. activity timestamps). Returning None keeps the route's
+        # `if row is None:` guard simple and prevents a MagicMock from
+        # being passed downstream to `json.dumps(..., default=...)`.
+        result.mappings.return_value.first.return_value = None
         return result
 
 

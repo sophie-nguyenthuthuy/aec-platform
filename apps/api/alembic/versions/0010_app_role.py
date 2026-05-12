@@ -79,17 +79,29 @@ def upgrade() -> None:
     op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {_APP_ROLE}")
     op.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {_APP_ROLE}")
 
-    # Future-proofing: any table/sequence subsequently created by `aec` (the
-    # migration role) auto-grants the same DML to aec_app. Without this,
+    # Future-proofing: any table/sequence subsequently created by the
+    # migration role auto-grants the same DML to aec_app. Without this,
     # every new migration would need its own GRANT block — easy to forget,
     # and a forgotten grant manifests as a runtime "permission denied for
     # table X" after deploy.
+    #
+    # Originally hardcoded as `FOR ROLE aec` (the docker-compose admin
+    # role). On managed Postgres (Supabase, RDS) the admin role is
+    # whatever owns the connection — `postgres` on Supabase. Detect at
+    # migration time via `current_user` so the SQL is portable.
     op.execute(
-        f"ALTER DEFAULT PRIVILEGES FOR ROLE aec IN SCHEMA public "
-        f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {_APP_ROLE}"
-    )
-    op.execute(
-        f"ALTER DEFAULT PRIVILEGES FOR ROLE aec IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {_APP_ROLE}"
+        f"""
+        DO $$
+        DECLARE
+            admin_role text := current_user;
+        BEGIN
+            EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE ' || quote_ident(admin_role)
+                || ' IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {_APP_ROLE}';
+            EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE ' || quote_ident(admin_role)
+                || ' IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {_APP_ROLE}';
+        END
+        $$;
+        """
     )
 
 
@@ -98,11 +110,24 @@ def downgrade() -> None:
     # drop the role. Order matters: DROP ROLE fails if the role still owns
     # or has privileges on any object.
     op.execute(
-        f"ALTER DEFAULT PRIVILEGES FOR ROLE aec IN SCHEMA public "
-        f"REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM {_APP_ROLE}"
-    )
-    op.execute(
-        f"ALTER DEFAULT PRIVILEGES FOR ROLE aec IN SCHEMA public REVOKE USAGE, SELECT ON SEQUENCES FROM {_APP_ROLE}"
+        f"""
+        DO $$
+        DECLARE
+            admin_role text := current_user;
+        BEGIN
+            EXECUTE format(
+                'ALTER DEFAULT PRIVILEGES FOR ROLE %%I IN SCHEMA public '
+                'REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM %%I',
+                admin_role, '{_APP_ROLE}'
+            );
+            EXECUTE format(
+                'ALTER DEFAULT PRIVILEGES FOR ROLE %%I IN SCHEMA public '
+                'REVOKE USAGE, SELECT ON SEQUENCES FROM %%I',
+                admin_role, '{_APP_ROLE}'
+            );
+        END
+        $$;
+        """
     )
     op.execute(f"REVOKE SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public FROM {_APP_ROLE}")
     op.execute(f"REVOKE USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public FROM {_APP_ROLE}")

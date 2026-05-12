@@ -102,12 +102,16 @@ describe("<RfqResponsesPanel>", () => {
     render(<RfqResponsesPanel rfq={rfq} suppliers={suppliers} />);
 
     expect(screen.getByText("Acme")).toBeInTheDocument();
-    expect(screen.getByText(/pending/i)).toBeInTheDocument();
+    // Status badge for a sent_to supplier that has no `responses` row
+    // renders the VN "Chờ gửi" label.
+    expect(screen.getByText(/Chờ gửi/i)).toBeInTheDocument();
   });
 
   test("renders empty state when sent_to is empty", () => {
     render(<RfqResponsesPanel rfq={makeRfq({ sent_to: [] })} suppliers={[]} />);
-    expect(screen.getByText(/No suppliers/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Không có nhà cung cấp/i),
+    ).toBeInTheDocument();
   });
 
   test("renders quote total when supplier responded with a quote", () => {
