@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": "echo 'no build step — Vercel autodetects api/index.py as a Python function'",
+  "buildCommand": "mkdir -p public && echo '<!doctype html><title>AEC Platform API</title><p>AEC Platform API — see <a href=\"/api/v1/healthz\">/api/v1/healthz</a></p>' > public/index.html",
   "installCommand": "echo 'no install at project level — api/requirements.txt is installed per-function'",
   "outputDirectory": "public",
   "functions": {
