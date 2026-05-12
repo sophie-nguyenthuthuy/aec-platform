@@ -9,12 +9,15 @@ def register_all() -> None:
         api_keys,  # noqa: F401
         assistant,  # noqa: F401
         bidradar,  # noqa: F401
+        bondline,  # noqa: F401
         changeorder,  # noqa: F401
         codeguard,  # noqa: F401
         core,  # noqa: F401
         costpulse,  # noqa: F401
         dailylog,  # noqa: F401
         drawbridge,  # noqa: F401
+        einvoice,  # noqa: F401
+        greenmark,  # noqa: F401
         handover,  # noqa: F401
         imports,  # noqa: F401
         nghiemthu,  # noqa: F401

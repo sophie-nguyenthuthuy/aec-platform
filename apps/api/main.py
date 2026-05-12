@@ -23,12 +23,15 @@ from routers import (  # noqa: E402
     assistant,
     audit,
     bidradar,
+    bondline,
     changeorder,
     codeguard,
     costpulse,
     dailylog,
     drawbridge,
+    einvoice,
     files,
+    greenmark,
     handover,
     inbox,
     invitations,
@@ -118,6 +121,9 @@ def create_app() -> FastAPI:
     app.include_router(nghiemthu.router)
     app.include_router(thanhtoan.router)
     app.include_router(pccc.router)
+    app.include_router(einvoice.router)
+    app.include_router(greenmark.router)
+    app.include_router(bondline.router)
     app.include_router(files.router)
     app.include_router(design_context_router.router)
     # Cross-module admin / ops endpoints (gated by `admin` role).

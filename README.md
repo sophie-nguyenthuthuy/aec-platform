@@ -19,6 +19,10 @@ check code compliance, automate drawing QA, and hand over assets to clients.
 | 9 | **PermitFlow** | `permitflow` | VN permit chain: chủ trương đầu tư → quy hoạch 1/500 → thẩm định TKCS → GPXD → nghiệm thu PCCC. Stage state-machine, ministry-specific submission packs, expiry/lapse alerts. |
 | 10 | **NghieThu** | `nghiemthu` | Statutory acceptance (BBNT) per NĐ 06/2021/NĐ-CP. Công việc / giai đoạn / hoàn thành with CĐT–TVGS–NT signoff matrix, photo + drawing evidence, finalize gate. |
 | 11 | **ThanhToan** | `thanhtoan` | Monthly progress payment claims (hồ sơ thanh toán giai đoạn). VAT 8/10% + retention 5% + TNDN tạm thu 1% computed automatically; CĐT–TVGS signoff lane; cross-period cumulative views. |
+| 12 | **PCCC** | `pccc` | Fire-safety certification per QCVN 06:2022/BXD + NĐ 136/2020. PC07 design/acceptance round-trip, QCVN 06 checklist seed, on-site inspection rounds with auto-cascade to cert status, 5-year expiry alerts. |
+| 13 | **InvoiceVN** | `einvoice` | HĐĐT issue/receive per NĐ 123/2020 + TT 78/2021. Server-computed VAT breakdown across 0/5/8/10% rates, MST format + GDT-status cache, GDT submission lifecycle + accept-reject callback, 24h cancellation window. |
+| 14 | **LotusEdge** | `greenmark` | VGBC LOTUS + IFC EDGE green-building scoring. Per-credit catalog seeded from VGBC v3 / EDGE templates, per-category breakdown, gap-to-next-level engine recommends highest-points credits to push the score across the next threshold. |
+| 15 | **BondLine** | `bondline` | VN bank-issued bonds (bảo lãnh dự thầu / thực hiện / tạm ứng / bảo hành) per Luật Đấu thầu 2023 + NĐ 24/2024. Bank-code allow-list (VCB/BIDV/TCB/…), claim workflow with default-call auto-flips, coverage-below-contract + 14/30/60-day expiry alerts. |
 
 ## Monorepo layout
 

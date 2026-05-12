@@ -16,7 +16,7 @@ expire and `expiry_date` stays NULL.
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
@@ -35,7 +35,6 @@ from schemas.pccc import (
     CertType,
     ChecklistItem,
     ChecklistItemCreate,
-    ChecklistItemStatus,
     ChecklistItemUpdate,
     FireCert,
     FireCertCreate,
