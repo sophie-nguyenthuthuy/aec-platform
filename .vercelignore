@@ -1,26 +1,22 @@
-# Vercel reads this file relative to a project's Root Directory.
+# Vercel reads this file at clone time and applies it to ALL deploys
+# from this repo, regardless of each project's Root Directory setting.
+# So anything excluded here is gone for BOTH the web and the API
+# projects.
 #
-# This repo deploys as TWO Vercel projects:
-#   * aec-platform-web   — Root Directory = apps/web
-#                          (this .vercelignore is NOT read by that project,
-#                           since it's outside apps/web)
-#   * aec-platform-api   — Root Directory = ./
-#                          (this .vercelignore IS read)
-#
-# The API project deploys the FastAPI via api/index.py as a Python
-# serverless function. We exclude the heavyweight Next.js + UI source
-# trees from its build context to stay under Vercel's 50MB function
-# bundle limit on the Hobby tier.
+# We don't aggressively exclude anything: the web project's `next build`
+# needs apps/web + packages/ui + packages/types (workspace deps).
+# The API project's Python bundler walks imports from api/index.py and
+# only ships what FastAPI actually needs — apps/api + apps/ml — so it
+# never bloats from having extra files visible in the build context.
 
-apps/web/
-packages/ui/
-packages/types/
-node_modules/
-.next/
-
-# Local dev artefacts that should never reach either deploy.
+# Local dev artefacts.
 *.log
 .DS_Store
 .env
 .env.local
 .env.*.local
+
+# Build outputs (regenerated on every deploy).
+.next/
+apps/web/.next/
+node_modules/

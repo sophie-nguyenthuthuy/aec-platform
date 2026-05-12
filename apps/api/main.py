@@ -54,6 +54,7 @@ from routers import (  # noqa: E402
     thanhtoan,
     webhooks,
     winwork,
+    workforce,
 )
 from routers import api_keys as api_keys_router  # noqa: E402
 from routers import design_context as design_context_router  # noqa: E402
@@ -124,6 +125,7 @@ def create_app() -> FastAPI:
     app.include_router(einvoice.router)
     app.include_router(greenmark.router)
     app.include_router(bondline.router)
+    app.include_router(workforce.router)
     app.include_router(files.router)
     app.include_router(design_context_router.router)
     # Cross-module admin / ops endpoints (gated by `admin` role).

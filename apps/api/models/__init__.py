@@ -32,4 +32,5 @@ def register_all() -> None:
         thanhtoan,  # noqa: F401
         webhooks,  # noqa: F401
         winwork,  # noqa: F401
+        workforce,  # noqa: F401
     )
