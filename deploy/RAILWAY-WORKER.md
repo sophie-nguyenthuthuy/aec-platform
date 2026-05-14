@@ -45,6 +45,8 @@ don't block requests or get killed by Railway's per-request timeout.
    | `S3_SECRET_ACCESS_KEY` | (MinIO secret) |
    | `S3_BUCKET` | `aec-platform-files` |
    | `S3_FORCE_PATH_STYLE` | `true` |
+   | `RESEND_API_KEY` | (optional — `re_…` from https://resend.com; without it the worker logs `smtp_not_configured` and skips delivery) |
+   | `RESEND_FROM` | (optional — `AEC Platform <no-reply@your-verified-domain.com>`) |
 
 5. **Deploy** — Railway builds the worker image (~4 min first time) and
    starts the arq process. There's no HTTP endpoint to probe; check the

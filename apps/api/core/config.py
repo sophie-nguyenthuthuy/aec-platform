@@ -108,6 +108,19 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     email_from: str = "no-reply@aec-platform.vn"
 
+    # Resend transactional-email backend. When `RESEND_API_KEY` is set the
+    # mailer routes via the Resend HTTP API instead of SMTP — Resend handles
+    # DKIM/SPF, bounce processing, and gives us per-message delivery
+    # webhooks without us having to babysit an MTA. SMTP plumbing is kept
+    # as a fallback for customers who require self-hosted email.
+    #
+    # `resend_from` defaults to `email_from` so existing callers don't need
+    # to be updated. Override when sending from a verified Resend domain
+    # that differs from `email_from`.
+    resend_api_key: str | None = Field(default=None, validation_alias="RESEND_API_KEY")
+    resend_from: str | None = Field(default=None, validation_alias="RESEND_FROM")
+    resend_reply_to: str | None = Field(default=None, validation_alias="RESEND_REPLY_TO")
+
     # Public-facing web app origin used when building absolute URLs for
     # email bodies, Slack messages, etc. The codeguard threshold-warning
     # emails use this to render `<base>/codeguard/quota` — relative paths
