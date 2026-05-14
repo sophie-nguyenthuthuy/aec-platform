@@ -562,3 +562,142 @@ async def stripe_webhook(
             await session.commit()
 
     return ok({"received": True, "type": event_type})
+
+
+# ---------- LLM spend dashboard (L4-6) ----------
+
+
+@router.get("/llm-spend")
+async def get_llm_spend(
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    period: str = "current_month",
+):
+    """Per-module + per-provider breakdown of the org's LLM spend.
+
+    `period`:
+      * `current_month` — the current calendar month (default)
+      * `last_month`    — prior calendar month
+      * `last_30_days`  — rolling window
+
+    Returns:
+      * total VND + token counters for the window
+      * breakdown by module (with sub-breakdown by provider)
+      * daily timeseries for the window's chart
+
+    Cheap aggregates — `llm_spend_events` is denormalised so a single
+    SUM over the org+date window powers every figure.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC)
+    if period == "last_month":
+        # First day of prior month → first day of current month
+        first_this = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        last_first = (first_this - timedelta(days=1)).replace(day=1)
+        since, until = last_first, first_this
+    elif period == "last_30_days":
+        since = now - timedelta(days=30)
+        until = now
+    else:  # current_month (default)
+        since = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        until = now
+
+    params = {
+        "org": str(auth.organization_id),
+        "since": since,
+        "until": until,
+    }
+
+    async with TenantAwareSession(auth.organization_id) as session:
+        # 1. Totals
+        totals = (
+            await session.execute(
+                text(
+                    """
+                    SELECT
+                        COALESCE(SUM(cost_vnd), 0)::bigint AS cost_vnd,
+                        COALESCE(SUM(input_tokens), 0)::bigint AS input_tokens,
+                        COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens,
+                        COUNT(*) AS call_count
+                    FROM llm_spend_events
+                    WHERE organization_id = :org
+                      AND occurred_at >= :since
+                      AND occurred_at < :until
+                    """
+                ),
+                params,
+            )
+        ).mappings().one()
+
+        # 2. Breakdown by module × provider
+        breakdown_rows = (
+            await session.execute(
+                text(
+                    """
+                    SELECT module, provider,
+                           SUM(cost_vnd)::bigint   AS cost_vnd,
+                           SUM(input_tokens)::bigint  AS input_tokens,
+                           SUM(output_tokens)::bigint AS output_tokens,
+                           COUNT(*) AS call_count
+                    FROM llm_spend_events
+                    WHERE organization_id = :org
+                      AND occurred_at >= :since
+                      AND occurred_at < :until
+                    GROUP BY module, provider
+                    ORDER BY SUM(cost_vnd) DESC
+                    """
+                ),
+                params,
+            )
+        ).mappings().all()
+
+        # 3. Daily series for chart (date_trunc by day)
+        series_rows = (
+            await session.execute(
+                text(
+                    """
+                    SELECT date_trunc('day', occurred_at) AS day,
+                           SUM(cost_vnd)::bigint AS cost_vnd
+                    FROM llm_spend_events
+                    WHERE organization_id = :org
+                      AND occurred_at >= :since
+                      AND occurred_at < :until
+                    GROUP BY date_trunc('day', occurred_at)
+                    ORDER BY 1 ASC
+                    """
+                ),
+                params,
+            )
+        ).mappings().all()
+
+    return ok(
+        {
+            "period": period,
+            "since": since.isoformat(),
+            "until": until.isoformat(),
+            "totals": {
+                "cost_vnd": int(totals["cost_vnd"]),
+                "input_tokens": int(totals["input_tokens"]),
+                "output_tokens": int(totals["output_tokens"]),
+                "call_count": int(totals["call_count"]),
+            },
+            "breakdown": [
+                {
+                    "module": r["module"],
+                    "provider": r["provider"],
+                    "cost_vnd": int(r["cost_vnd"]),
+                    "input_tokens": int(r["input_tokens"]),
+                    "output_tokens": int(r["output_tokens"]),
+                    "call_count": int(r["call_count"]),
+                }
+                for r in breakdown_rows
+            ],
+            "daily_series": [
+                {
+                    "day": r["day"].date().isoformat(),
+                    "cost_vnd": int(r["cost_vnd"]),
+                }
+                for r in series_rows
+            ],
+        }
+    )

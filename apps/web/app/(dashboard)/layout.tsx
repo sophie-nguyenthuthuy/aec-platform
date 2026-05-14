@@ -46,6 +46,7 @@ const NAV: NavItem[] = [
   { href: "/punchlist" as Route, label: "Danh mục tồn đọng" },
   { section: "Cài đặt", href: "/settings/members" as Route, label: "Thành viên" },
   { href: "/settings/billing" as Route, label: "Gói cước & Thanh toán" },
+  { href: "/settings/llm-spend" as Route, label: "Chi phí AI" },
   { href: "/settings/notifications" as Route, label: "Thông báo" },
   { href: "/settings/audit" as Route, label: "Nhật ký kiểm tra" },
   { href: "/settings/webhooks" as Route, label: "Webhooks" },
