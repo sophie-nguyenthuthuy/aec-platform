@@ -165,6 +165,19 @@ class _GeminiEmbeddings:
     def embed_query(self, text: str) -> list[float]:
         return self._embed(text, "retrieval_query")
 
+    # Async variants — LangChain retrievers / vectorstores call these
+    # when the surrounding code path is async (codeguard pipeline,
+    # drawbridge Q&A, assistant retrieval). google-generativeai SDK
+    # doesn't expose async embed_content directly, so we run the sync
+    # call in a thread to keep the event loop unblocked.
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        import asyncio
+        return await asyncio.to_thread(self.embed_documents, texts)
+
+    async def aembed_query(self, text: str) -> list[float]:
+        import asyncio
+        return await asyncio.to_thread(self.embed_query, text)
+
 
 def embeddings() -> Any:
     """

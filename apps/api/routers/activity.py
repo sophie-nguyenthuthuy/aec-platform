@@ -270,13 +270,13 @@ FROM events e
 LEFT JOIN projects p ON p.id = e.project_id
 WHERE
     -- asyncpg can't infer the type of bare nullable params used only on
-    -- NULL-or-equals filters. Without explicit ::uuid / ::text casts on
-    -- the FIRST occurrence, the driver raises
-    -- AmbiguousParameterError: could not determine data type of parameter.
-    -- The cast is a no-op when the value is a string/UUID, and lets
-    -- Postgres treat NULL as "skip filter" instead of erroring.
-    (:project_id::uuid IS NULL OR e.project_id = :project_id::uuid)
-    AND (:module::text  IS NULL OR e.module     = :module::text)
+    -- NULL-or-equals filters; without explicit casts the driver raises
+    -- AmbiguousParameterError. SQLAlchemy's text() parser treats every
+    -- colon-prefixed token as a bind, so the postgres shorthand
+    -- (colon-colon type) collides with the bind grammar — use CAST(...)
+    -- instead, which both layers parse cleanly.
+    (CAST(:project_id AS uuid) IS NULL OR e.project_id = CAST(:project_id AS uuid))
+    AND (CAST(:module AS text) IS NULL OR e.module = CAST(:module AS text))
 ORDER BY e.timestamp DESC
 LIMIT :limit OFFSET :offset
 """
@@ -314,9 +314,10 @@ WITH events AS (
 SELECT COUNT(*) AS n
 FROM events
 WHERE
-    -- Same explicit casts as _FEED_SQL (see comment there).
-    (:project_id::uuid IS NULL OR project_id = :project_id::uuid)
-    AND (:module::text IS NULL OR module = :module::text)
+    -- Same explicit casts as _FEED_SQL (see comment there for why CAST,
+    -- not the `::` shorthand).
+    (CAST(:project_id AS uuid) IS NULL OR project_id = CAST(:project_id AS uuid))
+    AND (CAST(:module AS text) IS NULL OR module = CAST(:module AS text))
 """
 
 
