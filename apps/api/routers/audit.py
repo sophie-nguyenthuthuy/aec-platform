@@ -22,15 +22,19 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.envelope import paginated
 from db.deps import get_db
+from db.session import TenantAwareSession
 from middleware.auth import AuthContext
 from middleware.rbac import Role, require_min_role
 from schemas.audit import AuditEventOut
+from services.audit_export import export_csv, export_xlsx, max_export_rows
 
 router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 
@@ -125,4 +129,103 @@ async def list_audit_events(
         page=(offset // limit) + 1 if limit else 1,
         per_page=limit,
         total=int(total or 0),
+    )
+
+
+# ---------- KTNN export endpoints ----------
+#
+# Vietnamese State Audit Office (Kiểm toán Nhà nước) reviews of SOE
+# construction projects routinely demand a date-range export of the
+# audit trail. The endpoints below build a CSV (cheap, streamable) or
+# an XLSX with a Provenance sheet (legal-admissibility hash) so the
+# auditor can take the file offline and analyse in Excel. See
+# `services/audit_export.py` for the format details.
+
+
+@router.get("/export.csv")
+async def export_audit_csv(
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    since: Annotated[datetime, Query(description="ISO-8601 start (inclusive)")],
+    until: Annotated[datetime, Query(description="ISO-8601 end (exclusive)")],
+    resource_type: Annotated[str | None, Query()] = None,
+):
+    """Download the org's audit trail for `[since, until)` as a CSV.
+
+    Vietnamese-language column headers. Capped at
+    `services.audit_export.max_export_rows()` (250k) per call — wider
+    queries return the first N rows; ask the auditor to narrow the
+    range.
+    """
+    if until <= since:
+        raise HTTPException(400, "until_must_be_after_since")
+
+    async with TenantAwareSession(auth.organization_id) as session:
+        body, count = await export_csv(
+            session=session,
+            organization_id=auth.organization_id,
+            since=since,
+            until=until,
+            resource_type=resource_type,
+        )
+
+    filename = f"aec-audit-{since.date().isoformat()}-to-{until.date().isoformat()}.csv"
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-AEC-Audit-Rows": str(count),
+            "X-AEC-Audit-Cap": str(max_export_rows()),
+        },
+    )
+
+
+@router.get("/export.xlsx")
+async def export_audit_xlsx(
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+    since: Annotated[datetime, Query(description="ISO-8601 start (inclusive)")],
+    until: Annotated[datetime, Query(description="ISO-8601 end (exclusive)")],
+    resource_type: Annotated[str | None, Query()] = None,
+):
+    """Download the org's audit trail for `[since, until)` as an XLSX.
+
+    Adds a second sheet (`Provenance`) with the org name, date range,
+    row count, and a SHA-256 digest of the equivalent CSV body — the
+    legal-admissibility hook for KTNN inspectors who want to verify
+    later that the file wasn't tampered with after generation.
+    """
+    if until <= since:
+        raise HTTPException(400, "until_must_be_after_since")
+
+    # Fetch the org name for the Provenance sheet. Single small SELECT,
+    # done outside the tenant session to avoid contention with the
+    # bigger audit query.
+    async with TenantAwareSession(auth.organization_id) as session:
+        org = (
+            await session.execute(
+                text("SELECT name FROM organizations WHERE id = :id"),
+                {"id": str(auth.organization_id)},
+            )
+        ).scalar_one_or_none()
+        org_name = org or "(unknown)"
+
+        body, count = await export_xlsx(
+            session=session,
+            organization_id=auth.organization_id,
+            organization_name=org_name,
+            requester_email=auth.email,
+            since=since,
+            until=until,
+            resource_type=resource_type,
+        )
+
+    filename = f"aec-audit-{since.date().isoformat()}-to-{until.date().isoformat()}.xlsx"
+    return Response(
+        content=body,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-AEC-Audit-Rows": str(count),
+            "X-AEC-Audit-Cap": str(max_export_rows()),
+        },
     )
