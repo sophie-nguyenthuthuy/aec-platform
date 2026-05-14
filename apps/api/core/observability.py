@@ -32,6 +32,7 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
+import os
 import time
 import uuid
 from typing import Any
@@ -189,14 +190,46 @@ def init_sentry(settings: Settings) -> None:
         logging.getLogger(__name__).warning("SENTRY_DSN is set but sentry-sdk is not installed; skipping init")
         return
 
+    # Resolve release: explicit setting first, then fall back to the
+    # platform-provided git SHA env vars so a deploy tag arrives
+    # automatically without per-environment config tweaks.
+    release = (
+        settings.sentry_release
+        or os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+        or os.environ.get("VERCEL_GIT_COMMIT_SHA")
+        or None
+    )
+
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
         environment=settings.environment,
+        release=release,
         traces_sample_rate=settings.sentry_traces_sample_rate,
+        # 0.0 (default) disables profiling entirely — opt in via env
+        # because it has measurable CPU overhead on hot endpoints.
+        profiles_sample_rate=settings.sentry_profiles_sample_rate,
         integrations=[StarletteIntegration(), FastApiIntegration()],
         # Don't ship request bodies to Sentry — they may contain PII.
         send_default_pii=False,
+        # Tag every event with the service name so a multi-service
+        # Sentry project can grep by component.
+        before_send=_tag_with_service("api"),
     )
+
+
+def _tag_with_service(service: str):
+    """Return a Sentry `before_send` hook that stamps every event with
+    `tags.service = <service>`. Two distinct deployables (api, worker)
+    share the same Sentry project, so this is how we tell their errors
+    apart in the issue list.
+    """
+
+    def _hook(event, hint):  # pragma: no cover — exercised via init
+        tags = event.setdefault("tags", {})
+        tags["service"] = service
+        return event
+
+    return _hook
 
 
 # ---------- Wiring ----------

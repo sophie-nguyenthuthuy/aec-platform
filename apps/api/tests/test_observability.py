@@ -289,3 +289,61 @@ async def test_init_sentry_calls_sdk_init_when_dsn_set(monkeypatch):
     integration_classes = {type(i).__name__ for i in kwargs["integrations"]}
     assert "FastApiIntegration" in integration_classes
     assert "StarletteIntegration" in integration_classes
+
+
+async def test_init_sentry_passes_release_and_profile_rate(monkeypatch):
+    """`release` is read from the platform git-SHA env var if not set
+    directly; `profiles_sample_rate` is passed through; the service tag
+    fires on `before_send`."""
+    import sentry_sdk
+
+    from core.config import Settings
+    from core.observability import init_sentry
+
+    init_calls: list[dict] = []
+    monkeypatch.setattr(sentry_sdk, "init", lambda **kwargs: init_calls.append(kwargs))
+
+    # Simulate a Railway deploy injecting the git SHA.
+    monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "abc123def456")
+    # Clear Vercel's so we know which env var won.
+    monkeypatch.delenv("VERCEL_GIT_COMMIT_SHA", raising=False)
+
+    settings = Settings(
+        SENTRY_DSN="https://fake@example.com/1",
+        SENTRY_TRACES_SAMPLE_RATE="0.2",
+        SENTRY_PROFILES_SAMPLE_RATE="0.3",
+        AEC_ENV="production",
+    )
+    init_sentry(settings)
+
+    kwargs = init_calls[0]
+    assert kwargs["release"] == "abc123def456", \
+        "init_sentry should fall back to RAILWAY_GIT_COMMIT_SHA when sentry_release unset"
+    assert kwargs["profiles_sample_rate"] == 0.3
+    # `before_send` is a callable that tags events with service name.
+    before_send = kwargs["before_send"]
+    assert callable(before_send)
+    event = before_send({}, None)
+    assert event["tags"]["service"] == "api"
+
+
+async def test_init_sentry_explicit_release_wins(monkeypatch):
+    """An explicit `SENTRY_RELEASE` setting beats the platform-injected
+    git SHA — useful when shipping a hotfix tag that's not a SHA."""
+    import sentry_sdk
+
+    from core.config import Settings
+    from core.observability import init_sentry
+
+    init_calls: list[dict] = []
+    monkeypatch.setattr(sentry_sdk, "init", lambda **kwargs: init_calls.append(kwargs))
+    monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "auto-sha-1234")
+
+    settings = Settings(
+        SENTRY_DSN="https://fake@example.com/1",
+        SENTRY_RELEASE="v2.7.0-hotfix",
+        AEC_ENV="production",
+    )
+    init_sentry(settings)
+
+    assert init_calls[0]["release"] == "v2.7.0-hotfix"

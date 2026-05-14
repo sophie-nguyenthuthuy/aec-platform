@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import type { SessionContext } from "@/lib/auth-context";
 import { supabaseServer } from "@/lib/supabase-server";
 import { PwaInstaller } from "@/components/PwaInstaller";
+import { SentryClient } from "@/components/SentryClient";
 
 import { Providers } from "./providers";
 import "./globals.css";
@@ -155,6 +156,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         {/* PWA glue: registers /sw.js in prod + parks the install
             prompt for the "Cài app" CTA. No-op on desktop / dev. */}
         <PwaInstaller />
+        {/* Sentry browser SDK init. Dynamic-imports `@sentry/browser`
+            only when NEXT_PUBLIC_SENTRY_DSN is set — no-op otherwise
+            so dev runs don't pay for an unused dependency. */}
+        <SentryClient />
       </body>
     </html>
   );

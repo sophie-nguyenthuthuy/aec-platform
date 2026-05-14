@@ -183,6 +183,22 @@ class Settings(BaseSettings):
     # beyond a `getenv`). Set in prod manifests; leave empty in dev.
     sentry_dsn: str | None = Field(default=None, validation_alias="SENTRY_DSN")
     sentry_traces_sample_rate: float = Field(default=0.1, validation_alias="SENTRY_TRACES_SAMPLE_RATE")
+    # Profiling sample rate (0.0–1.0). Activates the Sentry Profiler
+    # which samples CPU stacks for the slow ~1% of requests, so we can
+    # actually find the hot path on the SiteEye image pipeline or the
+    # CodeGuard embedding round-trip. Multiplicative with the traces
+    # sample rate — `traces=0.1 * profiles=0.5` means 5% of all
+    # requests get a profile. Keep low; profiling has measurable CPU
+    # overhead beyond plain tracing.
+    sentry_profiles_sample_rate: float = Field(
+        default=0.0, validation_alias="SENTRY_PROFILES_SAMPLE_RATE"
+    )
+    # Release identifier — typically the git SHA injected by the build
+    # pipeline (Railway: `RAILWAY_GIT_COMMIT_SHA`; Vercel:
+    # `VERCEL_GIT_COMMIT_SHA`). Sentry uses this to correlate errors
+    # to specific deploys + show the deploy timeline. Empty = "no
+    # release tag", which still works but loses the deploy correlation.
+    sentry_release: str | None = Field(default=None, validation_alias="SENTRY_RELEASE")
 
 
 @lru_cache
