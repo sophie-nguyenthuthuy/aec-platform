@@ -9,31 +9,39 @@ import { OrgSwitcher } from "./_components/OrgSwitcher";
 import { SearchTrigger } from "./_components/SearchTrigger";
 import { QuotaStatusBanner } from "./codeguard/QuotaStatusBanner";
 
+// Sidebar nav. Labels are Vietnamese-first; English module brand names
+// (CodeGuard, Drawbridge, BidRadar, etc.) are kept as the product name
+// but get a Vietnamese description in the page header to anchor users.
+//
+// Section headers walk a Vietnamese construction project's actual
+// lifecycle: Tổng quan → Pháp lý → Thiết kế → Đấu thầu → Thi công →
+// Bàn giao → Cài đặt. New users self-orient by phase.
 const NAV: NavItem[] = [
   { section: "Tổng quan", href: "/inbox" as Route, label: "Hôm nay" },
+  { href: "/my-work" as Route, label: "Công việc của tôi" },
   { href: "/projects" as Route, label: "Dự án" },
   { href: "/activity" as Route, label: "Hoạt động" },
-  { section: "Pháp lý", href: "/permitflow" as Route, label: "PermitFlow" },
-  { href: "/pccc" as Route, label: "PCCC" },
-  { section: "Giai đoạn thiết kế", href: "/codeguard" as Route, label: "CodeGuard" },
-  { href: "/drawbridge" as Route, label: "Drawbridge" },
-  { section: "Giai đoạn đấu thầu", href: "/bidradar" as Route, label: "BidRadar" },
-  { href: "/winwork" as Route, label: "WinWork" },
-  { href: "/costpulse" as Route, label: "CostPulse" },
-  { section: "Giai đoạn thi công", href: "/pulse" as Route, label: "Pulse" },
-  { href: "/siteeye" as Route, label: "SiteEye" },
-  { href: "/schedule" as Route, label: "SchedulePilot" },
-  { href: "/submittals" as Route, label: "Submittals" },
-  { href: "/dailylog" as Route, label: "Nhật ký" },
-  { href: "/changeorder" as Route, label: "Change orders" },
+  { section: "Pháp lý", href: "/permitflow" as Route, label: "Giấy phép xây dựng" },
+  { href: "/pccc" as Route, label: "Phòng cháy chữa cháy" },
+  { section: "Giai đoạn thiết kế", href: "/codeguard" as Route, label: "CodeGuard — Đối chiếu QCVN" },
+  { href: "/drawbridge" as Route, label: "Drawbridge — Bản vẽ thiết kế" },
+  { section: "Giai đoạn đấu thầu", href: "/bidradar" as Route, label: "BidRadar — Săn gói thầu" },
+  { href: "/winwork" as Route, label: "WinWork — Đề xuất & Báo giá" },
+  { href: "/costpulse" as Route, label: "CostPulse — Dự toán & Vật tư" },
+  { section: "Giai đoạn thi công", href: "/pulse" as Route, label: "Pulse — Điều phối dự án" },
+  { href: "/siteeye" as Route, label: "SiteEye — Giám sát công trường" },
+  { href: "/schedule" as Route, label: "Tiến độ dự án" },
+  { href: "/submittals" as Route, label: "Tài liệu trình duyệt" },
+  { href: "/dailylog" as Route, label: "Nhật ký công trình" },
+  { href: "/changeorder" as Route, label: "Lệnh thay đổi" },
   { href: "/nghiemthu" as Route, label: "Nghiệm thu" },
   { href: "/thanhtoan" as Route, label: "Thanh toán" },
-  { href: "/einvoice" as Route, label: "Hoá đơn ĐT" },
-  { href: "/greenmark" as Route, label: "LOTUS / EDGE" },
-  { href: "/bondline" as Route, label: "Bảo lãnh" },
-  { href: "/workforce" as Route, label: "Nhân công" },
-  { section: "Bàn giao", href: "/handover" as Route, label: "Handover" },
-  { href: "/punchlist" as Route, label: "Punch list" },
+  { href: "/einvoice" as Route, label: "Hoá đơn điện tử" },
+  { href: "/greenmark" as Route, label: "LOTUS / EDGE (chứng chỉ xanh)" },
+  { href: "/bondline" as Route, label: "Bảo lãnh ngân hàng" },
+  { href: "/workforce" as Route, label: "Quản lý nhân công" },
+  { section: "Bàn giao", href: "/handover" as Route, label: "Bàn giao công trình" },
+  { href: "/punchlist" as Route, label: "Danh mục tồn đọng" },
   { section: "Cài đặt", href: "/settings/members" as Route, label: "Thành viên" },
   { href: "/settings/notifications" as Route, label: "Thông báo" },
   { href: "/settings/audit" as Route, label: "Nhật ký kiểm tra" },
@@ -41,10 +49,10 @@ const NAV: NavItem[] = [
   { href: "/settings/search-analytics" as Route, label: "Phân tích tìm kiếm" },
   { href: "/settings/import" as Route, label: "Nhập dữ liệu" },
   { href: "/settings/export" as Route, label: "Xuất dữ liệu" },
-  { href: "/settings/retention" as Route, label: "Retention" },
-  { href: "/settings/api-keys" as Route, label: "API keys" },
+  { href: "/settings/retention" as Route, label: "Lưu trữ dữ liệu" },
+  { href: "/settings/api-keys" as Route, label: "Khoá API" },
   { section: "Tài liệu", href: "/docs/webhooks" as Route, label: "Webhooks" },
-  { href: "/docs/api" as Route, label: "API reference" },
+  { href: "/docs/api" as Route, label: "Tham chiếu API" },
 ];
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {

@@ -36,6 +36,7 @@ from routers import (  # noqa: E402
     inbox,
     invitations,
     me,
+    my_work,
     nghiemthu,
     notifications,
     onboarding,
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
     setup_observability(app, settings)
 
     app.include_router(me.router)
+    app.include_router(my_work.router)
     app.include_router(inbox.router)
     app.include_router(org.router)
     app.include_router(orgs.router)
