@@ -134,3 +134,60 @@ async def create_org(
             role="owner",
         ).model_dump(mode="json")
     )
+
+
+# ---------- Module selection ----------
+
+
+@router.patch("/{org_id}/modules")
+async def update_org_modules(
+    org_id: str,
+    payload: dict,
+    user: Annotated[UserContext, Depends(require_user)],
+) -> dict:
+    """Replace the `organizations.modules` JSONB array.
+
+    Used by the onboarding wizard's step 2 and by Settings → Modules
+    later. Every module endpoint still works regardless of which
+    values land here — this is a *preference signal* used by the
+    sidebar's "highlighted/recommended" grouping, not a hard gate.
+
+    Owner/admin only. RLS isn't in play here (we don't touch tenant
+    tables), so we explicitly verify membership + role via AdminSessionFactory.
+    """
+    modules = payload.get("modules")
+    if not isinstance(modules, list) or not all(isinstance(m, str) for m in modules):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "modules must be a list of strings")
+
+    async with AdminSessionFactory() as db:
+        # Verify the caller has owner/admin on this org. Reject silently
+        # with 404 to avoid leaking org existence to unrelated users.
+        member = (
+            await db.execute(
+                text(
+                    """
+                    SELECT role FROM org_members
+                    WHERE user_id = :uid AND organization_id = :org
+                    """
+                ),
+                {"uid": str(user.user_id), "org": org_id},
+            )
+        ).scalar_one_or_none()
+        if member is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "org not found")
+        if member not in ("owner", "admin"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "owner or admin required")
+
+        await db.execute(
+            text(
+                """
+                UPDATE organizations
+                SET modules = CAST(:mods AS jsonb)
+                WHERE id = :org
+                """
+            ),
+            {"mods": __import__("json").dumps(modules), "org": org_id},
+        )
+        await db.commit()
+
+    return ok({"modules": modules})

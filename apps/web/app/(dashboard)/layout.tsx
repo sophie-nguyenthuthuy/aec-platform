@@ -1,9 +1,11 @@
 import type { Route } from "next";
+import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { CommandPalette } from "@/components/CommandPalette";
 import { MobileNavShell } from "@/components/MobileNavShell";
 import { SidebarNav, type NavItem } from "@/components/SidebarNav";
+import { supabaseServer } from "@/lib/supabase-server";
 
 import { OrgSwitcher } from "./_components/OrgSwitcher";
 import { SearchTrigger } from "./_components/SearchTrigger";
@@ -55,7 +57,38 @@ const NAV: NavItem[] = [
   { href: "/docs/api" as Route, label: "Tham chiếu API" },
 ];
 
-export default function DashboardLayout({ children }: { children: ReactNode }) {
+export default async function DashboardLayout({ children }: { children: ReactNode }) {
+  // Bounce users with no org memberships to the onboarding wizard
+  // BEFORE rendering the dashboard chrome. Otherwise they'd see a
+  // sidebar full of disabled links, every page empty-state, and no
+  // obvious "next step". Skipped when E2E_BYPASS_AUTH is on (Playwright
+  // injects a fake session in the root layout — we trust it here).
+  if (
+    !(process.env.NODE_ENV !== "production" && process.env.E2E_BYPASS_AUTH === "1")
+  ) {
+    const supabase = await supabaseServer();
+    const { data: { session: supaSession } } = await supabase.auth.getSession();
+    if (supaSession) {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+        const res = await fetch(`${apiUrl}/api/v1/me/orgs`, {
+          headers: { Authorization: `Bearer ${supaSession.access_token}` },
+          cache: "no-store",
+        });
+        if (res.ok) {
+          const env = (await res.json()) as { data: unknown[] | null };
+          const orgs = env.data ?? [];
+          if (orgs.length === 0) {
+            redirect("/onboarding");
+          }
+        }
+      } catch {
+        // API down → fall through and render the dashboard chrome.
+        // Better to show a partially-broken dashboard than block sign-in.
+      }
+    }
+  }
+
   // SidebarNav is a client component (needs usePathname for active-state
   // highlighting). We pass the route data in serialised form so the
   // server-rendered shell stays cheap.
