@@ -116,34 +116,72 @@ def chat_model_vision(
 # Embeddings
 # ---------------------------------------------------------------------
 
+class _GeminiEmbeddings:
+    """Minimal Embeddings client for `gemini-embedding-001`.
+
+    Why not LangChain's `GoogleGenerativeAIEmbeddings`?
+      The 2.0.4 pin we ship doesn't expose `output_dimensionality`, and
+      `gemini-embedding-001` (the replacement for the retired
+      `text-embedding-004`) defaults to 3072-dim — incompatible with
+      our pgvector(768) columns. This thin wrapper calls
+      `google.generativeai.embed_content` directly so we can pass the
+      `output_dimensionality=768` kwarg through to Google's REST API.
+
+      Surface matches the LangChain `Embeddings` protocol
+      (`embed_documents`, `embed_query`) so callers don't have to know
+      which client is underneath. The pgvector + retrieval code paths
+      (drawbridge, codeguard, bidradar) call only these two methods.
+    """
+
+    def __init__(self, *, model: str, api_key: str, output_dim: int = 768,
+                 task_type: str = "retrieval_document") -> None:
+        # Lazy-import the SDK so module load doesn't fail in tests that
+        # never call the embedding path.
+        import google.generativeai as genai  # type: ignore[import-not-found]
+
+        genai.configure(api_key=api_key)
+        self._genai = genai
+        self._model = model
+        self._dim = output_dim
+        self._task_type = task_type
+
+    def _embed(self, text: str, task_type: str) -> list[float]:
+        # `embed_content` returns {"embedding": [...3072 or 768 floats...]}
+        # when `output_dimensionality` is forwarded as a kwarg.
+        result = self._genai.embed_content(
+            model=self._model,
+            content=text,
+            task_type=task_type,
+            output_dimensionality=self._dim,
+        )
+        return list(result["embedding"])
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        # Sequential — the free-tier free-RPM is generous, and batching
+        # via embed_contents (plural) needs SDK >=0.8.5 which we don't
+        # pin. ~50ms per call so a 50-doc ingest takes ~2.5s.
+        return [self._embed(t, self._task_type) for t in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._embed(text, "retrieval_query")
+
+
 def embeddings() -> Any:
     """
-    Return a LangChain embeddings client for the active provider.
+    Return an Embeddings client for the active provider.
 
-    `text-embedding-004` is the current free-tier Gemini embedding
-    model. It outputs 768-dim vectors; downstream pgvector columns are
-    sized accordingly (see migration `0041_gemini_embedding_dim` for
-    the resize from the historical OpenAI 3072 dim).
+    `models/gemini-embedding-001` is the active free-tier Gemini model
+    (replacing `text-embedding-004` retired by Google May 2026). We force
+    768-dim output via `output_dimensionality` so existing pgvector(768)
+    columns (migration `0041_gemini_embedding_dim`) accept the vector
+    without a schema change.
     """
-    from langchain_google_genai import GoogleGenerativeAIEmbeddings
-
     from core.config import get_settings  # type: ignore[import-not-found]
 
     settings = get_settings()
-
-    # `output_dimensionality=768` forces gemini-embedding-001 (default
-    # 3072-dim) to truncate to 768 so pgvector(768) columns accept it
-    # without a schema change. Discovered May 2026 when Google retired
-    # `text-embedding-004`. The 768-dim output is mean-pooled and L2-
-    # renormalized server-side, so retrieval quality is preserved.
-    return GoogleGenerativeAIEmbeddings(
+    return _GeminiEmbeddings(
         model=settings.gemini_embedding_model,
-        google_api_key=settings.google_api_key,
-        # `task_type` improves embedding quality for retrieval. Gemini's
-        # embedding model can be tuned for the downstream task; we use
-        # `retrieval_document` for ingest and let the retrieval-side
-        # encoder pick `retrieval_query`. LangChain's default is
-        # `retrieval_document` which is what we want at index time.
+        api_key=settings.google_api_key,
+        output_dim=768,
         task_type="retrieval_document",
-        output_dimensionality=768,
     )

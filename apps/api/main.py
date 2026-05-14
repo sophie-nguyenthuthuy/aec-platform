@@ -73,9 +73,18 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="AEC Platform API", version="0.1.0")
 
+    # CORS: explicit allow-list from env PLUS a regex covering every
+    # `aec-platform-*.vercel.app` preview/alias domain. Vercel mints
+    # alias subdomains per branch (e.g. `aec-platform-web-five`,
+    # `aec-platform-web-git-main-…`, `aec-platform-havjmjkqh-…`); pinning
+    # only `cors_origins` means each new alias 400s the preflight until
+    # ops manually adds it. The regex covers all current + future
+    # aliases on the same project. Other origins still go through
+    # the explicit allow-list so non-Vercel domains can opt in.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
+        allow_origin_regex=r"https://aec-platform-[a-z0-9-]+\.vercel\.app",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

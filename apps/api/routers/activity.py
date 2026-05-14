@@ -269,8 +269,14 @@ SELECT
 FROM events e
 LEFT JOIN projects p ON p.id = e.project_id
 WHERE
-    (:project_id IS NULL OR e.project_id = :project_id)
-    AND (:module     IS NULL OR e.module     = :module)
+    -- asyncpg can't infer the type of bare nullable params used only on
+    -- NULL-or-equals filters. Without explicit ::uuid / ::text casts on
+    -- the FIRST occurrence, the driver raises
+    -- AmbiguousParameterError: could not determine data type of parameter.
+    -- The cast is a no-op when the value is a string/UUID, and lets
+    -- Postgres treat NULL as "skip filter" instead of erroring.
+    (:project_id::uuid IS NULL OR e.project_id = :project_id::uuid)
+    AND (:module::text  IS NULL OR e.module     = :module::text)
 ORDER BY e.timestamp DESC
 LIMIT :limit OFFSET :offset
 """
@@ -308,8 +314,9 @@ WITH events AS (
 SELECT COUNT(*) AS n
 FROM events
 WHERE
-    (:project_id IS NULL OR project_id = :project_id)
-    AND (:module IS NULL OR module = :module)
+    -- Same explicit casts as _FEED_SQL (see comment there).
+    (:project_id::uuid IS NULL OR project_id = :project_id::uuid)
+    AND (:module::text IS NULL OR module = :module::text)
 """
 
 
