@@ -7,6 +7,7 @@ import { useState, type FormEvent } from "react";
 import { Alert, Button, FormField, Input } from "@aec/ui/primitives";
 
 import { AuthShell } from "@/components/AuthShell";
+import { SsoButtons } from "@/components/SsoButtons";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 /**
@@ -22,7 +23,11 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  // `?error=` is set by /auth/callback when an OAuth round-trip fails
+  // (expired code, user denied consent, etc.). Seed local state from it
+  // so the user sees a recoverable message after redirect, not a silent
+  // re-render of an empty form.
+  const [error, setError] = useState<string | null>(params.get("error"));
   const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -61,6 +66,8 @@ export default function LoginPage() {
         </>
       }
     >
+      <SsoButtons next={next} />
+
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <FormField label="Email" required>
           <Input
