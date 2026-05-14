@@ -16,7 +16,8 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from fastapi.responses import Response
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.envelope import ok, paginated
@@ -612,4 +613,164 @@ async def _punchlist_status(db: AsyncSession, project_id: UUID) -> PunchlistStat
         open_items=int(item_counts.open_items or 0),
         verified_items=int(item_counts.verified or 0),
         high_severity_open_items=int(item_counts.high_open or 0),
+    )
+
+
+# ---------- Summary PDF ----------
+
+
+@router.get("/{project_id}/summary.pdf")
+async def project_summary_pdf(
+    project_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Render a one-page project summary as a PDF.
+
+    Pulls just the data needed for the snapshot (project core fields,
+    schedule progress aggregates, task counters, top-5 upcoming
+    activities) — much cheaper than the full hub-detail fan-out.
+    Member-readable (mirrors `GET /{project_id}` posture); admin-only
+    here would block PMs from printing a status PDF for stakeholder
+    meetings.
+    """
+    from datetime import UTC, datetime
+
+    from services.project_pdf import render_project_summary_pdf
+
+    project = (
+        await db.execute(
+            select(Project).where(
+                Project.id == project_id,
+                Project.organization_id == auth.organization_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+
+    # Org name for the header label.
+    org_name = (
+        await db.execute(
+            text("SELECT name FROM organizations WHERE id = :id"),
+            {"id": str(auth.organization_id)},
+        )
+    ).scalar_one_or_none() or ""
+
+    # Schedule progress: average percent_complete weighted by activity
+    # count + flag if the critical path is slipping.
+    schedule_row = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    AVG(a.percent_complete) AS pct,
+                    MAX(r.overall_slip_days) AS slip
+                FROM schedule_activities a
+                JOIN schedules s ON s.id = a.schedule_id
+                LEFT JOIN schedule_risk_assessments r ON r.schedule_id = s.id
+                WHERE s.project_id = :pid
+                  AND a.organization_id = :oid
+                """
+            ),
+            {"pid": str(project_id), "oid": str(auth.organization_id)},
+        )
+    ).mappings().one_or_none()
+
+    schedule_summary = (
+        {
+            "percent_complete": float(schedule_row["pct"]) if schedule_row and schedule_row["pct"] is not None else None,
+            "slip_days": int(schedule_row["slip"]) if schedule_row and schedule_row["slip"] is not None else None,
+        }
+        if schedule_row
+        else None
+    )
+
+    # Task counters — open + overdue from pulse.tasks.
+    today = date.today().isoformat()
+    task_row = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*) FILTER (WHERE status NOT IN ('done', 'cancelled')) AS open_count,
+                    COUNT(*) FILTER (
+                        WHERE status NOT IN ('done', 'cancelled')
+                          AND due_date < CAST(:today AS date)
+                    ) AS overdue_count
+                FROM tasks
+                WHERE project_id = :pid
+                """
+            ),
+            {"pid": str(project_id), "today": today},
+        )
+    ).mappings().one()
+
+    # Open defects from handover.defects (cross-module surface that
+    # belongs on a status print-out for stakeholder meetings).
+    defects_open = (
+        await db.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM defects
+                WHERE project_id = :pid
+                  AND status IN ('open', 'in_progress')
+                """
+            ),
+            {"pid": str(project_id)},
+        )
+    ).scalar_one()
+
+    # Upcoming milestones: top 5 unfinished activities ordered by
+    # planned_finish ASC. Mixes user-tagged milestones with summary
+    # buckets — fine for a one-page snapshot.
+    upcoming = (
+        await db.execute(
+            text(
+                """
+                SELECT a.code, a.name, a.planned_finish, a.percent_complete
+                FROM schedule_activities a
+                JOIN schedules s ON s.id = a.schedule_id
+                WHERE s.project_id = :pid
+                  AND a.status NOT IN ('complete')
+                  AND a.planned_finish IS NOT NULL
+                  AND a.planned_finish >= CAST(:today AS date)
+                ORDER BY a.planned_finish ASC
+                LIMIT 5
+                """
+            ),
+            {"pid": str(project_id), "today": today},
+        )
+    ).mappings().all()
+
+    pdf_bytes = render_project_summary_pdf(
+        organization_name=org_name,
+        project={
+            "name": project.name,
+            "status": project.status,
+            "type": project.type,
+            "external_id": getattr(project, "external_id", None),
+            "address": project.address or {},
+            "area_sqm": float(project.area_sqm) if project.area_sqm else None,
+            "budget_vnd": int(project.budget_vnd) if project.budget_vnd else None,
+            "floors": project.floors,
+            "owner_email": getattr(project, "owner_email", None),
+            "start_date": getattr(project, "start_date", None),
+            "end_date": getattr(project, "end_date", None),
+        },
+        schedule_summary=schedule_summary,
+        open_tasks=int(task_row["open_count"] or 0),
+        overdue_tasks=int(task_row["overdue_count"] or 0),
+        defects_open=int(defects_open or 0),
+        upcoming_milestones=[dict(r) for r in upcoming],
+        generated_at=datetime.now(UTC),
+    )
+
+    safe_name = (project.name or "project").replace('"', "").replace("/", "-")[:60]
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="aec-{safe_name}-summary.pdf"',
+        },
     )

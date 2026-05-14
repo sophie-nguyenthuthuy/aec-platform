@@ -1478,3 +1478,107 @@ def _defect_where(f: DefectListFilters, org_id: UUID) -> tuple[str, dict]:
         clauses.append("assignee_id = :assignee_id")
         params["assignee_id"] = str(f.assignee_id)
     return " AND ".join(clauses), params
+
+
+# ---------- Handover certificate PDF ----------
+
+
+@router.get("/packages/{package_id}/certificate.pdf")
+async def handover_certificate_pdf(
+    package_id: UUID,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+    delivering_party: str | None = None,
+    receiving_party: str | None = None,
+    handover_location: str | None = None,
+):
+    """Generate a Biên bản bàn giao công trình (handover certificate) PDF.
+
+    The three party / location fields are query params so the PM can
+    override the defaults right before printing — typical scenario is
+    "the legal entity name on the contract differs from the org name in
+    the platform". Defaults pull from the package + the org row.
+    """
+    from fastapi.responses import Response
+
+    from services.project_pdf import render_handover_certificate_pdf
+
+    async with TenantAwareSession(auth.organization_id) as session:
+        pkg_row = (
+            await session.execute(
+                text(
+                    """
+                    SELECT
+                        h.name           AS package_name,
+                        h.status         AS status,
+                        h.delivered_at   AS delivered_at,
+                        h.created_at     AS created_at,
+                        p.name           AS project_name,
+                        p.address        AS project_address,
+                        o.name           AS org_name
+                    FROM handover_packages h
+                    JOIN projects p ON p.id = h.project_id
+                    JOIN organizations o ON o.id = h.organization_id
+                    WHERE h.id = :pkg
+                      AND h.organization_id = :oid
+                    """
+                ),
+                {"pkg": str(package_id), "oid": str(auth.organization_id)},
+            )
+        ).mappings().one_or_none()
+        if pkg_row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "handover_package_not_found")
+
+        items_rows = (
+            await session.execute(
+                text(
+                    """
+                    SELECT title, status, notes
+                    FROM closeout_items
+                    WHERE package_id = :pkg
+                    ORDER BY sort_order ASC, created_at ASC
+                    """
+                ),
+                {"pkg": str(package_id)},
+            )
+        ).mappings().all()
+
+        # Attachments count: file_ids array concat across all closeout items.
+        attachments_count = (
+            await session.execute(
+                text(
+                    """
+                    SELECT COALESCE(SUM(COALESCE(array_length(file_ids, 1), 0)), 0)
+                    FROM closeout_items
+                    WHERE package_id = :pkg
+                    """
+                ),
+                {"pkg": str(package_id)},
+            )
+        ).scalar_one()
+
+    # Default location: city from the project address, or the org name
+    # as a fallback so the line still reads sensibly.
+    addr = pkg_row["project_address"] or {}
+    default_location = addr.get("city") or pkg_row["org_name"] or "Hà Nội"
+
+    pdf_bytes = render_handover_certificate_pdf(
+        organization_name=pkg_row["org_name"] or "",
+        project_name=pkg_row["project_name"] or "(không có tên)",
+        package_name=pkg_row["package_name"] or "Gói bàn giao",
+        delivering_party=delivering_party or pkg_row["org_name"] or "Nhà thầu",
+        receiving_party=receiving_party or "Chủ đầu tư",
+        handover_location=handover_location or default_location,
+        delivered_at=pkg_row["delivered_at"] or pkg_row["created_at"] or datetime.now(UTC),
+        scope_items=[dict(r) for r in items_rows],
+        attachments_count=int(attachments_count or 0),
+        generated_at=datetime.now(UTC),
+    )
+
+    safe_name = (pkg_row["project_name"] or "handover").replace('"', "").replace("/", "-")[:60]
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="aec-handover-{safe_name}.pdf"',
+        },
+    )
