@@ -1,4 +1,8 @@
-export { useImportCommit, useImportPreview } from "./useImports";
+export {
+  useImportCommit,
+  useImportPreview,
+  useImportTemplateDownload,
+} from "./useImports";
 export type {
   ImportEntity,
   ImportJobSummary,

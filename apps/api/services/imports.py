@@ -235,6 +235,94 @@ VALIDATORS = {
 }
 
 
+# Per-entity column manifests for the wizard's "Tải file mẫu" button
+# and for the `/api/v1/import/entities` discovery endpoint. The order
+# inside each tuple is the order columns appear in the downloaded CSV
+# template — required first, then optional. Mirror this with the
+# validator above when you add a new entity; the manifest-drift test
+# (test_imports_templates.py) catches gaps before they reach a user.
+TEMPLATES: dict[str, dict[str, list[str]]] = {
+    "projects": {
+        "required": ["external_id", "name"],
+        "optional": [
+            "type",
+            "status",
+            "city",
+            "district",
+            "area_sqm",
+            "budget_vnd",
+            "floors",
+        ],
+        # One example row of placeholder text — gives users a working
+        # starting point instead of an empty grid that looks broken.
+        "example": [
+            "PRJ-001",
+            "Khu chung cư Tân Hòa",
+            "residential",
+            "construction",
+            "Hà Nội",
+            "Cầu Giấy",
+            "12500",
+            "850000000000",
+            "25",
+        ],
+    },
+    "suppliers": {
+        "required": ["external_id", "name"],
+        "optional": [
+            "categories",
+            "provinces",
+            "phone",
+            "email",
+            "address",
+            "verified",
+        ],
+        "example": [
+            "SUP-001",
+            "Công ty TNHH Vật liệu Hòa Phát",
+            "Thép xây dựng, Cốt thép, Xi măng",
+            "Hà Nội, Hải Phòng",
+            "+84-24-1234-5678",
+            "sales@example.com",
+            "123 Đường Láng, Đống Đa",
+            "true",
+        ],
+    },
+}
+
+
+def render_template_csv(entity: str) -> str:
+    """Build a starter CSV body for `entity`.
+
+    The CSV has two rows:
+      1. Header row — every required + optional column.
+      2. One example data row — placeholder values shaped to the
+         validator's expectations (`status` is one of the canonical
+         lifecycle values, `verified` is `true`/`false`, etc.) so the
+         user can re-upload immediately without parsing errors.
+
+    Uses csv.writer so a comma or quote inside a Vietnamese supplier
+    name is escaped correctly. No BOM — Excel on Windows reads UTF-8
+    fine through the Vercel `Content-Type: text/csv; charset=utf-8`
+    response header.
+    """
+    if entity not in TEMPLATES:
+        raise ValueError(f"Unsupported entity: {entity}. Allowed: {list(TEMPLATES)}")
+    manifest = TEMPLATES[entity]
+    headers = manifest["required"] + manifest["optional"]
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    # `example` is positional against `required + optional`; pad with
+    # blanks if the manifest provides a shorter list (shouldn't happen,
+    # but defensive against typos in the dict above).
+    example = manifest.get("example", [])
+    if len(example) < len(headers):
+        example = list(example) + [""] * (len(headers) - len(example))
+    writer.writerow(example[: len(headers)])
+    return buf.getvalue()
+
+
 def _coerce_str(v: Any) -> str | None:
     if v is None:
         return None

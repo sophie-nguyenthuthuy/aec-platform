@@ -27,6 +27,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi.responses import Response
 from sqlalchemy import text
 
 from core.envelope import ok
@@ -35,9 +36,11 @@ from middleware.auth import AuthContext
 from middleware.rbac import Role, require_min_role
 from services.imports import (
     MAX_ROWS,
+    TEMPLATES,
     VALIDATORS,
     commit_job,
     parse_upload,
+    render_template_csv,
     validate_rows,
 )
 
@@ -270,6 +273,70 @@ def _to_json(v: object) -> str:
     return json.dumps(v, default=str)
 
 
+# ---------- Discovery + template download ----------
+#
+# Two helper endpoints the wizard frontend calls so the column manifest
+# isn't hardcoded in TWO places. The frontend ENTITIES const can shrink
+# to "label + value" only, with required/optional columns fetched at
+# render time. This way adding a new entity to `services.imports.TEMPLATES`
+# automatically makes it visible in the UI without a frontend deploy.
+
+
+@router.get("/entities")
+async def list_entities(
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+):
+    """Return the manifest of importable entities + their schemas.
+
+    Used by the wizard to render the entity tab list and the
+    "Required columns" / "Optional columns" hint above the dropzone.
+    Reading this from a single source-of-truth (`TEMPLATES`) avoids
+    the drift between backend validator and frontend label that we
+    used to hit on every new entity addition.
+    """
+    return ok(
+        {
+            "entities": [
+                {
+                    "value": entity,
+                    "required": manifest["required"],
+                    "optional": manifest["optional"],
+                }
+                for entity, manifest in TEMPLATES.items()
+            ],
+            "max_rows_per_upload": MAX_ROWS,
+        }
+    )
+
+
+# Note: `entity` here is a path param string, not the EntityName Literal,
+# because Excel users frequently rename the downloaded file. Validation
+# happens against `TEMPLATES` and rejects unknown entities with 404.
+@router.get("/{entity}/template.csv")
+async def download_template_csv(
+    entity: str,
+    auth: Annotated[AuthContext, Depends(require_min_role(Role.ADMIN))],
+):
+    """Return a starter CSV with headers + one example placeholder row.
+
+    The wizard surfaces this as "Tải file mẫu" (Download template). The
+    response is shaped as a real file attachment so browsers save it
+    directly — no preview window.
+    """
+    try:
+        body = render_template_csv(entity)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="aec-{entity}-template.csv"',
+        },
+    )
+
+
 # Schemas surface the validator allowlist for the frontend so a
 # "Tải file mẫu" button can render the right placeholder columns.
-__all__ = ["router", "MAX_ROWS", "VALIDATORS"]
+__all__ = ["router", "MAX_ROWS", "VALIDATORS", "TEMPLATES"]

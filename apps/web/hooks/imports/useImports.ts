@@ -81,6 +81,47 @@ export function useImportPreview() {
 
 
 /**
+ * Trigger a browser download of the per-entity CSV template the user
+ * fills in. The wizard surfaces this as "Tải file mẫu" — without it,
+ * users have to guess column names from the inline hint, which they
+ * don't always do correctly (typo `external id` → entire upload fails
+ * validation, frustrating UX).
+ *
+ * We synthesize the download via a temporary anchor instead of
+ * `window.location = url` so the Authorization + X-Org-ID headers
+ * carry. The blob is revoked synchronously after the click — leaking
+ * blob URLs is a slow memory drip in long-lived dashboard sessions.
+ */
+export function useImportTemplateDownload() {
+  const { token, orgId } = useSession();
+  return async (entity: ImportEntity) => {
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/v1/import/${entity}/template.csv`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "X-Org-ID": orgId,
+        },
+      },
+    );
+    if (!res.ok) {
+      throw new Error(`Failed to download template: ${res.statusText}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `aec-${entity}-template.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+}
+
+
+/**
  * Commit a previewed job. Idempotent on the server side — the second
  * call short-circuits via the `committed` status check, so a flaky
  * network retry won't double-write.

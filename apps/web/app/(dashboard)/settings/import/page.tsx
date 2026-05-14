@@ -15,6 +15,7 @@ import {
   type ImportJobSummary,
   useImportCommit,
   useImportPreview,
+  useImportTemplateDownload,
 } from "@/hooks/imports";
 
 
@@ -66,6 +67,17 @@ export default function ImportPage() {
 
   const preview = useImportPreview();
   const commit = useImportCommit();
+  const downloadTemplate = useImportTemplateDownload();
+  const [templateError, setTemplateError] = useState<string | null>(null);
+
+  const handleDownloadTemplate = useCallback(async () => {
+    setTemplateError(null);
+    try {
+      await downloadTemplate(entity);
+    } catch (e) {
+      setTemplateError((e as Error).message ?? "Tải file mẫu thất bại");
+    }
+  }, [downloadTemplate, entity]);
 
   // Reset the in-page state when the entity tab flips. Otherwise a
   // preview from the projects tab would linger when the user clicks
@@ -120,23 +132,36 @@ export default function ImportPage() {
         </p>
       </div>
 
-      {/* ---------- Entity tabs ---------- */}
-      <div className="flex flex-wrap gap-1.5">
-        {ENTITIES.map((e) => (
-          <button
-            key={e.value}
-            type="button"
-            onClick={() => switchEntity(e.value)}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              entity === e.value
-                ? "bg-blue-600 text-white"
-                : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
-            }`}
-          >
-            {e.label}
-          </button>
-        ))}
+      {/* ---------- Entity tabs + template download ---------- */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-1.5">
+          {ENTITIES.map((e) => (
+            <button
+              key={e.value}
+              type="button"
+              onClick={() => switchEntity(e.value)}
+              className={`rounded-full px-3 py-1 text-xs font-medium ${
+                entity === e.value
+                  ? "bg-blue-600 text-white"
+                  : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              {e.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={handleDownloadTemplate}
+          className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
+        >
+          <FileSpreadsheet size={12} />
+          Tải file mẫu CSV
+        </button>
       </div>
+      {templateError ? (
+        <p className="text-xs text-rose-600">{templateError}</p>
+      ) : null}
 
       {/* ---------- Schema hint ---------- */}
       <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs">
