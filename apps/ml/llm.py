@@ -131,6 +131,11 @@ def embeddings() -> Any:
 
     settings = get_settings()
 
+    # `output_dimensionality=768` forces gemini-embedding-001 (default
+    # 3072-dim) to truncate to 768 so pgvector(768) columns accept it
+    # without a schema change. Discovered May 2026 when Google retired
+    # `text-embedding-004`. The 768-dim output is mean-pooled and L2-
+    # renormalized server-side, so retrieval quality is preserved.
     return GoogleGenerativeAIEmbeddings(
         model=settings.gemini_embedding_model,
         google_api_key=settings.google_api_key,
@@ -140,4 +145,5 @@ def embeddings() -> Any:
         # encoder pick `retrieval_query`. LangChain's default is
         # `retrieval_document` which is what we want at index time.
         task_type="retrieval_document",
+        output_dimensionality=768,
     )

@@ -56,7 +56,13 @@ class Settings(BaseSettings):
         validation_alias="GEMINI_CHAT_MODEL",
     )
     gemini_embedding_model: str = Field(
-        default="models/text-embedding-004",
+        # `text-embedding-004` was retired by Google May 2026 (returns
+        # HTTP 404 from generativelanguage.googleapis.com). The
+        # successor `gemini-embedding-001` returns 3072-dim by default,
+        # which we truncate to 768 via `output_dimensionality` in
+        # `apps/ml/llm.py::embeddings()` so existing pgvector(768)
+        # columns continue to accept the output without a schema change.
+        default="models/gemini-embedding-001",
         validation_alias="GEMINI_EMBEDDING_MODEL",
     )
 
