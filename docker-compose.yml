@@ -21,6 +21,47 @@ services:
       interval: 5s
       retries: 10
 
+  # MinIO — S3-compatible object storage. Drawings, photos, generated
+  # PDFs all land here. We pick MinIO over a Cloud-S3 dependency
+  # because Vietnamese SOE customers typically require data sovereignty
+  # (no PII / drawings leaving their server room). Same code path works
+  # against AWS S3 in dev cloud — just set S3_ENDPOINT_URL=None.
+  #
+  # First-boot bucket creation via the bootstrapping container below
+  # (`minio-init`). The default bucket name matches the `s3_bucket`
+  # setting (`aec-platform-files`). Default credentials are admin/admin
+  # — override in production via environment.
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: aec-platform
+      MINIO_ROOT_PASSWORD: aec-platform-dev
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      retries: 10
+
+  # One-shot init: create the default bucket on first startup.
+  # Idempotent — re-running does nothing if the bucket exists.
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-08T15-39-49Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+      mc alias set local http://minio:9000 aec-platform aec-platform-dev &&
+      mc mb --ignore-existing local/aec-platform-files &&
+      mc anonymous set download local/aec-platform-files &&
+      echo '✓ MinIO bucket aec-platform-files ready'
+      "
+
   # Runtime DB role split:
   #   aec      — superuser. Used by (a) alembic migrations (DDL needs OWN)
   #              and (b) a small set of cross-tenant batch jobs via the
@@ -48,10 +89,20 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       CORS_ORIGINS: '["http://localhost:3000"]'
+      # MinIO object storage — see services.minio below. The endpoint
+      # uses the docker-network DNS name so the api container can reach
+      # it; on bare-metal / non-compose deploys, override to whatever
+      # MinIO host the customer runs.
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY_ID: aec-platform
+      S3_SECRET_ACCESS_KEY: aec-platform-dev
+      S3_FORCE_PATH_STYLE: "true"
+      S3_BUCKET: aec-platform-files
     ports: ["8000:8000"]
     depends_on:
-      postgres: { condition: service_healthy }
-      redis:    { condition: service_healthy }
+      postgres:   { condition: service_healthy }
+      redis:      { condition: service_healthy }
+      minio:      { condition: service_healthy }
     command: >
       sh -c "alembic upgrade head &&
              uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
@@ -70,12 +121,20 @@ services:
       REDIS_URL: redis://redis:6379/0
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Worker also needs MinIO — drawbridge ingest writes chunked
+      # PDFs back, pulse writes weekly-report PDFs.
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY_ID: aec-platform
+      S3_SECRET_ACCESS_KEY: aec-platform-dev
+      S3_FORCE_PATH_STYLE: "true"
+      S3_BUCKET: aec-platform-files
     # depends_on: api ensures migrations (which create aec_app) complete before
     # any worker tries to auth as aec_app. Without this, a fresh volume can
     # race the worker startup against alembic and fail with
     # "password authentication failed for user aec_app".
     depends_on:
       postgres: { condition: service_healthy }
+      minio:    { condition: service_healthy }
       redis:    { condition: service_healthy }
       api:      { condition: service_started }
     volumes:
@@ -140,3 +199,4 @@ services:
 
 volumes:
   pgdata:
+  miniodata:

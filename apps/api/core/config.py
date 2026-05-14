@@ -73,8 +73,18 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-sonnet-4-6"
     openai_embedding_model: str = "text-embedding-3-large"
 
+    # Object storage (S3-compatible). Defaults below target AWS S3 in
+    # ap-southeast-1; set `s3_endpoint_url` to a MinIO endpoint to
+    # switch over. `s3_access_key_id`/`s3_secret_access_key` are
+    # required for MinIO, optional on AWS (default provider chain
+    # handles IAM role).
     aws_region: str = "ap-southeast-1"
     s3_bucket: str = "aec-platform-files"
+    s3_endpoint_url: str | None = Field(default=None, validation_alias="S3_ENDPOINT_URL")
+    s3_access_key_id: str | None = Field(default=None, validation_alias="S3_ACCESS_KEY_ID")
+    s3_secret_access_key: str | None = Field(default=None, validation_alias="S3_SECRET_ACCESS_KEY")
+    s3_force_path_style: bool = Field(default=False, validation_alias="S3_FORCE_PATH_STYLE")
+    s3_public_base_url: str | None = Field(default=None, validation_alias="S3_PUBLIC_BASE_URL")
 
     # Per-table retention overrides for the nightly prune cron
     # (`services.retention.run_retention_cron`). When unset, each

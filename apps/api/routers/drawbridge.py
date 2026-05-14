@@ -77,13 +77,17 @@ def _dict(m: Any) -> dict[str, Any]:
 async def _storage_put(file_bytes: bytes, name: str, mime: str) -> str:
     """Upload to S3. Minimal implementation — swap for boto3 in production."""
     try:
-        import boto3
-
+        # Use the central S3-compatible client so this works with both
+        # AWS S3 and MinIO (production VN SOE deploys typically pin to
+        # MinIO on a customer-owned server for data sovereignty).
         from core.config import get_settings
+        from core.storage import _client_kwargs
 
         settings = get_settings()
         key = f"drawbridge/{uuid4()}/{name}"
-        s3 = boto3.client("s3", region_name=settings.aws_region)
+        import boto3
+
+        s3 = boto3.client("s3", **_client_kwargs(settings))
         s3.put_object(Bucket=settings.s3_bucket, Key=key, Body=file_bytes, ContentType=mime)
         return key
     except Exception:

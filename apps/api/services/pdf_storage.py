@@ -22,10 +22,13 @@ def report_storage_key(organization_id: UUID, report_id: UUID) -> str:
 def report_public_url(settings: Settings, storage_key: str) -> str:
     """Canonical HTTPS URL for the PDF in the configured bucket.
 
-    If you later switch to signed URLs (e.g. for non-public buckets), this is
-    the single place to change — the route calls it, tests stub it.
+    Delegates to `core.storage.public_url`, which produces the right
+    URL shape for AWS S3 (virtual-host), MinIO (path-style via
+    endpoint_url), and CDN-fronted setups (`S3_PUBLIC_BASE_URL`).
     """
-    return f"https://{settings.s3_bucket}.s3.{settings.aws_region}.amazonaws.com/{storage_key}"
+    from core.storage import public_url
+
+    return public_url(settings, storage_key)
 
 
 async def upload_report_pdf(
@@ -35,23 +38,16 @@ async def upload_report_pdf(
     report_id: UUID,
     pdf_bytes: bytes,
 ) -> str:
-    """Upload `pdf_bytes` to S3 and return the public URL.
+    """Upload `pdf_bytes` to S3-compatible storage and return the URL.
 
     Returns the URL on success. Callers should catch exceptions and decide
     whether to fail the whole request or persist the report with `pdf_url=None`
-    — generating a client report is valuable even if the CDN hiccups.
+    — generating a client report is valuable even if storage hiccups.
     """
-    import aioboto3  # lazy: not every API workload needs S3 at import time
+    from core.storage import put_bytes
 
     key = report_storage_key(organization_id, report_id)
-    session = aioboto3.Session(region_name=settings.aws_region)
-    async with session.client("s3") as client:
-        await client.put_object(
-            Bucket=settings.s3_bucket,
-            Key=key,
-            Body=pdf_bytes,
-            ContentType="application/pdf",
-        )
+    await put_bytes(settings, key, pdf_bytes, content_type="application/pdf")
 
     logger.info(
         "uploaded report pdf org=%s report=%s size=%d key=%s",

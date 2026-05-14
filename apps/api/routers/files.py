@@ -101,20 +101,19 @@ async def _make_thumbnail(settings, base_key: str, raw: bytes) -> str | None:
 
     thumb_key = f"{base_key}.thumb.jpg"
     await _s3_put(settings, thumb_key, buf.getvalue(), content_type="image/jpeg")
-    return f"https://{settings.s3_bucket}.s3.{settings.aws_region}.amazonaws.com/{thumb_key}"
+    # Use the central URL builder so MinIO / public-base-URL setups
+    # generate the right link without manual AWS-style assembly.
+    from core.storage import public_url
+
+    return public_url(settings, thumb_key)
 
 
 async def _s3_put(settings, key: str, body: bytes, *, content_type: str) -> None:
-    import aioboto3
+    # Single S3-compatible client lives in core.storage; works with
+    # both AWS S3 and self-hosted MinIO (set S3_ENDPOINT_URL).
+    from core.storage import put_bytes
 
-    session = aioboto3.Session(region_name=settings.aws_region)
-    async with session.client("s3") as client:
-        await client.put_object(
-            Bucket=settings.s3_bucket,
-            Key=key,
-            Body=body,
-            ContentType=content_type,
-        )
+    await put_bytes(settings, key, body, content_type=content_type)
 
 
 def _extension_for(mime: str | None, filename: str | None) -> str:
