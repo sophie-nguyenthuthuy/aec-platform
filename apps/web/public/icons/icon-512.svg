@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="80" fill="#0f172a"/>
+  <g stroke="#38bdf8" stroke-width="16" stroke-linecap="round" fill="none">
+    <path d="M128 352 L256 264 L384 352"/>
+    <path d="M128 272 L256 184 L384 272"/>
+    <path d="M128 192 L256 104 L384 192"/>
+  </g>
+  <text x="256" y="450" text-anchor="middle" font-family="-apple-system, system-ui, sans-serif" font-weight="700" font-size="56" fill="#f8fafc">AEC</text>
+</svg>

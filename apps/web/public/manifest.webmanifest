@@ -1,0 +1,50 @@
+{
+  "name": "AEC Platform",
+  "short_name": "AEC",
+  "description": "Nền tảng AI cho ngành xây dựng — Pulse, SiteEye, CodeGuard, BidRadar.",
+  "lang": "vi",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#0f172a",
+  "categories": ["productivity", "business"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Công việc của tôi",
+      "short_name": "Việc của tôi",
+      "description": "Tổng hợp việc đang mở trên tất cả dự án",
+      "url": "/my-work?assignee=me",
+      "icons": [{ "src": "/icons/icon-192.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Tải ảnh công trường",
+      "short_name": "Tải ảnh",
+      "description": "Chụp + tải ảnh công trường nhanh từ điện thoại",
+      "url": "/mobile/upload",
+      "icons": [{ "src": "/icons/icon-192.svg", "sizes": "192x192" }]
+    }
+  ]
+}

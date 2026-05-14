@@ -31,6 +31,10 @@
     ".next/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "capacitor.config.ts",
+    "capacitor-shell",
+    "ios",
+    "android"
   ]
 }

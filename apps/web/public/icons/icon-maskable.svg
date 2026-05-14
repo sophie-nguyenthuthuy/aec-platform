@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Maskable variant: 10% safe-zone padding on every side so Android's
+       adaptive icon system can crop into a circle/rounded-square without
+       chopping the mark. Background extends to the full bleed. -->
+  <rect width="512" height="512" fill="#0f172a"/>
+  <g stroke="#38bdf8" stroke-width="14" stroke-linecap="round" fill="none">
+    <path d="M164 332 L256 268 L348 332"/>
+    <path d="M164 268 L256 204 L348 268"/>
+    <path d="M164 204 L256 140 L348 204"/>
+  </g>
+</svg>

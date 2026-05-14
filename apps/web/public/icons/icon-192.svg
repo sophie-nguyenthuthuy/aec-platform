@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <!-- AEC platform mark: stylised stacked floors representing a structure -->
+  <rect width="192" height="192" rx="32" fill="#0f172a"/>
+  <g stroke="#38bdf8" stroke-width="6" stroke-linecap="round" fill="none">
+    <path d="M48 132 L96 100 L144 132"/>
+    <path d="M48 102 L96 70 L144 102"/>
+    <path d="M48 72 L96 40 L144 72"/>
+  </g>
+  <g fill="#f8fafc">
+    <text x="96" y="170" text-anchor="middle" font-family="-apple-system, system-ui, sans-serif" font-weight="700" font-size="20">AEC</text>
+  </g>
+</svg>

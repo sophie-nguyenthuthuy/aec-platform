@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 
 import type { SessionContext } from "@/lib/auth-context";
 import { supabaseServer } from "@/lib/supabase-server";
+import { PwaInstaller } from "@/components/PwaInstaller";
 
 import { Providers } from "./providers";
 import "./globals.css";
@@ -12,6 +13,36 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "AEC Platform",
   description: "AI-powered platform for architecture, engineering, and construction",
+  applicationName: "AEC Platform",
+  // The manifest unlocks install-to-home-screen on Android/iOS + the
+  // PWA app-switcher tile. Served from /public/manifest.webmanifest.
+  manifest: "/manifest.webmanifest",
+  // Apple-specific status-bar styling and home-screen title. The
+  // standard manifest fields are ignored by iOS Safari until 17.4+.
+  appleWebApp: {
+    capable: true,
+    title: "AEC",
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.svg", sizes: "192x192", type: "image/svg+xml" },
+      { url: "/icons/icon-512.svg", sizes: "512x512", type: "image/svg+xml" },
+    ],
+    apple: [{ url: "/icons/icon-192.svg", sizes: "192x192" }],
+  },
+};
+
+// Theme color drives the Android status bar tint + the Chrome address-bar
+// colour in standalone mode. Slate-900 to match the dashboard chrome.
+// `viewport` is a separate Next.js export (Metadata API split since 14.0).
+export const viewport = {
+  themeColor: "#0f172a",
+  width: "device-width",
+  initialScale: 1,
+  // Allow zoom — accessibility. Disabling pinch-to-zoom breaks low-vision
+  // users on field-survey pages.
+  maximumScale: 5,
 };
 
 // Every page mounted under this layout reads request cookies and the Supabase
@@ -121,6 +152,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <Providers session={session} locale={locale} messages={messages}>
           {children}
         </Providers>
+        {/* PWA glue: registers /sw.js in prod + parks the install
+            prompt for the "Cài app" CTA. No-op on desktop / dev. */}
+        <PwaInstaller />
       </body>
     </html>
   );
