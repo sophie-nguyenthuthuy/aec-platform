@@ -535,8 +535,23 @@ def _JSONB():
 # ---------- Worker settings ----------
 
 
+async def _on_worker_startup(ctx: Any) -> None:
+    """Run one-shot bootstrap tasks before the worker starts pulling jobs.
+
+    Currently:
+      * `bootstrap_codeguard_if_empty` — ingests QCVN/TCVN fixtures on the
+        very first deploy so `/api/v1/codeguard/scan` returns hits without
+        a manual `make seed-codeguard-all`. Idempotent / fast-no-op once
+        the regulations table is populated.
+    """
+    from workers.codeguard_bootstrap import bootstrap_codeguard_if_empty
+
+    await bootstrap_codeguard_if_empty(ctx)
+
+
 class WorkerSettings:
     redis_settings = _redis_settings()
+    on_startup = _on_worker_startup
     functions = [
         photo_analysis_job,
         weekly_report_job,

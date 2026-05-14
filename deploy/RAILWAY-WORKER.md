@@ -50,6 +50,27 @@ don't block requests or get killed by Railway's per-request timeout.
    starts the arq process. There's no HTTP endpoint to probe; check the
    logs for `arq:starting` + `arq:Starting worker for N functions`.
 
+## First-deploy bootstrap (CodeGuard regulations)
+
+On the very first worker boot, `_on_worker_startup` (in
+`apps/api/workers/queue.py`) runs `bootstrap_codeguard_if_empty`. If the
+`regulations` table is empty, it ingests the 6 QCVN/TCVN excerpts under
+`apps/ml/fixtures/codeguard/` so `POST /api/v1/codeguard/scan` returns
+real hits immediately — no manual `make seed-codeguard-all` needed.
+
+Expected log lines on a fresh DB:
+```
+codeguard_bootstrap: regulations empty, ingesting 6 fixtures from /app/apps/ml/fixtures/codeguard
+codeguard_bootstrap: ingested QCVN 06:2022/BXD — 13 sections, 13 chunks
+… (5 more) …
+codeguard_bootstrap: complete
+```
+
+Subsequent restarts log `regulations table populated, skipping` (single
+COUNT, ~5ms). To force a re-ingest, `TRUNCATE regulations CASCADE` then
+bounce the service. To skip entirely (e.g. self-hosted with no Gemini),
+set `CODEGUARD_BOOTSTRAP_DISABLED=1`.
+
 ## Cron jobs
 
 arq cron lives in `apps/api/workers/queue.py::WorkerSettings.cron_jobs`.
