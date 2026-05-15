@@ -239,38 +239,48 @@ async def _readiness_checks() -> dict[str, dict]:
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
     async def _redis_check() -> dict:
+        # 2s budget — Upstash Singapore connection setup can spike when
+        # connections are cold (TLS handshake + idle-shutdown reconnect).
+        # 1s was triggering false-degraded warnings; 2s catches genuine
+        # outages without flapping.
         try:
             from arq.connections import RedisSettings, create_pool
 
             settings = get_settings()
             pool = await asyncio.wait_for(
                 create_pool(RedisSettings.from_dsn(settings.redis_url)),
-                timeout=1.0,
+                timeout=2.0,
             )
             try:
-                await asyncio.wait_for(pool.ping(), timeout=1.0)
+                await asyncio.wait_for(pool.ping(), timeout=2.0)
                 return {"ok": True}
             finally:
                 closer = getattr(pool, "aclose", None) or pool.close
                 await closer()
         except TimeoutError:
-            return {"ok": False, "error": "timeout (>1s)"}
+            return {"ok": False, "error": "timeout (>2s)"}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
     async def _storage_check() -> dict:
         """S3 / MinIO reachability — head_bucket is the cheapest probe.
-        Skips when storage isn't configured (dev / API-only deploys)."""
+        Skips when storage isn't configured (dev / API-only deploys).
+
+        3s budget: head_bucket goes over the wire to S3 (50-200ms typical
+        from Singapore Railway to AWS Singapore S3) but DNS + TLS
+        handshake can add up. 3s is comfortable headroom while still
+        keeping the readiness probe under 5s overall.
+        """
         settings = get_settings()
         if not settings.s3_bucket:
             return {"ok": True, "configured": False}
         try:
             from core.storage import head_bucket
 
-            await asyncio.wait_for(head_bucket(settings), timeout=2.0)
+            await asyncio.wait_for(head_bucket(settings), timeout=3.0)
             return {"ok": True, "configured": True, "bucket": settings.s3_bucket}
         except TimeoutError:
-            return {"ok": False, "configured": True, "error": "timeout (>2s)"}
+            return {"ok": False, "configured": True, "error": "timeout (>3s)"}
         except Exception as e:  # noqa: BLE001
             return {
                 "ok": False,
