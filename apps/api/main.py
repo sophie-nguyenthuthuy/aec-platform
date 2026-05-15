@@ -181,25 +181,47 @@ def create_app() -> FastAPI:
 
     @app.get("/health/ready")
     async def health_ready():
-        """Readiness probe — DB + Redis are reachable. 503 when degraded
-        so a load balancer pulls the pod out of rotation."""
+        """Readiness probe.
+
+        Only `db` + `redis` gate the HTTP status (503 vs 200) — those
+        are what determine whether the API can serve requests at all.
+        The other probes (`storage`, `migration`, `codeguard_regulations`)
+        are informational: a deploy with unconfigured S3 or unseeded
+        regulations is degraded-but-serving, not down. The
+        load-balancer should keep routing to it; the verify-deploy
+        script can still surface the gap.
+        """
         from fastapi.responses import JSONResponse
 
         checks = await _readiness_checks()
-        all_ok = all(c["ok"] for c in checks.values())
+        critical_keys = ("db", "redis")
+        critical_ok = all(checks[k]["ok"] for k in critical_keys)
+        # `status` flips to "degraded" if ANY check fails, even non-
+        # critical ones — operator visibility.
+        any_failed = any(not c["ok"] for c in checks.values())
         body = {
-            "data": {"status": "ok" if all_ok else "degraded", "checks": checks},
+            "data": {
+                "status": "ok" if not any_failed else "degraded",
+                "checks": checks,
+            },
             "meta": None,
             "errors": None,
         }
-        return JSONResponse(body, status_code=200 if all_ok else 503)
+        return JSONResponse(body, status_code=200 if critical_ok else 503)
 
     return app
 
 
 async def _readiness_checks() -> dict[str, dict]:
     """Run each dependency probe with a 1s budget. Reports per-dep
-    so an operator can tell at a glance which one is blocking traffic."""
+    so an operator can tell at a glance which one is blocking traffic.
+
+    Probes run in parallel. Each returns `{ok: bool, error?: str}` plus
+    optionally `count: int` / `head: str` for the seed-state probes
+    (codeguard regulations, alembic migration head). None of these
+    leak PII or secret material — they're safe to expose unauth so
+    the verify-deploy script can run without a token.
+    """
     import asyncio
 
     from sqlalchemy import text
@@ -236,8 +258,88 @@ async def _readiness_checks() -> dict[str, dict]:
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
-    db_status, redis_status = await asyncio.gather(_db_check(), _redis_check())
-    return {"db": db_status, "redis": redis_status}
+    async def _storage_check() -> dict:
+        """S3 / MinIO reachability — head_bucket is the cheapest probe.
+        Skips when storage isn't configured (dev / API-only deploys)."""
+        settings = get_settings()
+        if not settings.s3_bucket:
+            return {"ok": True, "configured": False}
+        try:
+            from core.storage import head_bucket
+
+            await asyncio.wait_for(head_bucket(settings), timeout=2.0)
+            return {"ok": True, "configured": True, "bucket": settings.s3_bucket}
+        except TimeoutError:
+            return {"ok": False, "configured": True, "error": "timeout (>2s)"}
+        except Exception as e:  # noqa: BLE001
+            return {
+                "ok": False,
+                "configured": True,
+                "error": f"{type(e).__name__}: {str(e)[:120]}",
+            }
+
+    async def _migration_head_check() -> dict:
+        """Alembic current revision. Surfaces (a) does alembic run? and
+        (b) is the head expected? Operator pins the expected head in
+        the verify-deploy script."""
+        try:
+            from sqlalchemy import text as _text
+
+            async with engine.connect() as conn:
+                result = await asyncio.wait_for(
+                    conn.execute(
+                        _text("SELECT version_num FROM alembic_version LIMIT 1")
+                    ),
+                    timeout=1.0,
+                )
+                head = result.scalar_one_or_none()
+            if not head:
+                return {"ok": False, "error": "alembic_version table empty"}
+            return {"ok": True, "head": head}
+        except TimeoutError:
+            return {"ok": False, "error": "timeout (>1s)"}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    async def _codeguard_regs_check() -> dict:
+        """Count of regulations seeded — answers "did the worker
+        bootstrap run?" without exposing the regulation list itself.
+        The numerical count alone is non-sensitive."""
+        try:
+            from sqlalchemy import text as _text
+
+            async with engine.connect() as conn:
+                result = await asyncio.wait_for(
+                    conn.execute(_text("SELECT COUNT(*) FROM regulations")),
+                    timeout=1.0,
+                )
+                count = result.scalar_one()
+            return {
+                "ok": int(count) > 0,
+                "count": int(count),
+                "error": None if int(count) > 0 else "regulations table empty",
+            }
+        except TimeoutError:
+            return {"ok": False, "error": "timeout (>1s)"}
+        except Exception as e:  # noqa: BLE001
+            # If the table doesn't exist (early in migrations), report
+            # not-ok with a clear message instead of crashing the probe.
+            return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:100]}"}
+
+    db_status, redis_status, storage_status, mig_status, regs_status = await asyncio.gather(
+        _db_check(),
+        _redis_check(),
+        _storage_check(),
+        _migration_head_check(),
+        _codeguard_regs_check(),
+    )
+    return {
+        "db": db_status,
+        "redis": redis_status,
+        "storage": storage_status,
+        "migration": mig_status,
+        "codeguard_regulations": regs_status,
+    }
 
 
 app = create_app()

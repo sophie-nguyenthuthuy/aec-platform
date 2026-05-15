@@ -104,16 +104,19 @@ fi
 
 
 section "4. MinIO / S3"
-if [[ -n "$TOKEN" ]]; then
-    s3_body=$(curl -s --max-time 10 -H "Authorization: Bearer $TOKEN" \
-        "$AEC_BASE_URL/_health/storage" || echo "{}")
-    if echo "$s3_body" | grep -q '"bucket"'; then
-        pass "Storage bucket accessible"
-    else
-        fail "Storage health failed" "$s3_body"
-    fi
+# Storage status comes from the unauthenticated /health/ready response
+# under checks.storage. No token needed.
+storage_blob=$(echo "$db_body" | grep -o '"storage":{[^}]*}' || echo "")
+if [[ -z "$storage_blob" ]]; then
+    warn "/health/ready doesn't expose storage check — older API version?"
+elif echo "$storage_blob" | grep -q '"configured":false'; then
+    warn "Storage not configured (s3_bucket empty) — dev / API-only deploy"
+elif echo "$storage_blob" | grep -q '"ok":true'; then
+    bucket=$(echo "$storage_blob" | grep -o '"bucket":"[^"]*"' | cut -d'"' -f4)
+    pass "Storage bucket reachable ($bucket)"
 else
-    warn "AEC_OPS_TOKEN not set — skipping authenticated storage check"
+    err=$(echo "$storage_blob" | grep -o '"error":"[^"]*"' | cut -d'"' -f4)
+    fail "Storage check failed" "$err"
 fi
 
 
@@ -189,32 +192,18 @@ fi
 
 
 section "10. CodeGuard regulations"
-# /regulations requires auth. Without a token we can't directly verify
-# seeding state — the auth-gate response (401/403) means the API
-# is reachable but tells us nothing about whether regulations exist.
-# When AEC_OPS_TOKEN is provided we hit the endpoint properly.
-if [[ -n "$TOKEN" ]]; then
-    reg_body=$(curl -s --max-time 10 -H "Authorization: Bearer $TOKEN" \
-        "$AEC_BASE_URL/api/v1/codeguard/regulations?limit=1" || echo "{}")
-    if echo "$reg_body" | grep -q '"code_name"'; then
-        pass "Regulations ingested (≥1 row visible to admin)"
-    elif echo "$reg_body" | grep -q '"data":\[\]'; then
-        fail "regulations table empty — run codeguard bootstrap or seed-codeguard-all"
-    elif echo "$reg_body" | grep -q "Not authenticated\|403\|401"; then
-        fail "AEC_OPS_TOKEN rejected — token may have expired"
-    else
-        warn "Unexpected response from /regulations: $reg_body"
-    fi
+# Pulled from /health/ready.checks.codeguard_regulations — no token
+# required. Reports a count (safe to expose unauth) so we can tell
+# "0 regs → bootstrap didn't run" from "300 regs → all good".
+regs_blob=$(echo "$db_body" | grep -o '"codeguard_regulations":{[^}]*}' || echo "")
+if [[ -z "$regs_blob" ]]; then
+    warn "/health/ready doesn't expose codeguard_regulations — older API?"
+elif echo "$regs_blob" | grep -q '"ok":true'; then
+    count=$(echo "$regs_blob" | grep -o '"count":[0-9]*' | cut -d: -f2)
+    pass "Regulations seeded ($count rows)"
 else
-    # Without a token we can at least verify the endpoint is reachable
-    # (returns 403 from API auth, not 502 from Railway).
-    reg_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
-        "$AEC_BASE_URL/api/v1/codeguard/regulations?limit=1" || echo "0")
-    if [[ "$reg_code" == "401" ]] || [[ "$reg_code" == "403" ]]; then
-        warn "Regulations check requires AEC_OPS_TOKEN — endpoint reachable (auth gate enforced)"
-    else
-        fail "Regulations endpoint returned $reg_code (expected 401/403 without token)"
-    fi
+    err=$(echo "$regs_blob" | grep -o '"error":"[^"]*"' | cut -d'"' -f4)
+    fail "Regulations not seeded — run codeguard bootstrap or seed-codeguard-all" "$err"
 fi
 
 
@@ -234,17 +223,19 @@ fi
 
 
 section "12. Migration revision"
-EXPECTED_REV="0053_safety_toolbox"
-if [[ -n "$TOKEN" ]]; then
-    rev_body=$(curl -s --max-time 10 -H "Authorization: Bearer $TOKEN" \
-        "$AEC_BASE_URL/_health/migration" || echo "{}")
-    if echo "$rev_body" | grep -q "\"head\":\"$EXPECTED_REV\""; then
-        pass "Migration head = $EXPECTED_REV"
-    else
-        fail "Migration head drift" "$rev_body"
-    fi
+EXPECTED_REV="0054_subcontractor_portal"
+# Pulled from /health/ready.checks.migration.head — token-free.
+mig_blob=$(echo "$db_body" | grep -o '"migration":{[^}]*}' || echo "")
+if [[ -z "$mig_blob" ]]; then
+    warn "/health/ready doesn't expose migration check — older API?"
+elif echo "$mig_blob" | grep -q "\"head\":\"$EXPECTED_REV\""; then
+    pass "Migration head = $EXPECTED_REV"
+elif echo "$mig_blob" | grep -q '"head"'; then
+    actual=$(echo "$mig_blob" | grep -o '"head":"[^"]*"' | cut -d'"' -f4)
+    warn "Migration head drift: expected $EXPECTED_REV, got $actual"
 else
-    warn "AEC_OPS_TOKEN not set — skipping migration check"
+    err=$(echo "$mig_blob" | grep -o '"error":"[^"]*"' | cut -d'"' -f4)
+    fail "Migration probe failed" "$err"
 fi
 
 

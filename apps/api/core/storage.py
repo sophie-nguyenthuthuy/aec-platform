@@ -83,6 +83,21 @@ async def put_bytes(
         )
 
 
+async def head_bucket(settings: Any) -> None:
+    """Probe the bucket — cheap call used by `/health/ready` to confirm
+    storage is reachable + credentials are valid + bucket exists.
+
+    Raises on any failure (network, auth, missing bucket). Caller maps
+    the exception to a structured health response; not catching here
+    keeps the helper general-purpose for other smoke tests.
+    """
+    import aioboto3
+
+    session = aioboto3.Session()
+    async with session.client("s3", **_client_kwargs(settings)) as client:
+        await client.head_bucket(Bucket=settings.s3_bucket)
+
+
 async def presigned_get(
     settings: Any, key: str, *, expires_seconds: int = 3600
 ) -> str:
