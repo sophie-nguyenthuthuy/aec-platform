@@ -223,7 +223,7 @@ fi
 
 
 section "12. Migration revision"
-EXPECTED_REV="0054_subcontractor_portal"
+EXPECTED_REV="0055_equipment_rental"
 # Pulled from /health/ready.checks.migration.head — token-free.
 mig_blob=$(echo "$db_body" | grep -o '"migration":{[^}]*}' || echo "")
 if [[ -z "$mig_blob" ]]; then
