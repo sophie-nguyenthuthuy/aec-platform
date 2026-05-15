@@ -1,4 +1,4 @@
-.PHONY: seed-codeguard seed-codeguard-all seed-codeguard-data seed-demo eval-codeguard test test-cov test-api test-api-cov test-api-integration test-api-integration-up test-ml test-ml-cov test-ui test-ui-cov test-web test-web-unit test-web-unit-cov hooks lint backfill-rfi-embeddings backfill-dailylog
+.PHONY: seed-codeguard seed-codeguard-all seed-codeguard-data seed-demo eval-codeguard eval-all test test-cov test-api test-api-cov test-api-integration test-api-integration-up test-ml test-ml-cov test-ui test-ui-cov test-web test-web-unit test-web-unit-cov hooks lint backfill-rfi-embeddings backfill-dailylog
 
 # Install local pre-commit hooks. Run once per clone. After this, every
 # `git commit` runs ruff check + ruff format + basic hygiene checks on
@@ -290,3 +290,17 @@ backfill-rfi-embeddings:
 backfill-dailylog:
 	@test -n "$$DATABASE_URL" || { echo "ERROR: DATABASE_URL not set" >&2; exit 1; }
 	cd apps/api && PYTHONPATH="." python -m scripts.backfill_dailylog_from_siteeye $(ARGS)
+
+# AEC AI quality eval — runs curated Q&A pairs against the live
+# CodeGuard + Drawbridge pipelines and writes reports to
+# apps/ml/eval_results/. Cost: ~50-80¢ depending on suite.
+#
+# Required env:
+#   TEST_DATABASE_URL    — Postgres with codeguard fixtures seeded
+#   GOOGLE_API_KEY       — Gemini chat + embeddings
+#   ANTHROPIC_API_KEY    — Claude scan (optional for drawbridge)
+#
+# Skip-safe: when TEST_DATABASE_URL isn't set the harness writes
+# empty reports + exits 0 so CI doesn't fail on optional gates.
+eval-all:
+	cd apps/ml && PYTHONPATH=".:../api" python -m scripts.eval_harness --suite all --report html
