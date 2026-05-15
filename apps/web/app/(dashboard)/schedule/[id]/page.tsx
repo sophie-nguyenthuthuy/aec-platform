@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -17,6 +17,7 @@ import {
   useSchedule,
 } from "@/hooks/schedule";
 import type { Activity } from "@/hooks/schedule";
+import { GanttChart } from "@/components/schedule/GanttChart";
 
 const STATUS_BADGE: Record<string, string> = {
   not_started: "bg-slate-100 text-slate-700",
@@ -42,6 +43,10 @@ export default function ScheduleDetailPage() {
   const { data, isLoading, isError } = useSchedule(id);
   const baseline = useBaseline(id ?? "");
   const runRisk = useRunRiskAssessment(id ?? "");
+  // Visual mode — list (legacy table-with-bar) or gantt (SVG chart).
+  // Default to gantt because that's the cardinal "tiến độ" view PMs
+  // expect; the list view is kept for dense data review.
+  const [view, setView] = useState<"gantt" | "list">("gantt");
 
   const criticalSet = useMemo(
     () => new Set(data?.latest_risk_assessment?.critical_path_codes ?? []),
@@ -152,16 +157,52 @@ export default function ScheduleDetailPage() {
         </div>
       )}
 
-      {/* Activities — Gantt-ish */}
-      <div className="rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
-          Danh sách hoạt động ({activities.length})
+      {/* View-mode toggle */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-900">
+          {view === "gantt" ? "Biểu đồ Gantt" : "Danh sách hoạt động"} (
+          {activities.length})
+        </h3>
+        <div className="inline-flex rounded-md bg-slate-100 p-0.5 text-xs">
+          <button
+            type="button"
+            onClick={() => setView("gantt")}
+            className={`rounded px-3 py-1 ${
+              view === "gantt"
+                ? "bg-white font-medium text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Biểu đồ Gantt
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("list")}
+            className={`rounded px-3 py-1 ${
+              view === "list"
+                ? "bg-white font-medium text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Danh sách
+          </button>
         </div>
-        {activities.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-500">
-            Chưa có hoạt động nào trong lịch này.
-          </div>
-        ) : (
+      </div>
+
+      {/* Activities */}
+      {activities.length === 0 ? (
+        <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+          Chưa có hoạt động nào trong lịch này.
+        </div>
+      ) : view === "gantt" ? (
+        <GanttChart
+          activities={activities}
+          dependencies={data.dependencies ?? []}
+          criticalCodes={criticalSet}
+          baselineFrozen={Boolean(schedule.baseline_set_at)}
+        />
+      ) : (
+        <div className="rounded-lg border border-slate-200 bg-white">
           <ul className="divide-y divide-slate-100">
             {activities.map((a) => (
               <ActivityRow
@@ -173,8 +214,8 @@ export default function ScheduleDetailPage() {
               />
             ))}
           </ul>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
