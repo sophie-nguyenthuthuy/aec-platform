@@ -26,6 +26,7 @@ const PUBLIC_ROUTES = [
   "/auth", // /auth/callback for magic links / OAuth
   "/invite", // /invite/{token} — set-password page; the token is the credential
   "/rfq", // supplier-portal token-auth pages
+  "/subcontractor", // nhà thầu phụ portal — token-auth public route
   "/onboarding", // first-run wizard — reachable by logged-in users with no org
   "/offline", // PWA offline fallback
   "/status", // public status page — must work even when authed services are down

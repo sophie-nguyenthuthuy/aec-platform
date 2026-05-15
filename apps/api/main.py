@@ -54,6 +54,7 @@ from routers import (  # noqa: E402
     schedulepilot,
     search,
     siteeye,
+    subcontractor_portal,
     submittals,
     thanhtoan,
     webhooks,
@@ -135,6 +136,10 @@ def create_app() -> FastAPI:
     app.include_router(changeorder.router)
     app.include_router(punchlist.router)
     app.include_router(safety_toolbox.router)
+    # Subcontractor portal: TWO routers, one admin (auth required),
+    # one public (token in ?t= query). main mounts both.
+    app.include_router(subcontractor_portal.admin_router)
+    app.include_router(subcontractor_portal.public_router)
     app.include_router(permitflow.router)
     app.include_router(nghiemthu.router)
     app.include_router(thanhtoan.router)
