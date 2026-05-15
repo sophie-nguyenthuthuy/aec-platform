@@ -18,6 +18,7 @@ import {
 } from "@/hooks/schedule";
 import type { Activity } from "@/hooks/schedule";
 import { GanttChart } from "@/components/schedule/GanttChart";
+import { PresenceBadge } from "@/components/PresenceBadge";
 
 const STATUS_BADGE: Record<string, string> = {
   not_started: "bg-slate-100 text-slate-700",
@@ -92,7 +93,10 @@ export default function ScheduleDetailPage() {
         </Link>
         <div className="mt-2 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-bold text-slate-900">{schedule.name}</h2>
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-2xl font-bold text-slate-900">{schedule.name}</h2>
+              {id && <PresenceBadge resourceType="schedule" resourceId={id} />}
+            </div>
             <p className="mt-1 text-sm text-slate-600">
               Trạng thái: <span className="font-medium">{schedule.status}</span>
               {" · "}Data date: {formatDate(schedule.data_date)}

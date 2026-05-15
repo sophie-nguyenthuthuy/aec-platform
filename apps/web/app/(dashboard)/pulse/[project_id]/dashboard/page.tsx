@@ -3,6 +3,7 @@ import { useParams } from "next/navigation";
 import { ProjectDashboard, GanttChart } from "@aec/ui/pulse";
 import { useProjectDashboard } from "../../../../../hooks/pulse";
 import { useTasks } from "../../../../../hooks/pulse/useTasks";
+import { PresenceBadge } from "@/components/PresenceBadge";
 
 export default function PulseDashboardPage() {
   const params = useParams<{ project_id: string }>();
@@ -21,6 +22,9 @@ export default function PulseDashboardPage() {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <PresenceBadge resourceType="project" resourceId={projectId} />
+      </div>
       <ProjectDashboard dashboard={dashboardQ.data} />
       <section>
         <h3 className="mb-2 text-sm font-semibold">Schedule (mini)</h3>
