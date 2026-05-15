@@ -49,6 +49,10 @@ async def list_my_orgs(
     # write to `users` regardless of the future tenant scope, and (b) the
     # `org_members` query runs without an `app.current_org_id` GUC pin.
     async with AdminSessionFactory() as db:
+        # User-row upsert always runs (cheap, idempotent, ensures
+        # subsequent membership lookups find the FK target). Skipping
+        # this on cache hit would re-introduce the "users row missing
+        # on first login" bug.
         await db.execute(
             text(
                 """
@@ -61,23 +65,36 @@ async def list_my_orgs(
         )
         await db.commit()
 
-        rows = (
-            (
-                await db.execute(
-                    text(
+        # Memberships read — cached for 30s. Hot path: every dashboard
+        # navigation refetches /me/orgs to render the org switcher;
+        # without cache that's one DB round-trip per page load.
+        from core.cache import get_or_compute
+
+        async def _fetch_memberships() -> list[dict]:
+            rows = (
+                (
+                    await db.execute(
+                        text(
+                            """
+                        SELECT o.id::text AS id, o.name, m.role
+                        FROM org_members m
+                        JOIN organizations o ON o.id = m.organization_id
+                        WHERE m.user_id = :uid
+                        ORDER BY o.name
                         """
-                    SELECT o.id::text AS id, o.name, m.role
-                    FROM org_members m
-                    JOIN organizations o ON o.id = m.organization_id
-                    WHERE m.user_id = :uid
-                    ORDER BY o.name
-                    """
-                    ),
-                    {"uid": str(user.user_id)},
+                        ),
+                        {"uid": str(user.user_id)},
+                    )
                 )
+                .mappings()
+                .all()
             )
-            .mappings()
-            .all()
+            return [dict(r) for r in rows]
+
+        result = await get_or_compute(
+            ("user", user.user_id, "orgs"),
+            _fetch_memberships,
+            ttl_seconds=30,
         )
 
-    return ok([dict(r) for r in rows])
+    return ok(result)

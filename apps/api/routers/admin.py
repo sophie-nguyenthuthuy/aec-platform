@@ -600,3 +600,60 @@ def _serialize_cron_field(v):
     if isinstance(v, (set, frozenset, list, tuple)):
         return sorted(v)
     return v
+
+
+# ---------- Ops freeze (multi-region failover) ----------
+#
+# Two minimal endpoints used by the runbook in
+# deploy/MULTI-REGION-FAILOVER.md. Setting the freeze flag causes the
+# global FreezeWriteMiddleware (registered in main.py) to return 503
+# for every write request — buying clean replication catch-up before
+# we promote the Tokyo replica.
+
+
+_FREEZE_REDIS_KEY = "ops:freeze"
+
+
+@router.post("/ops/freeze", status_code=200)
+async def ops_freeze(
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+):
+    """Set the global write-freeze flag in Redis.
+
+    All write methods (POST/PATCH/PUT/DELETE) return 503 with a 30-min
+    Retry-After while the flag is set. Reads continue to work — the
+    UI degrades to read-only mode.
+
+    Only used by ops during a multi-region failover. Setting this in
+    production WITHOUT being mid-failover is destructive — it'll
+    freeze every customer for the duration.
+    """
+    from workers.queue import get_pool
+
+    pool = await get_pool()
+    await pool.set(_FREEZE_REDIS_KEY, "1", ex=3600)
+    return ok({"frozen": True, "ttl_seconds": 3600})
+
+
+@router.post("/ops/unfreeze", status_code=200)
+async def ops_unfreeze(
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+):
+    """Clear the global write-freeze flag. Writes resume immediately."""
+    from workers.queue import get_pool
+
+    pool = await get_pool()
+    await pool.delete(_FREEZE_REDIS_KEY)
+    return ok({"frozen": False})
+
+
+@router.get("/ops/freeze")
+async def ops_freeze_status(
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+):
+    """Read the current freeze flag — used by status page + drill check."""
+    from workers.queue import get_pool
+
+    pool = await get_pool()
+    val = await pool.get(_FREEZE_REDIS_KEY)
+    return ok({"frozen": val is not None})

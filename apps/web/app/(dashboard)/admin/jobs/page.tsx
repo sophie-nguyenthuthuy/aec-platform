@@ -81,10 +81,16 @@ export default function AdminJobsPage() {
     setError(null);
     (async () => {
       try {
-        const onlyParam = filter !== "all" ? `?only=${filter}` : "";
+        // Build the recent-jobs path with concat instead of a template
+        // literal so the static apiFetch-path linter (which can't eval
+        // `${onlyParam}`) sees a stable string for route matching.
+        const recentPath =
+          filter !== "all"
+            ? "/api/v1/admin/jobs/recent?only=" + filter
+            : "/api/v1/admin/jobs/recent";
         const [s, j, c] = await Promise.all([
           apiFetch<JobsSummary>("/api/v1/admin/jobs/summary", { token, orgId }),
-          apiFetch<{ jobs: JobRow[] }>(`/api/v1/admin/jobs/recent${onlyParam}`, { token, orgId }),
+          apiFetch<{ jobs: JobRow[] }>(recentPath, { token, orgId }),
           apiFetch<{ crons: CronEntry[] }>("/api/v1/admin/jobs/cron", { token, orgId }),
         ]);
         if (cancelled) return;

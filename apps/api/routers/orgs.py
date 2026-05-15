@@ -123,6 +123,12 @@ async def create_org(
 
         await db.commit()
 
+    # Bust the user's /me/orgs cache — the org switcher should show the
+    # new org on the next page load, not 30s later.
+    from core.cache import invalidate
+
+    await invalidate("user", user.user_id, "orgs")
+
     return ok(
         OrgOut(
             id=org_row["id"],
