@@ -25,6 +25,7 @@ from routers import (  # noqa: E402
     bidradar,
     billing,
     bondline,
+    cashflow,
     changeorder,
     codeguard,
     costpulse,
@@ -112,6 +113,7 @@ def create_app() -> FastAPI:
     app.include_router(assistant.router)
     app.include_router(audit.router)
     app.include_router(billing.router)
+    app.include_router(cashflow.router)
     app.include_router(search.router)
     app.include_router(webhooks.router)
     app.include_router(onboarding.router)
