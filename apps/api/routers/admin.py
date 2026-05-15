@@ -421,3 +421,182 @@ async def retention_run_now(
     async with AdminSessionFactory() as session:
         summaries = await run_retention_cron(session)
     return ok({"tables": summaries})
+
+
+# ---------- Background-job dashboard (L4-8) ----------
+#
+# Three endpoints exposing the arq queue's runtime state for ops.
+# Read-only and admin-gated. Reads talk to Redis directly via the
+# arq pool (`workers.queue.get_pool`); no DB hop.
+
+
+@router.get("/jobs/summary")
+async def jobs_summary(
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+):
+    """Queue depth + counters per status.
+
+    Surfaces:
+      * queued — jobs waiting in arq's `arq:queue` sorted set
+      * in_progress — jobs that arq has dispatched but not yet acked
+      * complete (last 1h) — finished successfully in the recent past
+      * failed (last 1h) — exception-out jobs not yet retried away
+
+    arq stores job state via three Redis keys:
+      * `arq:queue` (sorted set, score=run_at) — waiting jobs
+      * `arq:in-progress:{job_id}` (key) — currently-running jobs
+      * `arq:result:{job_id}` (key) — terminal-state result bundle
+        with status='complete' or 'failed'
+
+    Counting `arq:result:*` is O(N) keys; cap at 1h via a SCAN +
+    JSON-decode + filter. For most deployments the result set is
+    sub-thousand keys so this stays cheap.
+    """
+    from workers.queue import get_pool
+
+    pool = await get_pool()
+    queued = await pool.zcard("arq:queue")
+
+    in_progress_keys = []
+    async for k in pool.scan_iter(match="arq:in-progress:*", count=200):
+        in_progress_keys.append(k)
+    in_progress = len(in_progress_keys)
+
+    # Recent results — last hour. Cap to 1000 keys to bound runtime.
+    import json
+    import time
+
+    cutoff = (time.time() - 3600) * 1000  # arq stores ms epoch
+    complete = 0
+    failed = 0
+    scanned = 0
+    async for key in pool.scan_iter(match="arq:result:*", count=200):
+        scanned += 1
+        if scanned > 1000:
+            break
+        raw = await pool.get(key)
+        if not raw:
+            continue
+        try:
+            r = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        finish_ms = r.get("finish_ms") or r.get("enqueue_time") or 0
+        if finish_ms < cutoff:
+            continue
+        if r.get("success") is True:
+            complete += 1
+        else:
+            failed += 1
+
+    return ok(
+        {
+            "queued": int(queued),
+            "in_progress": in_progress,
+            "complete_last_hour": complete,
+            "failed_last_hour": failed,
+        }
+    )
+
+
+@router.get("/jobs/recent")
+async def jobs_recent(
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+    limit: int = Query(default=50, ge=1, le=200),
+    only: Annotated[str | None, Query(pattern="^(complete|failed)$")] = None,
+):
+    """Recent completed/failed jobs.
+
+    Returns up to `limit` rows ordered by finish time DESC. Each row:
+        function, job_id, success, queue_name, enqueue_time, start_time,
+        finish_time, runtime_ms, last_failure (truncated).
+
+    Useful for the "what just blew up?" investigation flow + the
+    "did the price-scrape cron actually run last night?" smoke check.
+    """
+    from workers.queue import get_pool
+    import json
+
+    pool = await get_pool()
+
+    rows = []
+    async for key in pool.scan_iter(match="arq:result:*", count=200):
+        if len(rows) >= limit * 4:
+            # Over-collect 4x then trim post-sort, so the LIMIT applies
+            # to the recency-sorted result, not the random SCAN order.
+            break
+        raw = await pool.get(key)
+        if not raw:
+            continue
+        try:
+            r = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        success = bool(r.get("success"))
+        if only == "complete" and not success:
+            continue
+        if only == "failed" and success:
+            continue
+        finish_ms = r.get("finish_ms")
+        start_ms = r.get("start_ms")
+        runtime_ms = (
+            int(finish_ms - start_ms) if finish_ms and start_ms else None
+        )
+        result_repr = r.get("result")
+        # Failure path: `result` carries the exception; truncate to
+        # 300 chars so the dashboard row stays readable.
+        last_failure = None
+        if not success:
+            last_failure = (str(result_repr) if result_repr else "")[:300]
+        rows.append(
+            {
+                "function": r.get("function"),
+                "job_id": key.decode().rsplit(":", 1)[-1] if isinstance(key, bytes) else key.rsplit(":", 1)[-1],
+                "success": success,
+                "queue_name": r.get("queue_name"),
+                "enqueue_time_ms": r.get("enqueue_time"),
+                "start_time_ms": start_ms,
+                "finish_time_ms": finish_ms,
+                "runtime_ms": runtime_ms,
+                "last_failure": last_failure,
+            }
+        )
+
+    rows.sort(key=lambda x: x.get("finish_time_ms") or 0, reverse=True)
+    return ok({"jobs": rows[:limit]})
+
+
+@router.get("/jobs/cron")
+async def jobs_cron(
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+):
+    """List the worker's cron jobs + their next scheduled run.
+
+    Read from `workers.queue.WorkerSettings.cron_jobs` — these are
+    statically defined in code, so the list is identical across all
+    worker replicas. Doesn't query Redis.
+    """
+    from workers.queue import WorkerSettings
+
+    items = []
+    for c in getattr(WorkerSettings, "cron_jobs", []) or []:
+        items.append(
+            {
+                "function": getattr(c.coroutine, "__name__", str(c.coroutine)),
+                "hour": _serialize_cron_field(getattr(c, "hour", None)),
+                "minute": _serialize_cron_field(getattr(c, "minute", None)),
+                "weekday": _serialize_cron_field(getattr(c, "weekday", None)),
+                "day": _serialize_cron_field(getattr(c, "day", None)),
+                "month": _serialize_cron_field(getattr(c, "month", None)),
+            }
+        )
+    return ok({"crons": items})
+
+
+def _serialize_cron_field(v):
+    """Cron field can be int, set[int], or None — render as a string."""
+    if v is None:
+        return None
+    if isinstance(v, (set, frozenset, list, tuple)):
+        return sorted(v)
+    return v

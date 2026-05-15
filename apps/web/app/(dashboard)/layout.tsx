@@ -55,6 +55,7 @@ const NAV: NavItem[] = [
   { href: "/settings/export" as Route, label: "Xuất dữ liệu" },
   { href: "/settings/retention" as Route, label: "Lưu trữ dữ liệu" },
   { href: "/settings/api-keys" as Route, label: "Khoá API" },
+  { section: "Quản trị", href: "/admin/jobs" as Route, label: "Hàng đợi job" },
   { section: "Tài liệu", href: "/docs/webhooks" as Route, label: "Webhooks" },
   { href: "/docs/api" as Route, label: "Tham chiếu API" },
 ];
