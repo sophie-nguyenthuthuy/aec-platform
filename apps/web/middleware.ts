@@ -17,6 +17,8 @@ import { readSupabaseEnv } from "./lib/supabase-env";
  */
 
 const PUBLIC_ROUTES = [
+  "/", // marketing landing page renders to anonymous + authed (server-side branch)
+  "/pricing", // public pricing page
   "/login",
   "/signup", // self-serve signup; must be reachable without an auth cookie
   "/forgot-password", // email-a-reset-link form
@@ -91,8 +93,10 @@ export async function middleware(request: NextRequest) {
   // `/forgot-password` and `/reset-password` are *not* in this list —
   // a signed-in user clicking a recovery link is a legitimate path.
   if (user && (pathname === "/login" || pathname === "/signup")) {
+    // Authed user accidentally hitting the auth pages → straight to
+    // the dashboard inbox (not `/` — that's the public marketing page).
     const home = request.nextUrl.clone();
-    home.pathname = "/";
+    home.pathname = "/inbox";
     home.search = "";
     return NextResponse.redirect(home);
   }
