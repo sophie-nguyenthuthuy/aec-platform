@@ -1,4 +1,4 @@
-.PHONY: seed-codeguard seed-codeguard-all seed-codeguard-data seed-demo eval-codeguard eval-all test test-cov test-api test-api-cov test-api-integration test-api-integration-up test-ml test-ml-cov test-ui test-ui-cov test-web test-web-unit test-web-unit-cov hooks lint backfill-rfi-embeddings backfill-dailylog
+.PHONY: seed-codeguard seed-codeguard-all seed-codeguard-data seed-demo eval-codeguard eval-all verify-deploy test test-cov test-api test-api-cov test-api-integration test-api-integration-up test-ml test-ml-cov test-ui test-ui-cov test-web test-web-unit test-web-unit-cov hooks lint backfill-rfi-embeddings backfill-dailylog
 
 # Install local pre-commit hooks. Run once per clone. After this, every
 # `git commit` runs ruff check + ruff format + basic hygiene checks on
@@ -304,3 +304,11 @@ backfill-dailylog:
 # empty reports + exits 0 so CI doesn't fail on optional gates.
 eval-all:
 	cd apps/ml && PYTHONPATH=".:../api" python -m scripts.eval_harness --suite all --report html
+
+# Run scripts/verify_deployment.sh against a live deploy. Required env:
+#   AEC_BASE_URL=https://api.aec-platform.vn (or staging URL)
+# Optional:
+#   AEC_OPS_TOKEN=<admin-jwt>   — unlocks worker + migration + storage checks
+verify-deploy:
+	@test -n "$$AEC_BASE_URL" || { echo "ERROR: AEC_BASE_URL not set" >&2; exit 1; }
+	./scripts/verify_deployment.sh

@@ -28,6 +28,7 @@ const PUBLIC_ROUTES = [
   "/rfq", // supplier-portal token-auth pages
   "/onboarding", // first-run wizard — reachable by logged-in users with no org
   "/offline", // PWA offline fallback
+  "/status", // public status page — must work even when authed services are down
   "/api/health",
 ];
 
