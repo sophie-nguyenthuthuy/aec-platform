@@ -31,13 +31,19 @@ export default function PulseProjectLayout({
             {n.label}
           </Link>
         ))}
-        {/* Cross-link to the cashflow module which lives outside the
-            pulse route tree but is naturally discovered from here. */}
+        {/* Cross-links to modules that live outside the pulse route
+            tree but are naturally discovered from the project hub. */}
         <Link
           href={`/cashflow/${params.project_id}` as Route}
           className="rounded px-2 py-1 text-blue-600 hover:bg-blue-50"
         >
           Dòng tiền ↗
+        </Link>
+        <Link
+          href={`/safety-toolbox/${params.project_id}` as Route}
+          className="rounded px-2 py-1 text-amber-700 hover:bg-amber-50"
+        >
+          Họp an toàn ↗
         </Link>
       </nav>
       {children}

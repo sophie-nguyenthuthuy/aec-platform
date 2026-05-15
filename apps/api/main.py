@@ -50,6 +50,7 @@ from routers import (  # noqa: E402
     public_rfq,
     pulse,
     punchlist,
+    safety_toolbox,
     schedulepilot,
     search,
     siteeye,
@@ -133,6 +134,7 @@ def create_app() -> FastAPI:
     app.include_router(dailylog.router)
     app.include_router(changeorder.router)
     app.include_router(punchlist.router)
+    app.include_router(safety_toolbox.router)
     app.include_router(permitflow.router)
     app.include_router(nghiemthu.router)
     app.include_router(thanhtoan.router)
