@@ -89,10 +89,17 @@ fi
 
 section "3. Redis / arq queue"
 metrics=$(curl -s --max-time 10 "$AEC_BASE_URL/metrics" || echo "")
-if echo "$metrics" | grep -q "aec_arq_queued_jobs"; then
-    pass "Redis reachable (arq metrics exported)"
+# The actual metric exported by core/metrics.py is `arq_queue_depth`
+# (gauge). A value of -1 means the api couldn't reach Redis.
+if echo "$metrics" | grep -q "^arq_queue_depth "; then
+    depth=$(echo "$metrics" | grep "^arq_queue_depth " | tail -1 | awk '{print $2}')
+    if [[ "$depth" == "-1" ]] || [[ "$depth" == "-1.0" ]]; then
+        fail "arq_queue_depth = -1 → API cannot reach Redis"
+    else
+        pass "Redis reachable (arq_queue_depth = $depth)"
+    fi
 else
-    warn "/metrics doesn't expose arq counters — check worker registration"
+    warn "/metrics doesn't expose arq_queue_depth — verify worker.queue is importable on the api service"
 fi
 
 
@@ -182,12 +189,32 @@ fi
 
 
 section "10. CodeGuard regulations"
-# Public endpoint — no auth needed.
-reg_body=$(curl -s --max-time 10 "$AEC_BASE_URL/api/v1/codeguard/regulations?limit=1" || echo "{}")
-if echo "$reg_body" | grep -q '"id"'; then
-    pass "Regulations ingested (≥1 row found)"
+# /regulations requires auth. Without a token we can't directly verify
+# seeding state — the auth-gate response (401/403) means the API
+# is reachable but tells us nothing about whether regulations exist.
+# When AEC_OPS_TOKEN is provided we hit the endpoint properly.
+if [[ -n "$TOKEN" ]]; then
+    reg_body=$(curl -s --max-time 10 -H "Authorization: Bearer $TOKEN" \
+        "$AEC_BASE_URL/api/v1/codeguard/regulations?limit=1" || echo "{}")
+    if echo "$reg_body" | grep -q '"code_name"'; then
+        pass "Regulations ingested (≥1 row visible to admin)"
+    elif echo "$reg_body" | grep -q '"data":\[\]'; then
+        fail "regulations table empty — run codeguard bootstrap or seed-codeguard-all"
+    elif echo "$reg_body" | grep -q "Not authenticated\|403\|401"; then
+        fail "AEC_OPS_TOKEN rejected — token may have expired"
+    else
+        warn "Unexpected response from /regulations: $reg_body"
+    fi
 else
-    fail "No regulations found — run codeguard bootstrap or seed-codeguard-all"
+    # Without a token we can at least verify the endpoint is reachable
+    # (returns 403 from API auth, not 502 from Railway).
+    reg_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+        "$AEC_BASE_URL/api/v1/codeguard/regulations?limit=1" || echo "0")
+    if [[ "$reg_code" == "401" ]] || [[ "$reg_code" == "403" ]]; then
+        warn "Regulations check requires AEC_OPS_TOKEN — endpoint reachable (auth gate enforced)"
+    else
+        fail "Regulations endpoint returned $reg_code (expected 401/403 without token)"
+    fi
 fi
 
 
