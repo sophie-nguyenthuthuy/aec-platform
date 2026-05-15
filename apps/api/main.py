@@ -32,6 +32,7 @@ from routers import (  # noqa: E402
     dailylog,
     drawbridge,
     einvoice,
+    equipment_rental,
     files,
     greenmark,
     handover,
@@ -145,6 +146,7 @@ def create_app() -> FastAPI:
     app.include_router(thanhtoan.router)
     app.include_router(pccc.router)
     app.include_router(einvoice.router)
+    app.include_router(equipment_rental.router)
     app.include_router(greenmark.router)
     app.include_router(bondline.router)
     app.include_router(workforce.router)
