@@ -70,6 +70,16 @@ from routers import exports as exports_router  # noqa: E402
 from routers import imports as imports_router  # noqa: E402
 
 
+# Module-level boot time — captured once when the process starts.
+# Powers the /_meta/version uptime field. Doing this at import time
+# (vs first request) means the first health probe reports a
+# trustworthy value: any subsequent restart is visible as an
+# uptime reset, which is what ops actually want to know.
+from datetime import UTC, datetime  # noqa: E402
+
+_BOOT_TIME = datetime.now(UTC)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
 
@@ -79,7 +89,9 @@ def create_app() -> FastAPI:
     if settings.environment == "production" and settings.supabase_jwt_secret == "dev-secret-change-me":
         raise RuntimeError("AEC_ENV=production but SUPABASE_JWT_SECRET is the dev default — refusing to start")
 
-    app = FastAPI(title="AEC Platform API", version="0.1.0")
+    from core.version import get_version
+
+    app = FastAPI(title="AEC Platform API", version=get_version())
 
     # CORS: explicit allow-list from env PLUS a regex covering every
     # `aec-platform-*.vercel.app` preview/alias domain. Vercel mints
@@ -167,6 +179,34 @@ def create_app() -> FastAPI:
     async def health() -> dict:
         """Liveness probe — process is up. Cheap, never touches DB/Redis."""
         return {"data": {"status": "ok"}, "meta": None, "errors": None}
+
+    @app.get("/_meta/version")
+    async def meta_version() -> dict:
+        """Deployed version + git SHA + boot time.
+
+        Used by `make verify-deploy` to confirm the live API matches the
+        commit you just pushed. Safe to expose unauth: nothing sensitive
+        — version is committed to git + git SHA is a public attribute
+        of any commit on `main`.
+        """
+        import os
+        from datetime import UTC, datetime
+
+        from core.version import get_git_sha, get_version
+
+        return {
+            "data": {
+                "version": get_version(),
+                "git_sha": get_git_sha(),
+                "environment": os.environ.get("AEC_ENV", "development"),
+                "boot_time_utc": _BOOT_TIME.isoformat(),
+                "uptime_seconds": int(
+                    (datetime.now(UTC) - _BOOT_TIME).total_seconds()
+                ),
+            },
+            "meta": None,
+            "errors": None,
+        }
 
     @app.get("/metrics")
     async def metrics():

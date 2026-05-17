@@ -1,4 +1,4 @@
-.PHONY: seed-codeguard seed-codeguard-all seed-codeguard-data seed-demo eval-codeguard eval-all verify-deploy env-checklist test test-cov test-api test-api-cov test-api-integration test-api-integration-up test-ml test-ml-cov test-ui test-ui-cov test-web test-web-unit test-web-unit-cov hooks lint backfill-rfi-embeddings backfill-dailylog
+.PHONY: seed-codeguard seed-codeguard-all seed-codeguard-data seed-demo eval-codeguard eval-all verify-deploy env-checklist release test test-cov test-api test-api-cov test-api-integration test-api-integration-up test-ml test-ml-cov test-ui test-ui-cov test-web test-web-unit test-web-unit-cov hooks lint backfill-rfi-embeddings backfill-dailylog
 
 # Install local pre-commit hooks. Run once per clone. After this, every
 # `git commit` runs ruff check + ruff format + basic hygiene checks on
@@ -320,3 +320,15 @@ verify-deploy:
 # Default: all.
 env-checklist:
 	./scripts/setup_env_checklist.sh $${SERVICE:-all}
+
+# Cut a release. Bumps VERSION + pyproject.toml + package.json,
+# updates CHANGELOG, creates a commit + annotated tag. Doesn't push
+# by default — add VERSION=patch|minor|major|X.Y.Z PUSH=1 to push.
+#
+# Examples:
+#   make release VERSION=patch          # 1.0.0 → 1.0.1, local only
+#   make release VERSION=minor PUSH=1   # 1.0.0 → 1.1.0, push + tag
+#   make release VERSION=2.0.0          # explicit version
+release:
+	@test -n "$$VERSION" || { echo "ERROR: VERSION not set (patch|minor|major|X.Y.Z)" >&2; exit 1; }
+	./scripts/release.sh $$VERSION $$(if [ "$$PUSH" = "1" ]; then echo "--push"; fi)

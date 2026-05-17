@@ -1,0 +1,91 @@
+name: release
+
+# Triggers on push of a vX.Y.Z tag (created by scripts/release.sh).
+# Creates a GitHub Release with the CHANGELOG section as body. Does
+# NOT publish to any package registry — internal SaaS, no consumers
+# outside this repo.
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write  # needed to create the GitHub Release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need tags for the CHANGELOG diff
+
+      - name: Verify VERSION matches tag
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          file_version="$(cat VERSION | tr -d '[:space:]')"
+          if [[ "$tag_version" != "$file_version" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match VERSION file ($file_version)"
+            exit 1
+          fi
+          echo "✓ Tag and VERSION agree on $file_version"
+
+      - name: Verify pyproject + package.json versions
+        run: |
+          file_version="$(cat VERSION | tr -d '[:space:]')"
+
+          py_version=$(grep -E '^version = ' apps/api/pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          if [[ "$py_version" != "$file_version" ]]; then
+            echo "::error::apps/api/pyproject.toml version ($py_version) != VERSION ($file_version)"
+            exit 1
+          fi
+
+          js_version=$(python3 -c "import json; print(json.load(open('apps/web/package.json'))['version'])")
+          if [[ "$js_version" != "$file_version" ]]; then
+            echo "::error::apps/web/package.json version ($js_version) != VERSION ($file_version)"
+            exit 1
+          fi
+
+          echo "✓ All version files agree on $file_version"
+
+      - name: Extract changelog section for this version
+        id: changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          section=$(python3 <<EOF
+          import re
+          text = open('CHANGELOG.md').read()
+          m = re.search(rf'^## \[{re.escape("$version")}\][^\n]*\n(.*?)(?=\n## \[|\Z)', text, re.S | re.M)
+          if m:
+              print(m.group(1).strip())
+          else:
+              print(f'See git log for changes in {"$version"}.')
+          EOF
+          )
+          # Multiline → GH Actions output
+          {
+            echo "section<<EOF"
+            echo "$section"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: AEC Platform ${{ github.ref_name }}
+          body: |
+            ${{ steps.changelog.outputs.section }}
+
+            ---
+
+            **Deploy**: this tag will trigger Railway redeploy of the api + worker via the `main` branch tracker. The `/_meta/version` endpoint will report `${{ github.ref_name }}` after rollout.
+
+            **Verify**:
+            ```
+            AEC_BASE_URL=https://aec-platform-production.up.railway.app make verify-deploy
+            curl https://aec-platform-production.up.railway.app/_meta/version
+            ```
+          draft: false
+          prerelease: false

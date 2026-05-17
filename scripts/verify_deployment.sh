@@ -75,6 +75,26 @@ else
     fail "GET $AEC_BASE_URL/health → $http_code (expected 200)"
 fi
 
+# Version + git SHA — deployed code identity. Useful for "did Railway
+# actually pick up my last push?" forensics.
+if [[ -f VERSION ]]; then
+    expected_version="$(cat VERSION | tr -d '[:space:]')"
+else
+    expected_version=""
+fi
+version_body=$(curl -s --max-time 5 "$AEC_BASE_URL/_meta/version" || echo "")
+if echo "$version_body" | grep -q '"version"'; then
+    deployed_version=$(echo "$version_body" | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
+    deployed_sha=$(echo "$version_body" | grep -o '"git_sha":"[^"]*"' | head -1 | cut -d'"' -f4)
+    if [[ -n "$expected_version" && "$expected_version" != "$deployed_version" ]]; then
+        warn "Deployed version $deployed_version does NOT match local VERSION ($expected_version) — deploy may be behind"
+    else
+        pass "Deployed version: $deployed_version (sha: $deployed_sha)"
+    fi
+else
+    warn "/_meta/version not available — older deploy"
+fi
+
 
 section "2. Database health (readiness probe)"
 db_body=$(curl -s --max-time 10 "$AEC_BASE_URL/health/ready" || echo "{}")

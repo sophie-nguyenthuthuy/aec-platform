@@ -4,7 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aec-api"
-version = "0.1.0"
+# Keep in lockstep with /VERSION at repo root + apps/web/package.json.
+# `scripts/release.sh` updates all three. CI verifies they match.
+version = "1.0.0"
 requires-python = ">=3.11"
 
 [tool.ruff]

@@ -35,77 +35,103 @@ pytestmark = [
 ]
 
 
-# Admin engine for bypass-RLS seeding (orgs + project rows the per-module
-# inserts depend on).
+# Admin URL for bypass-RLS seeding (orgs + project rows the per-module
+# inserts depend on). Each fixture creates a fresh engine to avoid the
+# event-loop-closed crash that hits when an engine is reused across
+# function-scoped asyncio loops (sqlalchemy + asyncpg close-on-teardown
+# is bound to the loop that opened the connection).
 def _admin_url() -> str:
-    # The COSTPULSE_RLS_DB_URL convention points at the migration role;
-    # fall back to DATABASE_URL_ADMIN if it's set explicitly.
     return os.environ.get("DATABASE_URL_ADMIN") or _DB_URL  # type: ignore[return-value]
 
 
 @pytest.fixture
-async def admin_session():
-    eng = create_async_engine(_admin_url(), pool_pre_ping=True)
-    Session = async_sessionmaker(eng, expire_on_commit=False, class_=AsyncSession)
-    async with Session() as s:
-        yield s
-    await eng.dispose()
+async def seeded_org() -> dict:
+    """Create a throwaway org + user + project for the test.
 
+    Uses a per-fixture engine to keep the asyncpg connection bound to
+    the current asyncio loop. Cleans up at teardown via CASCADE on
+    org delete.
+    """
+    from sqlalchemy.pool import NullPool
 
-@pytest.fixture
-async def seeded_org(admin_session: AsyncSession) -> dict:
-    """Create a throwaway org + user + project so each test has tenants
-    to attach to. Cleans up at teardown via CASCADE on org delete."""
     org_id = uuid.uuid4()
     user_id = uuid.uuid4()
     project_id = uuid.uuid4()
     slug = f"vnit-{org_id.hex[:8]}"
 
-    await admin_session.execute(
-        text(
-            """
-            INSERT INTO users (id, email, full_name, preferred_language, created_at)
-            VALUES (:id, :email, 'VN Integration', 'vi', NOW())
-            """
-        ),
-        {"id": str(user_id), "email": f"{slug}@test.local"},
-    )
-    await admin_session.execute(
-        text(
-            """
-            INSERT INTO organizations (id, name, slug, plan, modules, settings, country_code, created_at)
-            VALUES (:id, 'VN IT', :slug, 'starter', '[]'::jsonb, '{}'::jsonb, 'VN', NOW())
-            """
-        ),
-        {"id": str(org_id), "slug": slug},
-    )
-    await admin_session.execute(
-        text(
-            """
-            INSERT INTO projects (id, organization_id, name, type, status, created_at)
-            VALUES (:id, :org, 'Toà A', 'building', 'active', NOW())
-            """
-        ),
-        {"id": str(project_id), "org": str(org_id)},
-    )
-    await admin_session.commit()
-    yield {"org_id": org_id, "user_id": user_id, "project_id": project_id}
-    # CASCADE deletes everything created under this org.
-    await admin_session.execute(
-        text("DELETE FROM organizations WHERE id = :id"),
-        {"id": str(org_id)},
-    )
-    await admin_session.commit()
+    eng = create_async_engine(_admin_url(), poolclass=NullPool)
+    Session = async_sessionmaker(eng, expire_on_commit=False, class_=AsyncSession)
+    try:
+        async with Session() as s:
+            await s.execute(
+                text(
+                    """
+                    INSERT INTO users (id, email, full_name, preferred_language, created_at)
+                    VALUES (:id, :email, 'VN Integration', 'vi', NOW())
+                    """
+                ),
+                {"id": str(user_id), "email": f"{slug}@test.local"},
+            )
+            await s.execute(
+                text(
+                    """
+                    INSERT INTO organizations (id, name, slug, plan, modules, settings, country_code, created_at)
+                    VALUES (:id, 'VN IT', :slug, 'starter', '[]'::jsonb, '{}'::jsonb, 'VN', NOW())
+                    """
+                ),
+                {"id": str(org_id), "slug": slug},
+            )
+            await s.execute(
+                text(
+                    """
+                    INSERT INTO projects (id, organization_id, name, type, status, created_at)
+                    VALUES (:id, :org, 'Toà A', 'building', 'active', NOW())
+                    """
+                ),
+                {"id": str(project_id), "org": str(org_id)},
+            )
+            await s.commit()
+
+        yield {"org_id": org_id, "user_id": user_id, "project_id": project_id}
+
+        async with Session() as s:
+            await s.execute(
+                text("DELETE FROM organizations WHERE id = :id"),
+                {"id": str(org_id)},
+            )
+            await s.commit()
+    finally:
+        await eng.dispose()
 
 
 @pytest.fixture
 async def tenant_session(seeded_org):
-    """Open a TenantAwareSession scoped to the seeded org. Mirrors what
-    request handlers do — RLS policies apply."""
-    from db.session import TenantAwareSession
+    """Open a fresh tenant-scoped session with the RLS GUC set.
 
-    async with TenantAwareSession(seeded_org["org_id"]) as session:
-        yield session
+    Inlined (rather than `TenantAwareSession` from `db.session`) so each
+    test gets a per-test engine — the module-level engine in
+    `db.session` binds its pool to whatever asyncio loop opens it first,
+    and reusing it across pytest function-scoped loops crashes with
+    `Event loop is closed`. NullPool sidesteps the pool entirely.
+    """
+    from sqlalchemy.pool import NullPool
+
+    # Use the app's normal RLS-enforced URL — NOT the admin URL —
+    # so policies apply exactly like in a request handler.
+    app_url = os.environ.get("DATABASE_URL") or _DB_URL
+    eng = create_async_engine(app_url, poolclass=NullPool)
+    Session = async_sessionmaker(eng, expire_on_commit=False, class_=AsyncSession)
+    try:
+        async with Session() as session:
+            # Set the RLS GUC for this transaction's lifetime.
+            await session.execute(
+                text("SELECT set_config('app.current_org_id', :org, true)"),
+                {"org": str(seeded_org["org_id"])},
+            )
+            yield session
+            await session.commit()
+    finally:
+        await eng.dispose()
 
 
 # ---------- Module 1: PermitFlow ----------
@@ -472,8 +498,10 @@ async def test_rls_blocks_cross_tenant_read(seeded_org):
     project_a = seeded_org["project_id"]
 
     # Seed a second org via admin to compare against.
+    from sqlalchemy.pool import NullPool
+
     admin_url = _admin_url()
-    eng = create_async_engine(admin_url, pool_pre_ping=True)
+    eng = create_async_engine(admin_url, poolclass=NullPool)
     Session = async_sessionmaker(eng, expire_on_commit=False, class_=AsyncSession)
     org_b = uuid.uuid4()
     async with Session() as s:
