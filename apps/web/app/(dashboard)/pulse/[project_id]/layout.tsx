@@ -45,6 +45,12 @@ export default function PulseProjectLayout({
         >
           Họp an toàn ↗
         </Link>
+        <Link
+          href={`/equipment/${params.project_id}` as Route}
+          className="rounded px-2 py-1 text-amber-700 hover:bg-amber-50"
+        >
+          Máy thi công ↗
+        </Link>
       </nav>
       {children}
     </div>

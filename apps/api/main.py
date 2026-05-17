@@ -38,6 +38,7 @@ from routers import (  # noqa: E402
     handover,
     inbox,
     invitations,
+    material_price_index,
     me,
     my_work,
     nghiemthu,
@@ -147,6 +148,7 @@ def create_app() -> FastAPI:
     app.include_router(pccc.router)
     app.include_router(einvoice.router)
     app.include_router(equipment_rental.router)
+    app.include_router(material_price_index.router)
     app.include_router(greenmark.router)
     app.include_router(bondline.router)
     app.include_router(workforce.router)

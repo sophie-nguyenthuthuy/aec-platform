@@ -657,3 +657,131 @@ async def ops_freeze_status(
     pool = await get_pool()
     val = await pool.get(_FREEZE_REDIS_KEY)
     return ok({"frozen": val is not None})
+
+
+# ---------- Integration status (admin operator surface) ----------
+#
+# Surfaces the state of every external integration WITHOUT leaking
+# secret values. The verify-deploy script + the in-app
+# /admin/setup-status page both consume this.
+
+
+@router.get("/integrations/status")
+async def integrations_status(
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+):
+    """Per-integration health report. Reports ONLY whether the env
+    var / config is present + format-valid — never the value itself.
+
+    Categories:
+      * `auth` — SSO providers (Google, Microsoft)
+      * `email` — Resend or SMTP
+      * `billing` — Stripe
+      * `observability` — Sentry
+      * `ai` — Google API key (Gemini)
+      * `storage` — S3 / MinIO credentials
+    """
+    import os
+    from core.config import get_settings
+
+    settings = get_settings()
+
+    def _has(env_name: str) -> bool:
+        return bool(os.environ.get(env_name))
+
+    def _setting(name: str) -> bool:
+        return bool(getattr(settings, name, None))
+
+    integrations = {
+        "auth": {
+            "supabase_url": _setting("supabase_url"),
+            "supabase_jwt_secret": _setting("supabase_jwt_secret"),
+            "google_oauth_configured": _has("GOOGLE_OAUTH_CLIENT_ID"),
+            "microsoft_oauth_configured": _has("MICROSOFT_OAUTH_CLIENT_ID"),
+            "note": (
+                "OAuth providers must ALSO be toggled in Supabase dashboard "
+                "(Auth → Providers). This endpoint can't probe that — verify "
+                "manually."
+            ),
+        },
+        "email": {
+            "resend_configured": _setting("resend_api_key"),
+            "resend_from_set": _setting("resend_from"),
+            "smtp_configured": _setting("smtp_host") and _setting("smtp_user"),
+            "active_backend": (
+                "resend"
+                if _setting("resend_api_key")
+                else "smtp"
+                if _setting("smtp_host") and _setting("smtp_user")
+                else "none (emails will no-op)"
+            ),
+        },
+        "billing": {
+            "stripe_secret_key": _has("STRIPE_SECRET_KEY"),
+            "stripe_webhook_secret": _has("STRIPE_WEBHOOK_SECRET"),
+            "stripe_pro_price_id": _has("STRIPE_PRICE_PRO_USD"),
+            "vietqr_bank_configured": _has("BILLING_BANK_ACCOUNT"),
+        },
+        "observability": {
+            "sentry_dsn": _setting("sentry_dsn"),
+            "sentry_traces_sample_rate": settings.sentry_traces_sample_rate,
+            "sentry_profiles_sample_rate": settings.sentry_profiles_sample_rate,
+            "sentry_release": _setting("sentry_release")
+            or os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+            or os.environ.get("VERCEL_GIT_COMMIT_SHA"),
+        },
+        "ai": {
+            "google_api_key": _has("GOOGLE_API_KEY"),
+            "anthropic_api_key": _has("ANTHROPIC_API_KEY"),
+            "openai_api_key": _has("OPENAI_API_KEY"),
+            "note": "Worker needs GOOGLE_API_KEY for CodeGuard bootstrap + Drawbridge ingest.",
+        },
+        "storage": {
+            "s3_bucket": _setting("s3_bucket"),
+            "s3_endpoint_url": _setting("s3_endpoint_url"),
+            "aws_region": settings.aws_region,
+            "s3_credentials_configured": (
+                _setting("s3_access_key_id") and _setting("s3_secret_access_key")
+            )
+            or _has("AWS_ACCESS_KEY_ID"),
+        },
+    }
+
+    # Roll up to a single "ready for launch" score
+    critical = [
+        integrations["auth"]["supabase_url"],
+        integrations["auth"]["supabase_jwt_secret"],
+        integrations["ai"]["google_api_key"],
+    ]
+    important = [
+        integrations["email"]["active_backend"] != "none (emails will no-op)",
+        integrations["observability"]["sentry_dsn"],
+        integrations["storage"]["s3_bucket"]
+        and integrations["storage"]["s3_credentials_configured"],
+    ]
+    nice_to_have = [
+        integrations["billing"]["stripe_secret_key"],
+        integrations["auth"]["google_oauth_configured"],
+        integrations["auth"]["microsoft_oauth_configured"],
+    ]
+
+    return ok(
+        {
+            "integrations": integrations,
+            "readiness": {
+                "critical_ok": sum(1 for c in critical if c),
+                "critical_total": len(critical),
+                "important_ok": sum(1 for c in important if c),
+                "important_total": len(important),
+                "nice_to_have_ok": sum(1 for c in nice_to_have if c),
+                "nice_to_have_total": len(nice_to_have),
+                "verdict": (
+                    "ready"
+                    if all(critical) and all(important)
+                    else "partially_configured"
+                    if all(critical)
+                    else "not_ready"
+                ),
+            },
+        }
+    )

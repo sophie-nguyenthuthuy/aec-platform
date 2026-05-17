@@ -30,6 +30,7 @@ const NAV: NavItem[] = [
   { section: "Giai đoạn đấu thầu", href: "/bidradar" as Route, label: "BidRadar — Săn gói thầu" },
   { href: "/winwork" as Route, label: "WinWork — Đề xuất & Báo giá" },
   { href: "/costpulse" as Route, label: "CostPulse — Dự toán & Vật tư" },
+  { href: "/material-prices" as Route, label: "Bảng giá vật tư" },
   { section: "Giai đoạn thi công", href: "/pulse" as Route, label: "Pulse — Điều phối dự án" },
   { href: "/siteeye" as Route, label: "SiteEye — Giám sát công trường" },
   { href: "/schedule" as Route, label: "Tiến độ dự án" },
@@ -55,7 +56,8 @@ const NAV: NavItem[] = [
   { href: "/settings/export" as Route, label: "Xuất dữ liệu" },
   { href: "/settings/retention" as Route, label: "Lưu trữ dữ liệu" },
   { href: "/settings/api-keys" as Route, label: "Khoá API" },
-  { section: "Quản trị", href: "/admin/jobs" as Route, label: "Hàng đợi job" },
+  { section: "Quản trị", href: "/admin/setup-status" as Route, label: "Trạng thái cài đặt" },
+  { href: "/admin/jobs" as Route, label: "Hàng đợi job" },
   { section: "Tài liệu", href: "/docs/webhooks" as Route, label: "Webhooks" },
   { href: "/docs/api" as Route, label: "Tham chiếu API" },
 ];
