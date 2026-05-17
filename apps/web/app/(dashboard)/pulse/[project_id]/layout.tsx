@@ -51,6 +51,12 @@ export default function PulseProjectLayout({
         >
           Máy thi công ↗
         </Link>
+        <Link
+          href={`/warranties/${params.project_id}` as Route}
+          className="rounded px-2 py-1 text-emerald-700 hover:bg-emerald-50"
+        >
+          Bảo hành ↗
+        </Link>
       </nav>
       {children}
     </div>

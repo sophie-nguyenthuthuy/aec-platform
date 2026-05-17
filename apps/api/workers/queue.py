@@ -451,6 +451,158 @@ async def rfq_deadlines_cron(ctx: dict) -> dict:
     return {"expired_slots": expired_slots, "expired_rfqs": expired_rfqs}
 
 
+async def warranty_reminders_cron(ctx: dict) -> dict:
+    """Daily reminder cron — emails the vendor + customer N days before
+    each warranty's expiry.
+
+    Three windows: 60 days (early heads-up), 30 days (vendor courtesy
+    notice), 7 days (last call to file claims before warranty closes).
+    Idempotent via the (warranty_id, days_before_expiry) UQ on
+    `warranty_reminders_sent` — running twice on the same day is a no-op.
+
+    Cross-tenant: AdminSessionFactory because the cron scans every
+    tenant's warranties at once. Each org's warranty_items rows carry
+    organization_id which we forward into the sent-log row.
+
+    Email recipients come from `warranty_items.claim_contact` JSONB:
+    a dict shaped {emails: [...], phones: [...], notify_owner: bool}.
+    If the dict is empty, we log + skip — the warranty record is
+    incomplete, ops gets a dashboard alert via SentryNotConfigured.
+    """
+    from datetime import UTC, date as _date, datetime as _dt, timedelta as _td
+    from sqlalchemy import text as sql_text
+
+    from db.session import AdminSessionFactory
+    from services.mailer import send_mail
+
+    today = _date.today()
+    windows = [60, 30, 7]
+    sent_count = 0
+    skipped = 0
+
+    async with AdminSessionFactory() as session:
+        for days_before in windows:
+            target_date = today + _td(days=days_before)
+
+            # Find warranties whose expiry is exactly `target_date`
+            # that we haven't yet notified for this window.
+            rows = (
+                await session.execute(
+                    sql_text(
+                        """
+                        SELECT
+                            w.id, w.organization_id, w.item_name,
+                            w.vendor, w.expiry_date, w.claim_contact,
+                            p.name AS project_name,
+                            o.name AS org_name
+                        FROM warranty_items w
+                        JOIN projects p ON p.id = w.project_id
+                        JOIN organizations o ON o.id = w.organization_id
+                        WHERE w.expiry_date = :target
+                          AND w.status = 'active'
+                          AND NOT EXISTS (
+                              SELECT 1 FROM warranty_reminders_sent r
+                              WHERE r.warranty_item_id = w.id
+                                AND r.days_before_expiry = :days
+                          )
+                        """
+                    ),
+                    {"target": target_date, "days": days_before},
+                )
+            ).mappings().all()
+
+            for row in rows:
+                contact = row["claim_contact"] or {}
+                emails = contact.get("emails") or []
+                if not emails:
+                    skipped += 1
+                    logger.info(
+                        "warranty_reminders_cron: skipping warranty=%s (no contact emails)",
+                        row["id"],
+                    )
+                    continue
+
+                # Build the email body — VN-friendly
+                subject = (
+                    f"[AEC Platform] Bảo hành sắp hết hạn ({days_before} ngày): "
+                    f"{row['item_name']}"
+                )
+                body = (
+                    f"Kính gửi đối tác,\n\n"
+                    f"Hạng mục **{row['item_name']}** của dự án "
+                    f"**{row['project_name']}** ({row['org_name']}) "
+                    f"sẽ hết bảo hành sau {days_before} ngày, vào "
+                    f"{row['expiry_date'].strftime('%d/%m/%Y')}.\n\n"
+                    f"Nhà cung cấp: {row['vendor'] or 'chưa ghi'}.\n\n"
+                    f"Vui lòng kiểm tra hạng mục, nếu phát hiện vấn đề "
+                    f"hãy ghi nhận tại cổng WarrantyTracker trên AEC Platform "
+                    f"trước khi hết hạn.\n\n"
+                    f"Trân trọng,\nAEC Platform"
+                )
+
+                # Send to first email (recipients arg accepts a single
+                # address per call; for multi-recipient we loop). We
+                # log all attempted recipients into the audit row.
+                delivered_any = False
+                last_reason: str | None = None
+                for email in emails:
+                    try:
+                        d = await send_mail(
+                            to=email,
+                            subject=subject,
+                            text_body=body,
+                        )
+                        if d.get("delivered"):
+                            delivered_any = True
+                        else:
+                            last_reason = d.get("reason") or "unknown"
+                    except Exception as exc:  # noqa: BLE001
+                        last_reason = f"send_exception:{type(exc).__name__}"
+                        logger.warning(
+                            "warranty_reminders_cron: send_mail failed for %s: %s",
+                            email,
+                            exc,
+                        )
+
+                # Always record the attempt — UQ prevents re-sending
+                # the same window even if the email itself failed.
+                # Ops can manually delete the audit row + retry.
+                from uuid import uuid4 as _uuid4
+
+                await session.execute(
+                    sql_text(
+                        """
+                        INSERT INTO warranty_reminders_sent
+                            (id, organization_id, warranty_item_id,
+                             days_before_expiry, sent_date, recipients,
+                             delivered, failure_reason)
+                        VALUES (:id, :org, :wid, :days, :sent,
+                                :recipients, :delivered, :reason)
+                        """
+                    ),
+                    {
+                        "id": str(_uuid4()),
+                        "org": str(row["organization_id"]),
+                        "wid": str(row["id"]),
+                        "days": days_before,
+                        "sent": today,
+                        "recipients": ", ".join(emails),
+                        "delivered": delivered_any,
+                        "reason": last_reason if not delivered_any else None,
+                    },
+                )
+                if delivered_any:
+                    sent_count += 1
+            await session.commit()
+
+    logger.info(
+        "warranty_reminders_cron: sent %d email(s), skipped %d (no contact)",
+        sent_count,
+        skipped,
+    )
+    return {"sent": sent_count, "skipped": skipped}
+
+
 async def codeguard_quota_reconcile_cron(ctx: dict) -> dict:
     """Weekly drift check between codeguard_org_usage and SUM(codeguard_user_usage).
 
@@ -595,6 +747,11 @@ class WorkerSettings:
         # `CodeguardQuotaUsageDrift` alerts on sustained nonzero values.
         # Weekly: drift is attribution loss, not hot-path correctness.
         cron(codeguard_quota_reconcile_cron, weekday="mon", hour=4, minute=0),
+        # Daily 02:00 UTC (~09:00 ICT) — email reminders for warranties
+        # expiring in 60/30/7 days. Idempotent via UQ on
+        # (warranty_item_id, days_before_expiry) so multiple runs the
+        # same morning don't double-send. See routers/warranty_tracker.py.
+        cron(warranty_reminders_cron, hour=2, minute=0),
     ]
     max_jobs = 8
     job_timeout = 900  # 15 min — weekly report with PDF rendering can be slow

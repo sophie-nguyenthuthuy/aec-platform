@@ -59,6 +59,7 @@ from routers import (  # noqa: E402
     subcontractor_portal,
     submittals,
     thanhtoan,
+    warranty_tracker,
     webhooks,
     winwork,
     workforce,
@@ -131,6 +132,7 @@ def create_app() -> FastAPI:
     app.include_router(costpulse.router)
     app.include_router(siteeye.router)
     app.include_router(handover.router)
+    app.include_router(warranty_tracker.router)
     app.include_router(drawbridge.router)
     app.include_router(schedulepilot.router)
     app.include_router(submittals.router)
