@@ -199,7 +199,129 @@ export default function SetupStatusPage() {
         items={data.integrations.storage}
         runbook="/docs/storage-setup"
       />
+
+      <CodeguardBootstrapPanel />
     </div>
+  );
+}
+
+
+function CodeguardBootstrapPanel() {
+  const { token, orgId } = useSession();
+  const [busy, setBusy] = useState(false);
+  const [force, setForce] = useState(false);
+  const [result, setResult] = useState<{
+    status: string;
+    regulations_count_after?: number;
+    existing_count?: number;
+    per_fixture?: Array<{ code_name: string; sections?: number; chunks?: number; error?: string; skipped?: string }>;
+    hint?: string;
+  } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function trigger() {
+    setBusy(true);
+    setErr(null);
+    setResult(null);
+    try {
+      const r = await apiFetch<typeof result>(
+        `/api/v1/admin/codeguard/bootstrap${force ? "?force=true" : ""}`,
+        { method: "POST", token: token ?? "", orgId: orgId ?? "" },
+      );
+      setResult(r.data ?? null);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white">
+      <header className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+          <Sparkles size={16} />
+          Hành động: Bootstrap QCVN/TCVN
+        </h3>
+        <span className="text-[11px] text-slate-500">
+          Owner / admin only
+        </span>
+      </header>
+      <div className="space-y-3 p-4">
+        <p className="text-xs text-slate-600">
+          Ingest 6 QCVN/TCVN excerpts (fire, accessibility, structure,
+          zoning, energy) vào bảng <code>regulations</code> để CodeGuard
+          scan + Q&A trả về hits. Tốn ~$0.05 Gemini embedding mỗi lần
+          chạy.
+        </p>
+        <label className="flex items-center gap-2 text-xs text-slate-700">
+          <input
+            type="checkbox"
+            checked={force}
+            onChange={(e) => setForce(e.target.checked)}
+          />
+          <span>
+            <b>Force re-ingest</b> — TRUNCATE + chạy lại từ đầu (dùng
+            khi nghi ngờ regs hiện tại bị corrupt; mặc định skip nếu
+            đã có data)
+          </span>
+        </label>
+        <button
+          onClick={trigger}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+        >
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+          {busy ? "Đang ingest…" : force ? "Force re-ingest" : "Trigger bootstrap"}
+        </button>
+
+        {err && (
+          <div className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">
+            <AlertCircle size={11} className="mr-1 inline" />
+            {err}
+          </div>
+        )}
+
+        {result && (
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
+            <p className="font-medium text-slate-900">
+              Status: <span className="font-mono">{result.status}</span>
+            </p>
+            {result.existing_count != null && (
+              <p className="mt-1 text-slate-700">
+                Đã có {result.existing_count} regulations từ trước. {result.hint}
+              </p>
+            )}
+            {result.regulations_count_after != null && (
+              <p className="mt-1 text-slate-700">
+                Sau khi ingest: <b>{result.regulations_count_after}</b> chunks.
+              </p>
+            )}
+            {result.per_fixture && (
+              <ul className="mt-2 space-y-1">
+                {result.per_fixture.map((r, i) => (
+                  <li key={i} className="font-mono text-[11px]">
+                    {r.error ? (
+                      <span className="text-rose-700">
+                        ✗ {r.code_name}: {r.error}
+                      </span>
+                    ) : r.skipped ? (
+                      <span className="text-amber-700">
+                        ! {r.code_name}: skipped ({r.skipped})
+                      </span>
+                    ) : (
+                      <span className="text-emerald-700">
+                        ✓ {r.code_name}: {r.sections} sections, {r.chunks} chunks
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

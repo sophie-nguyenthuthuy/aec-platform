@@ -13,10 +13,11 @@ trends from the B.2 telemetry table to the dashboard.
 
 from __future__ import annotations
 
+import os
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, text
 
 from core.envelope import ok
@@ -783,5 +784,136 @@ async def integrations_status(
                     else "not_ready"
                 ),
             },
+        }
+    )
+
+
+# ---------- Manual codeguard bootstrap trigger ----------
+#
+# Out-of-band way to seed regulations without restarting the worker.
+# Useful when:
+#   * Worker's GOOGLE_API_KEY was missing at boot — bootstrap silently
+#     skipped. Operator sets the key, but doesn't want to restart
+#     the whole service (which kills in-flight jobs).
+#   * Bootstrap failed mid-way on one fixture and we want a do-over
+#     without bouncing the service.
+#   * Demos / sales onboarding — pre-load the regulations before
+#     showing CodeGuard live.
+#
+# Owner-only — bootstrapping is a $0.10 LLM cost + writes the
+# regulations table. Not destructive (idempotent if regs exist) but
+# also not something a junior admin should be able to fire.
+
+
+@router.post("/codeguard/bootstrap")
+async def trigger_codeguard_bootstrap(
+    auth: Annotated[AuthContext, Depends(require_role("admin"))],
+    force: bool = False,
+):
+    """Manually run the codeguard bootstrap.
+
+    `force=false` (default): no-op if regulations table is already
+    populated (matches the worker-startup behaviour exactly).
+
+    `force=true`: TRUNCATE regulations + regulation_chunks first,
+    then re-ingest from scratch. Costs ~$0.05 in Gemini embedding
+    credits. Use sparingly — only when you suspect the existing
+    regulations are corrupt or based on stale fixtures.
+
+    Returns the per-fixture ingest result so the caller can see
+    exactly what landed.
+    """
+    from sqlalchemy import text as _text
+
+    from db.session import AdminSessionFactory
+    from workers.codeguard_bootstrap import _FIXTURES, _fixture_dir
+
+    if not os.environ.get("GOOGLE_API_KEY"):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "GOOGLE_API_KEY not set on this service — bootstrap can't run. "
+                "Set GOOGLE_API_KEY on Railway → aec-platform-api → Variables, "
+                "redeploy, then retry."
+            ),
+        )
+
+    async with AdminSessionFactory() as session:
+        # Check existing count
+        existing = (
+            await session.execute(_text("SELECT COUNT(*) FROM regulations"))
+        ).scalar_one()
+
+        if existing > 0 and not force:
+            return ok(
+                {
+                    "status": "skipped",
+                    "reason": "regulations_already_populated",
+                    "existing_count": int(existing),
+                    "hint": "Pass force=true to re-ingest from scratch.",
+                }
+            )
+
+        if force and existing > 0:
+            # Wipe + re-ingest. CASCADE picks up regulation_chunks.
+            await session.execute(_text("TRUNCATE regulations CASCADE"))
+            await session.commit()
+
+    # Lazy imports — heavy ML deps
+    from pipelines.codeguard_ingest import ingest_regulation  # type: ignore[import-not-found]
+
+    fixture_dir = _fixture_dir()
+    if not fixture_dir.exists():
+        raise HTTPException(
+            500, f"fixture_dir_not_found at {fixture_dir} — image misbuild?"
+        )
+
+    results = []
+    for entry in _FIXTURES:
+        source = fixture_dir / entry["source"]
+        if not source.exists():
+            results.append({"code_name": entry["code_name"], "skipped": "fixture_missing"})
+            continue
+
+        try:
+            async with AdminSessionFactory() as session:
+                ingest_result = await ingest_regulation(
+                    session,
+                    source=source,
+                    code_name=entry["code_name"],
+                    country_code="VN",
+                    jurisdiction="national",
+                    category=entry["category"],
+                    effective_date=entry["effective_date"],
+                    source_url=None,
+                    language="vi",
+                )
+            results.append(
+                {
+                    "code_name": entry["code_name"],
+                    "sections": ingest_result.sections_written,
+                    "chunks": ingest_result.chunks_written,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Log + continue — one bad fixture shouldn't kill the rest.
+            results.append(
+                {
+                    "code_name": entry["code_name"],
+                    "error": str(exc)[:200],
+                }
+            )
+
+    # Final count
+    async with AdminSessionFactory() as session:
+        new_count = (
+            await session.execute(_text("SELECT COUNT(*) FROM regulations"))
+        ).scalar_one()
+
+    return ok(
+        {
+            "status": "complete",
+            "regulations_count_after": int(new_count),
+            "per_fixture": results,
         }
     )
