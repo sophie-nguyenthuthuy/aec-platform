@@ -28,9 +28,13 @@ COPY . .
 ARG NEXT_PUBLIC_API_BASE=""
 ARG NEXT_PUBLIC_SUPABASE_URL=""
 ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=""
+# next.config.mjs gates `output: "standalone"` behind NEXT_OUTPUT=standalone so
+# `pnpm dev` keeps the regular output. The runner stage below copies from
+# .next/standalone/, so this image MUST set it before `pnpm build`.
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE \
     NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
+    NEXT_OUTPUT=standalone
 
 RUN pnpm --filter @aec/web build
 
