@@ -223,9 +223,15 @@ function CodeguardBootstrapPanel() {
     setBusy(true);
     setErr(null);
     setResult(null);
+    // String-concat the path so the apifetch-routes-match linter
+    // can parse it. Template literals with nested quotes confuse
+    // the regex; ternary on the path string keeps the call clean.
+    const path = force
+      ? "/api/v1/admin/codeguard/bootstrap?force=true"
+      : "/api/v1/admin/codeguard/bootstrap";
     try {
       const r = await apiFetch<typeof result>(
-        `/api/v1/admin/codeguard/bootstrap${force ? "?force=true" : ""}`,
+        path,
         { method: "POST", token: token ?? "", orgId: orgId ?? "" },
       );
       setResult(r.data ?? null);

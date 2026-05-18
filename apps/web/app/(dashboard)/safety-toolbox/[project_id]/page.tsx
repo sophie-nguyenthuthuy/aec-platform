@@ -78,11 +78,11 @@ export default function SafetyToolboxPage() {
     try {
       const [t, c] = await Promise.all([
         apiFetch<{ talks: ToolboxTalk[] }>(
-          "/api/v1/safety-toolbox/projects/" + projectId + "/talks",
+          `/api/v1/safety-toolbox/projects/${projectId}/talks`,
           { token, orgId },
         ),
         apiFetch<ComplianceResponse>(
-          "/api/v1/safety-toolbox/projects/" + projectId + "/compliance?days=30",
+          `/api/v1/safety-toolbox/projects/${projectId}/compliance?days=30`,
           { token, orgId },
         ),
       ]);
@@ -357,7 +357,7 @@ function AddTalkForm({
     setSubmitting(true);
     try {
       await apiFetch(
-        "/api/v1/safety-toolbox/projects/" + projectId + "/talks",
+        `/api/v1/safety-toolbox/projects/${projectId}/talks`,
         {
           method: "POST",
           token,

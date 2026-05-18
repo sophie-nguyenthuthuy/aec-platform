@@ -112,11 +112,11 @@ export default function CashflowProjectPage() {
     try {
       const [e, f] = await Promise.all([
         apiFetch<{ entries: CashflowEntry[] }>(
-          "/api/v1/cashflow/projects/" + projectId + "/entries",
+          `/api/v1/cashflow/projects/${projectId}/entries`,
           { token, orgId },
         ),
         apiFetch<ForecastResponse>(
-          "/api/v1/cashflow/projects/" + projectId + "/forecast",
+          `/api/v1/cashflow/projects/${projectId}/forecast`,
           { token, orgId },
         ),
       ]);
@@ -433,7 +433,7 @@ function AddEntryForm({
     setSubmitting(true);
     try {
       await apiFetch(
-        "/api/v1/cashflow/projects/" + projectId + "/entries",
+        `/api/v1/cashflow/projects/${projectId}/entries`,
         {
           method: "POST",
           token,
