@@ -44,34 +44,33 @@ class Settings(BaseSettings):
 
     # ---------- AI providers ----------
     #
-    # As of the free-tier deploy pivot, the platform talks to **Google
-    # Gemini** for both chat and embeddings — the original
-    # Anthropic + OpenAI keys are kept as `Optional` for backward
-    # compatibility with old deploys / tests that monkeypatch the
-    # legacy clients directly, but no production code path reads them.
-    # The real factory lives at `apps/ml/llm.py`.
-    google_api_key: str | None = Field(default=None, validation_alias="GOOGLE_API_KEY")
-    gemini_chat_model: str = Field(
-        default="gemini-1.5-flash",
-        validation_alias="GEMINI_CHAT_MODEL",
+    # Self-hosted OSS stack via an OpenAI-compatible endpoint (Ollama in
+    # dev/CPU, vLLM / SGLang in production GPU). All pipelines go through
+    # the factory at `apps/ml/llm.py`; change the endpoint by editing these
+    # settings — never reach for a vendor SDK directly.
+    llm_base_url: str = Field(
+        default="http://localhost:11434/v1",
+        validation_alias="LLM_BASE_URL",
     )
-    gemini_embedding_model: str = Field(
-        # `text-embedding-004` was retired by Google May 2026 (returns
-        # HTTP 404 from generativelanguage.googleapis.com). The
-        # successor `gemini-embedding-001` returns 3072-dim by default,
-        # which we truncate to 768 via `output_dimensionality` in
-        # `apps/ml/llm.py::embeddings()` so existing pgvector(768)
-        # columns continue to accept the output without a schema change.
-        default="models/gemini-embedding-001",
-        validation_alias="GEMINI_EMBEDDING_MODEL",
+    llm_api_key: str | None = Field(default=None, validation_alias="LLM_API_KEY")
+    # 7b is the CPU/laptop dev default; production GPU should set
+    # LLM_CHAT_MODEL=qwen2.5:32b-instruct in the deploy environment.
+    llm_chat_model: str = Field(
+        default="qwen2.5:7b-instruct",
+        validation_alias="LLM_CHAT_MODEL",
     )
-
-    # Legacy / disabled — kept for tests and for an easy "switch back"
-    # path. None of these are wired into the pipeline factory anymore.
-    anthropic_api_key: str | None = None
-    openai_api_key: str | None = None
-    anthropic_model: str = "claude-sonnet-4-6"
-    openai_embedding_model: str = "text-embedding-3-large"
+    llm_vision_model: str = Field(
+        default="qwen2.5vl:7b",
+        validation_alias="LLM_VISION_MODEL",
+    )
+    llm_embedding_model: str = Field(
+        # `nomic-embed-text` is 768-dim native and Apache-2.0 — matches the
+        # existing pgvector(768) columns (see `0041_gemini_embedding_dim`).
+        # Swap to `bge-m3` (1024-dim) for better Vietnamese retrieval; that
+        # needs a migration widening the vector columns.
+        default="nomic-embed-text",
+        validation_alias="LLM_EMBEDDING_MODEL",
+    )
 
     # Object storage (S3-compatible). Defaults below target AWS S3 in
     # ap-southeast-1; set `s3_endpoint_url` to a MinIO endpoint to

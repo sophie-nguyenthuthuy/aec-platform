@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import AsyncGenerator
 
-from core.config import get_settings
+from core.config import get_settings  # noqa: F401 — kept for future per-tenant tuning
 from schemas.design_context import ChatTurn, DesignContextRequest
 
 logger = logging.getLogger(__name__)
@@ -139,7 +140,7 @@ _STUB_SVG = """\
     <polygon points="0,-14 4,6 0,2 -4,6" fill="#1e293b"/>
     <text x="0" y="30" text-anchor="middle" font-size="10" fill="#334155" font-weight="bold">N</text>
   </g>
-  <text x="250" y="460" text-anchor="middle" font-size="9" fill="#94a3b8">[Bản vẽ mẫu — nhập ANTHROPIC_API_KEY để tạo sơ đồ thực tế]</text>
+  <text x="250" y="460" text-anchor="middle" font-size="9" fill="#94a3b8">[Bản vẽ mẫu — đảm bảo OSS LLM (Ollama/vLLM) đang chạy tại LLM_BASE_URL để tạo sơ đồ thực tế]</text>
 </svg>"""
 
 
@@ -150,11 +151,9 @@ async def generate_design_context_stream(
     request: DesignContextRequest,
 ) -> AsyncGenerator[str, None]:
     """Stream SSE events for one turn of the design-context conversation."""
-    settings = get_settings()
-
     messages = _build_messages(request)
 
-    if not settings.anthropic_api_key:
+    if os.environ.get("AEC_PIPELINE_DEV_STUB") == "1":
         yield _sse("token", {"delta": _stub_answer(request)})
         yield _sse("questions", {"questions": _stub_questions(request)})
         yield _sse("svg", {"svg": _STUB_SVG})
@@ -175,44 +174,54 @@ async def generate_design_context_stream(
         return
 
     try:
-        import anthropic
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        from ml.llm import chat_model  # type: ignore[import-not-found]
     except ImportError:
-        yield _sse("error", {"message": "anthropic SDK not installed"})
+        yield _sse("error", {"message": "langchain-openai not installed"})
         return
 
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    # Convert Anthropic tool schema → OpenAI tool schema for bind_tools().
+    openai_tool = {
+        "type": "function",
+        "function": {
+            "name": _DESIGN_OUTPUT_TOOL["name"],
+            "description": _DESIGN_OUTPUT_TOOL["description"],
+            "parameters": _DESIGN_OUTPUT_TOOL["input_schema"],
+        },
+    }
 
+    lc_messages: list = [SystemMessage(content=_SYSTEM_PROMPT)]
+    for m in messages:
+        # langchain HumanMessage handles 'user' role; treat all turns as user
+        # since the OSS LLM gets the assistant context via the system prompt.
+        content = m.get("content") if isinstance(m, dict) else None
+        if isinstance(content, str):
+            lc_messages.append(HumanMessage(content=content))
+
+    llm = chat_model(temperature=0.2, max_tokens=4096).bind_tools([openai_tool])
     tool_input: dict | None = None
-
     try:
-        async with client.messages.stream(
-            model=settings.anthropic_model,
-            max_tokens=4096,
-            system=_SYSTEM_PROMPT,
-            messages=messages,
-            tools=[_DESIGN_OUTPUT_TOOL],
-            tool_choice={"type": "auto"},
-        ) as stream:
-            async for event in stream:
-                if event.type == "content_block_delta":
-                    delta = event.delta
-                    if delta.type == "text_delta" and delta.text:
-                        yield _sse("token", {"delta": delta.text})
-
-            final = await stream.get_final_message()
-
-        for block in final.content:
-            if block.type == "tool_use" and block.name == "design_output":
-                tool_input = block.input
-                break
-
+        async for chunk in llm.astream(lc_messages):
+            piece = chunk.content if isinstance(chunk.content, str) else ""
+            if piece:
+                yield _sse("token", {"delta": piece})
+            # Tool-call arguments arrive incrementally on `additional_kwargs`
+            # once the stream completes the call. We don't ship deltas of the
+            # JSON args to the client — they're internal.
+            calls = getattr(chunk, "tool_calls", None) or []
+            for call in calls:
+                if call.get("name") == _DESIGN_OUTPUT_TOOL["name"]:
+                    args = call.get("args")
+                    if isinstance(args, dict) and args:
+                        tool_input = args
     except Exception as exc:
         logger.exception("design_context stream failed")
         yield _sse("error", {"message": f"AI error: {type(exc).__name__}: {exc}"})
         return
 
     if not tool_input:
-        # Claude chose not to call the tool — emit empty done
+        # Model chose not to call the tool — emit empty done.
         yield _sse("done", {"stage": "gathering", "follow_up_questions": [], "brief": None})
         return
 
@@ -255,7 +264,7 @@ def _stub_answer(request: DesignContextRequest) -> str:
         f"Tôi đã nhận được yêu cầu: **{request.message[:120]}**\n\n"
         "Để tạo bản vẽ context chính xác, tôi cần thêm một vài thông tin. "
         "Bạn có thể trả lời các câu hỏi dưới đây:\n\n"
-        "*(Đây là phản hồi mẫu — thiếu ANTHROPIC_API_KEY)*"
+        "*(Đây là phản hồi mẫu — AEC_PIPELINE_DEV_STUB đang bật)*"
     )
 
 

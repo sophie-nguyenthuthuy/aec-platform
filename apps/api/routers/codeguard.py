@@ -205,10 +205,10 @@ def _aggregate_status(deps: list[dict]) -> str:
                   not answer queries; load balancers should pull this
                   pod out of rotation.
 
-    Required = postgres, openai_key, anthropic_key. Everything else is
-    optional from the codeguard point of view.
+    Required = postgres, llm_endpoint. Everything else is optional from
+    the codeguard point of view.
     """
-    required_names = {"postgres", "openai_key", "anthropic_key"}
+    required_names = {"postgres", "llm_endpoint"}
     has_required_down = any(d["name"] in required_names and d["status"] == _DEP_DOWN for d in deps)
     if has_required_down:
         return "down"
@@ -238,13 +238,12 @@ async def codeguard_health(
     """
     import asyncio as _asyncio
 
-    pg, openai_key, anthropic_key, es = await _asyncio.gather(
+    pg, llm_endpoint, es = await _asyncio.gather(
         _check_postgres(db),
-        _asyncio.to_thread(_check_api_key_env, "openai_key", "OPENAI_API_KEY"),
-        _asyncio.to_thread(_check_api_key_env, "anthropic_key", "ANTHROPIC_API_KEY"),
+        _asyncio.to_thread(_check_api_key_env, "llm_endpoint", "LLM_BASE_URL"),
         _check_elasticsearch(),
     )
-    deps = [pg, openai_key, anthropic_key, es]
+    deps = [pg, llm_endpoint, es]
     return {
         "data": {
             "status": _aggregate_status(deps),

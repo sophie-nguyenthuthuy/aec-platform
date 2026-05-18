@@ -394,9 +394,10 @@ async def test_hybrid_runs_both_arms_for_vector_capable_scope(fake_db, patch_emb
     assert titles == {"kw-only-hit", "vec-only-hit"}
 
 
-async def test_hybrid_keyword_only_when_no_api_key(fake_db):
-    """Without an `OPENAI_API_KEY`, `_embed_query` returns None and the
-    vector arm is skipped — service degrades gracefully to keyword-only.
+async def test_hybrid_keyword_only_when_no_embedder(fake_db):
+    """With `AEC_PIPELINE_DEV_STUB=1` (set by conftest), `_embed_query`
+    returns None and the vector arm is skipped — service degrades
+    gracefully to keyword-only.
     NOTE: this test deliberately omits `patch_embedder`."""
     kw_q = MagicMock()
     kw_q.mappings.return_value.all.return_value = [_doc_row()]
@@ -417,7 +418,7 @@ async def test_hybrid_keyword_only_when_no_api_key(fake_db):
 
 async def test_hybrid_skips_vector_arm_for_keyword_only_scopes(fake_db, patch_embedder):
     """`defects` has no embeddings table — vector arm must NOT run even
-    when `OPENAI_API_KEY` is set. Same for `proposals`."""
+    when the embedder is patched in. Same for `proposals`."""
     kw_q = MagicMock()
     kw_q.mappings.return_value.all.return_value = []
     fake_db.push(kw_q)

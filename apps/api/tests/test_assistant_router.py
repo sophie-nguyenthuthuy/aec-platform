@@ -1,7 +1,7 @@
 """Router + service tests for the cross-module AI assistant.
 
-The LLM call is bypassed in these tests by leaving `ANTHROPIC_API_KEY`
-unset — the service falls into its deterministic stub path. We assert
+The LLM call is bypassed in these tests by forcing `AEC_PIPELINE_DEV_STUB=1`
+via the autouse fixture — the service falls into its deterministic stub path. We assert
 the wiring (404 for cross-tenant, sources reflect non-empty modules,
 question echoed in stub answer) rather than the actual LLM output.
 """
@@ -109,9 +109,9 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 
 
 @pytest.fixture(autouse=True)
-def _ensure_no_anthropic_key(monkeypatch):
-    """Force the stub branch so tests don't try to hit the real API."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+def _force_stub_llm(monkeypatch):
+    """Force the dev-stub branch so tests don't try to hit the real LLM."""
+    monkeypatch.setenv("AEC_PIPELINE_DEV_STUB", "1")
     # Settings is lru_cached — clear it so the env change takes effect.
     from core.config import get_settings
 
@@ -724,7 +724,7 @@ async def test_ask_endpoint_passes_for_member_admin_owner(fake_db, role):
     instead of `Role.MEMBER` (silently locking out members) is
     caught here, not via a customer ticket.
 
-    Stub the LLM path (no ANTHROPIC_API_KEY set by the autouse
+    Stub the LLM path (AEC_PIPELINE_DEV_STUB=1 forced by the autouse
     fixture above) so the request returns 200 with the deterministic
     stub answer. We're not testing the LLM here, just the gate.
     """

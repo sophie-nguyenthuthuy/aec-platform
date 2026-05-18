@@ -51,9 +51,12 @@ class MLService:
 
     def _embed(self):
         if self._embed_client is None:
-            from openai import OpenAI
+            # Route through the central OSS factory so the Ray Serve replica
+            # honours the platform's LLM_BASE_URL / LLM_EMBEDDING_MODEL
+            # config and never reaches a managed-API endpoint.
+            from ml.llm import embeddings
 
-            self._embed_client = OpenAI()
+            self._embed_client = embeddings()
         return self._embed_client
 
     def _yolo_model(self):
@@ -72,9 +75,12 @@ class MLService:
 
     @api.post("/embed", response_model=EmbedResponse)
     async def embed(self, body: EmbedRequest) -> EmbedResponse:
-        client = self._embed()
-        resp = client.embeddings.create(model=body.model, input=body.texts)
-        return EmbedResponse(vectors=[d.embedding for d in resp.data])
+        # `body.model` is accepted but ignored — the OSS embedding model is
+        # configured at the platform level via `LLM_EMBEDDING_MODEL`. Ray
+        # replicas must not reach a managed-API endpoint.
+        embedder = self._embed()
+        vectors = await embedder.aembed_documents(body.texts)
+        return EmbedResponse(vectors=vectors)
 
     @api.post("/classify-image", response_model=ClassifyImageResponse)
     async def classify_image(self, body: ClassifyImageRequest) -> ClassifyImageResponse:

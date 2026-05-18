@@ -147,7 +147,7 @@ async def test_hyde_expand_cache_miss_emits_one_record(monkeypatch, telemetry_re
     assert r.status == "ok"
     assert r.input_chars == len("Test question?") + len("vi")
     assert r.output_chars == len("hypothetical regulation paragraph")
-    assert r.model == cg._ANTHROPIC_MODEL
+    assert r.model == cg._LLM_MODEL
     # FakeListChatModel doesn't synthesize usage_metadata, so token
     # fields stay None — which is the documented "no usage available"
     # state. The next test exercises a model that *does* emit

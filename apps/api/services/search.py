@@ -130,28 +130,25 @@ async def search(
 
 
 async def _embed_query(query: str) -> list[float] | None:
-    """Embed the query string with OpenAI (3072-d). Returns None when:
-      * no `OPENAI_API_KEY` is configured (dev/test path)
-      * the embedder raises (transient OpenAI failure)
-      * `AEC_PIPELINE_DEV_STUB` is set (the stub returns zero vectors,
+    """Embed the query string with the central OSS embedding factory
+    (`apps/ml/llm.embeddings()`, default `nomic-embed-text` at 768-d).
+
+    Returns None when:
+      * `AEC_PIPELINE_DEV_STUB=1` is set (the stub returns zero vectors,
         which would just dump random rows; better to skip the arm).
-
-    Lazy import of `apps.ml.pipelines.codeguard._embedder` to avoid
-    pulling langchain + tiktoken into every test that imports
-    services/search.py.
+      * the embedder raises (e.g. Ollama / vLLM endpoint is down).
     """
-    from core.config import get_settings
+    import os
 
-    settings = get_settings()
-    if not settings.openai_api_key:
+    if os.environ.get("AEC_PIPELINE_DEV_STUB") == "1":
         return None
     try:
-        from ml.pipelines.codeguard import _embedder  # type: ignore[import-not-found]
+        from ml.llm import embeddings as _embeddings_factory  # type: ignore[import-not-found]
     except Exception:  # pragma: no cover — packaging issue
-        logger.warning("search: codeguard embedder import failed; vector arm disabled")
+        logger.warning("search: ml.llm embedder import failed; vector arm disabled")
         return None
     try:
-        return await _embedder().aembed_query(query)
+        return await _embeddings_factory().aembed_query(query)
     except Exception as exc:  # pragma: no cover — network / API
         logger.warning("search: embedding call failed (%s); falling back to keyword-only", exc)
         return None

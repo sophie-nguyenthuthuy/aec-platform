@@ -15,8 +15,9 @@ this on per-commit CI — gate it on:
 
 Required environment:
     TEST_DATABASE_URL=postgresql+asyncpg://aec:aec@localhost:5437/aec
-    OPENAI_API_KEY=...
-    ANTHROPIC_API_KEY=...
+    LLM_BASE_URL=http://localhost:11434/v1   # Ollama / vLLM endpoint
+    LLM_CHAT_MODEL=qwen2.5:32b-instruct
+    LLM_EMBEDDING_MODEL=nomic-embed-text
 
 Required prior state: the QCVN 06:2022/BXD fixture must be seeded in the
 target database. Run `make seed-codeguard` once if it isn't.
@@ -60,17 +61,15 @@ for _p in (_ML_ROOT, _API_ROOT):
 
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL")
 
-# All three must be present — partial coverage produces misleading
-# results. Better to skip cleanly with a single explanatory reason.
+# Both must be present — partial coverage produces misleading results.
+# Better to skip cleanly with a single explanatory reason.
 _MISSING = [
     name
     for name, val in [
         ("TEST_DATABASE_URL", TEST_DATABASE_URL),
-        ("OPENAI_API_KEY", OPENAI_API_KEY),
-        ("ANTHROPIC_API_KEY", ANTHROPIC_API_KEY),
+        ("LLM_BASE_URL", LLM_BASE_URL),
     ]
     if not val
 ]
@@ -79,8 +78,8 @@ pytestmark = pytest.mark.skipif(
     bool(_MISSING),
     reason=(
         f"Tier 4 quality eval skipped — missing env vars: {', '.join(_MISSING)}. "
-        "This test runs the real LLM and costs money; gate on manual/nightly "
-        "runs, not per-commit CI."
+        "This test runs the real OSS LLM (Qwen 2.5) against a live endpoint; "
+        "gate on manual/nightly runs, not per-commit CI."
     ),
 )
 

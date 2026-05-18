@@ -1,0 +1,94 @@
+# Drop into each project as .github/workflows/smoke.yml.
+#
+# Set PROJECT_DIR to the repo name (matches the directory under
+# ~/Documents/GitHub/ in dev). The workflow checks out:
+#   * this project
+#   * the sibling vsf-stack-launcher repo (for shared smoke scripts)
+# then runs `make smoke PROJECT=<name> TIER=tiny` against the launcher.
+#
+# Reasons to keep this as a per-project copy (not a reusable workflow):
+#   * Each project's compose has different services / ports — failures
+#     should surface in the project's own Actions tab, not a central one.
+#   * Dependabot per-project keeps the workflow pin fresh.
+
+name: smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PROJECT_NAME: aec-platform          # set per-project on copy
+      TIER: tiny
+    steps:
+      - name: Checkout this project
+        uses: actions/checkout@v4
+        with:
+          path: ${{ env.PROJECT_NAME }}
+
+      - name: Checkout vsf-stack-launcher
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/vsf-stack-launcher
+          path: vsf-stack-launcher
+          # Tolerate the launcher not yet existing on GitHub for projects
+          # that ship the launcher embedded in their own repo.
+          continue-on-error: true
+
+      - name: Show Docker version
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Pull tiny LLM (only if launcher present and this project uses LLM)
+        if: hashFiles('vsf-stack-launcher/Makefile') != ''
+        run: |
+          # CI uses the project's own compose-bundled Ollama service rather
+          # than the host's, so we don't preheat on the runner here. The
+          # smoke script's `wait_for_http` handles model-pull warmup.
+          echo "skipping host-side model pull; compose pulls inside container"
+
+      - name: Run smoke
+        working-directory: vsf-stack-launcher
+        if: hashFiles('vsf-stack-launcher/Makefile') != ''
+        run: |
+          # `make smoke` calls the launcher's smoke/<project>.sh script,
+          # which itself runs `up.sh` → waits → asserts → tears down.
+          make smoke PROJECT="${PROJECT_NAME}" TIER="${TIER}"
+
+      - name: Fallback smoke (launcher unavailable)
+        if: hashFiles('vsf-stack-launcher/Makefile') == ''
+        working-directory: ${{ env.PROJECT_NAME }}
+        run: |
+          # Best-effort fallback for projects whose Actions run before the
+          # launcher repo is published. Just brings the compose up + curls
+          # any /healthz / /health endpoint we can find.
+          for f in docker-compose.yml infra/docker/docker-compose.yml; do
+            if [[ -f "$f" ]]; then COMPOSE="$f"; break; fi
+          done
+          [[ -z "${COMPOSE:-}" ]] && { echo "no compose file"; exit 1; }
+          docker compose -f "$COMPOSE" up -d
+          for url in http://localhost:8000/healthz http://localhost:8000/health http://localhost:4000/health http://localhost:3000; do
+            for _ in $(seq 1 60); do
+              if curl -fsS -o /dev/null "$url"; then echo "✓ $url"; break 2; fi
+              sleep 5
+            done
+          done
+          docker compose -f "$COMPOSE" down
+
+      - name: Dump logs on failure
+        if: failure()
+        working-directory: ${{ env.PROJECT_NAME }}
+        run: |
+          for f in docker-compose.yml infra/docker/docker-compose.yml; do
+            if [[ -f "$f" ]]; then docker compose -f "$f" logs --tail 200; fi
+          done

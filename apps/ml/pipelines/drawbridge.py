@@ -73,7 +73,7 @@ logger = logging.getLogger(__name__)
 
 _ES_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 _RERANKER_ENDPOINT = os.getenv("RERANKER_ENDPOINT")
-_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
+_VISION_MODEL = os.getenv("LLM_VISION_MODEL", "qwen2.5vl:7b")
 _RRF_K = 60
 
 # Strong refs for fire-and-forget asyncio tasks — without this set the GC
@@ -309,13 +309,22 @@ def _parse_dimensions(block: PageBlock) -> list[PageBlock]:
 
 
 async def _vision_title_block(pdf_bytes: bytes) -> dict[str, Any]:
-    """Use GPT-4o vision on page 1 image to read the title block. Stubbed on failure."""
+    """Use the configured OSS vision model on page 1 image to read the title
+    block. Stubbed on failure.
+
+    The OpenAI-compatible chat-completions API accepts the same image-url
+    content-part shape across Ollama / vLLM / SGLang — only the model name
+    changes (`qwen2.5vl:7b` by default, swap via `LLM_VISION_MODEL`).
+    """
     try:
         import base64
+        import json
 
         import pdfplumber
-        from openai import AsyncOpenAI
+        from langchain_core.messages import HumanMessage, SystemMessage
         from PIL import Image
+
+        from ml.llm import chat_model_vision
 
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             if not pdf.pages:
@@ -326,32 +335,33 @@ async def _vision_title_block(pdf_bytes: bytes) -> dict[str, Any]:
         img.save(buf, format="PNG")
         b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
-        client = AsyncOpenAI()
-        res = await client.chat.completions.create(
-            model=_VISION_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a drafter reading an architectural/engineering drawing title block. "
-                        "Extract drawing_number, title, revision, scale, discipline. "
-                        "Respond with strict JSON keys: drawing_number, title, revision, scale, discipline."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": [
+        llm = chat_model_vision(temperature=0.0, max_tokens=512)
+        result = await llm.ainvoke(
+            [
+                SystemMessage(
+                    content=(
+                        "You are a drafter reading an architectural/engineering "
+                        "drawing title block. Extract drawing_number, title, "
+                        "revision, scale, discipline. Respond with strict JSON "
+                        "keys: drawing_number, title, revision, scale, discipline."
+                    )
+                ),
+                HumanMessage(
+                    content=[
                         {"type": "text", "text": "Extract the title block fields."},
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
-                    ],
-                },
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.0,
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{b64}"},
+                        },
+                    ]
+                ),
+            ]
         )
-        import json
-
-        return json.loads(res.choices[0].message.content or "{}")
+        text = result.content if isinstance(result.content, str) else str(result.content)
+        text = text.strip().strip("`")
+        if text.startswith("json\n"):
+            text = text[5:]
+        return json.loads(text or "{}")
     except Exception:
         return {}
 

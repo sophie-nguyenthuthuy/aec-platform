@@ -254,8 +254,8 @@ async def _record_llm_call(
 
 # ---------- Model / index clients ----------
 
-_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-_EMBED_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
+_LLM_MODEL = os.getenv("LLM_CHAT_MODEL", "qwen2.5:32b-instruct")
+_EMBED_MODEL = os.getenv("LLM_EMBEDDING_MODEL", "nomic-embed-text")
 _ES_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 _RERANKER_ENDPOINT = os.getenv("RERANKER_ENDPOINT")  # bge-reranker-v2-m3 service
 _RRF_K = 60
@@ -463,7 +463,7 @@ async def _hyde_expand(question: str, language: str) -> str:
     chain = prompt | _llm(temperature=0.3)
     async with _record_llm_call(
         call="hyde_expand",
-        model=_ANTHROPIC_MODEL,
+        model=_LLM_MODEL,
         input_chars=len(question) + len(language),
     ) as rec:
         result = await chain.ainvoke(
@@ -946,7 +946,7 @@ async def answer_regulation_query(
         context_str = _format_context(state.candidates)
         async with _record_llm_call(
             call="qa_generate",
-            model=_ANTHROPIC_MODEL,
+            model=_LLM_MODEL,
             input_chars=len(state.question) + len(context_str),
         ) as rec:
             raw = await chain.ainvoke(
@@ -1092,7 +1092,7 @@ async def answer_regulation_query_stream(
         # for now so per-call cost rollups are uniform.
         async with _record_llm_call(
             call="qa_generate_stream",
-            model=_ANTHROPIC_MODEL,
+            model=_LLM_MODEL,
             input_chars=len(question) + len(context_str),
         ) as rec:
             async for partial in chain.astream(
@@ -1241,7 +1241,7 @@ async def auto_scan_project(
         try:
             async with _record_llm_call(
                 call=f"scan_generate.{category.value}",
-                model=_ANTHROPIC_MODEL,
+                model=_LLM_MODEL,
                 input_chars=len(param_summary) + len(scan_context),
             ) as rec:
                 raw = await chain.ainvoke(
@@ -1371,7 +1371,7 @@ async def auto_scan_project_stream(
             try:
                 async with _record_llm_call(
                     call=f"scan_generate_stream.{category.value}",
-                    model=_ANTHROPIC_MODEL,
+                    model=_LLM_MODEL,
                     input_chars=len(param_summary) + len(scan_context),
                 ) as rec:
                     raw = await chain.ainvoke(
@@ -1500,7 +1500,7 @@ async def generate_permit_checklist(
     chain = prompt | _llm(temperature=0.2) | JsonOutputParser()
     async with _record_llm_call(
         call="checklist_generate",
-        model=_ANTHROPIC_MODEL,
+        model=_LLM_MODEL,
         input_chars=len(jurisdiction) + len(project_type) + len(params_summary),
     ) as rec:
         raw = await chain.ainvoke(
@@ -1587,7 +1587,7 @@ async def generate_permit_checklist_stream(
         last_partial: dict | None = None
         async with _record_llm_call(
             call="checklist_generate_stream",
-            model=_ANTHROPIC_MODEL,
+            model=_LLM_MODEL,
             input_chars=len(jurisdiction) + len(project_type) + len(params_summary),
         ) as rec:
             async for partial in chain.astream(

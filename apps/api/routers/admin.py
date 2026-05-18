@@ -732,10 +732,11 @@ async def integrations_status(
             or os.environ.get("VERCEL_GIT_COMMIT_SHA"),
         },
         "ai": {
-            "google_api_key": _has("GOOGLE_API_KEY"),
-            "anthropic_api_key": _has("ANTHROPIC_API_KEY"),
-            "openai_api_key": _has("OPENAI_API_KEY"),
-            "note": "Worker needs GOOGLE_API_KEY for CodeGuard bootstrap + Drawbridge ingest.",
+            "llm_base_url": _has("LLM_BASE_URL"),
+            "llm_chat_model": _setting("llm_chat_model"),
+            "llm_vision_model": _setting("llm_vision_model"),
+            "llm_embedding_model": _setting("llm_embedding_model"),
+            "note": "Self-hosted OSS LLM via OpenAI-compatible endpoint (Ollama / vLLM / SGLang).",
         },
         "storage": {
             "s3_bucket": _setting("s3_bucket"),

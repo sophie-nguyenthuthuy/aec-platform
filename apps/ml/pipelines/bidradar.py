@@ -505,24 +505,21 @@ async def embed_tender(
 ) -> None:
     """Embed tender title + description into the shared `embeddings` table.
 
-    Uses OpenAI embeddings (matches platform default). Row tagged with
-    source_module='bidradar' so tenant search + retrieval can filter.
+    Uses the central OSS embedding factory (`apps/ml/llm.embeddings()`).
+    Row tagged with source_module='bidradar' so tenant search + retrieval
+    can filter.
     """
-    settings = get_settings()
-    if not settings.openai_api_key:
-        logger.debug("OPENAI_API_KEY unset; skipping tender embedding")
-        return
-
-    from openai import AsyncOpenAI
     from sqlalchemy import text
 
+    from ml.llm import embeddings as _embeddings_factory  # type: ignore[import-not-found]
+
     content = title if not description else f"{title}\n\n{description}"
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
-    resp = await client.embeddings.create(
-        model=settings.openai_embedding_model,
-        input=content[:8000],
-    )
-    vector = resp.data[0].embedding
+    try:
+        embedder = _embeddings_factory()
+        vector = await embedder.aembed_query(content[:8000])
+    except Exception as exc:  # pragma: no cover — endpoint down
+        logger.warning("bidradar: embedding call failed (%s); skipping", exc)
+        return
 
     await db.execute(
         text(

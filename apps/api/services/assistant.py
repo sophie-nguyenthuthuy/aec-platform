@@ -12,7 +12,7 @@ Design notes:
   * **No tool use yet**: v1 stuffs *all* the context up front. Tool-use
     (let the model query specific modules on demand) is a clear sequel
     once we see what kinds of questions actually need it.
-  * **Graceful degradation**: if `ANTHROPIC_API_KEY` is missing, we
+  * **Graceful degradation**: if `AEC_PIPELINE_DEV_STUB=1` is set, we
     return a deterministic stub answer so dev/test runs don't need
     creds. Real prod behavior gates on the key.
 """
@@ -20,6 +20,7 @@ Design notes:
 from __future__ import annotations
 
 import logging
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -589,7 +590,7 @@ async def ask_stream(
     token_estimate = len(context_json) // 4
     sources = _default_sources(project_id, context)
 
-    if not settings.anthropic_api_key:
+    if os.environ.get("AEC_PIPELINE_DEV_STUB") == "1":
         # Stub path: emit the whole stub answer as a single token event
         # so the client's stream consumer doesn't need a special-case.
         stub = _stub_answer(request.question, context)
@@ -612,19 +613,14 @@ async def ask_stream(
         return
 
     try:
-        from langchain_anthropic import ChatAnthropic
         from langchain_core.messages import HumanMessage, SystemMessage
+
+        from ml.llm import chat_model  # type: ignore[import-not-found]
     except ImportError:  # pragma: no cover — packaging issue
-        yield _sse("error", {"message": "langchain-anthropic not installed"})
+        yield _sse("error", {"message": "langchain-openai not installed"})
         return
 
-    llm = ChatAnthropic(
-        model=settings.anthropic_model,
-        anthropic_api_key=settings.anthropic_api_key,
-        temperature=0.2,
-        max_tokens=1024,
-        streaming=True,
-    )
+    llm = chat_model(temperature=0.2, max_tokens=1024)
 
     history = (
         [ChatTurnInternal(role=m.role, content=m.content) for m in prior_messages]
@@ -727,7 +723,7 @@ async def ask(
     context_json = _safe_json_dumps(context)
     token_estimate = len(context_json) // 4  # ~4 chars per token rule of thumb
 
-    if not settings.anthropic_api_key:
+    if os.environ.get("AEC_PIPELINE_DEV_STUB") == "1":
         # Stub path. Useful for unit tests + local dev — same shape as
         # the real path, deterministic content. Mentions a couple of
         # the most informative context numbers so it's not a useless reply.
@@ -750,22 +746,18 @@ async def ask(
         )
 
     try:
-        from langchain_anthropic import ChatAnthropic
         from langchain_core.messages import HumanMessage, SystemMessage
+
+        from ml.llm import chat_model  # type: ignore[import-not-found]
     except ImportError:  # pragma: no cover — packaging issue
         return AssistantResponse(
             project_id=project_id,
-            answer="AI assistant unavailable: langchain-anthropic not installed.",
+            answer="AI assistant unavailable: langchain-openai not installed.",
             sources=[],
             context_token_estimate=token_estimate,
         )
 
-    llm = ChatAnthropic(
-        model=settings.anthropic_model,
-        anthropic_api_key=settings.anthropic_api_key,
-        temperature=0.2,
-        max_tokens=1024,
-    )
+    llm = chat_model(temperature=0.2, max_tokens=1024)
 
     # Authoritative history comes from the DB when a thread is loaded;
     # legacy clients passing `request.history` only see effect when
@@ -783,11 +775,10 @@ async def ask(
         if turn.role == "user":
             messages.append(HumanMessage(content=turn.content))
         else:
-            # langchain-anthropic doesn't expose a separate AIMessage
-            # constructor in our pinned version — fall back to a plain
-            # string in the SystemMessage chain. Acceptable trade-off
-            # given chat history is just there for short context, not
-            # for the model to deeply reason over.
+            # Fall back to a plain string in the SystemMessage chain. The
+            # AIMessage equivalent works, but assistant turns are just short
+            # context here, so flattening them into the system stream keeps
+            # the prompt-engineering surface narrower across LLMs.
             messages.append(SystemMessage(content=f"Previous answer: {turn.content}"))
     messages.append(HumanMessage(content=request.question))
 
@@ -974,7 +965,7 @@ def _stub_answer(question: str, context: dict[str, Any]) -> str:
     flow exercises the full 14-module context shape, not just pulse.
     """
     project = context.get("project", {})
-    parts = ["[AI assistant offline — no ANTHROPIC_API_KEY configured]", f"You asked: {question}"]
+    parts = ["[AI assistant offline — AEC_PIPELINE_DEV_STUB=1]", f"You asked: {question}"]
 
     pulse = context.get("pulse", {})
     drawbridge = context.get("drawbridge", {})
